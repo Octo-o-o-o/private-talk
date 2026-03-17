@@ -1,14 +1,54 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod commands;
+mod db;
+mod llm;
+mod pin;
+
+use db::DbState;
+use rusqlite::Connection;
+use std::sync::Mutex;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            // Initialize SQLite database in app data directory
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
+            std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+            let db_path = app_dir.join("private-talk.db");
+
+            let conn = Connection::open(&db_path)
+                .expect("Failed to open database");
+            db::schema::init_db(&conn).expect("Failed to initialize database");
+
+            app.manage(DbState(Mutex::new(conn)));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::conversation::list_conversations,
+            commands::conversation::create_conversation,
+            commands::conversation::delete_conversation,
+            commands::conversation::rename_conversation,
+            commands::conversation::get_messages,
+            commands::provider::list_providers,
+            commands::provider::create_provider,
+            commands::provider::update_provider,
+            commands::provider::delete_provider,
+            commands::provider::set_default_provider,
+            commands::settings::get_setting,
+            commands::settings::set_setting,
+            commands::chat::send_message,
+            commands::chat::stop_generation,
+            commands::pin::is_pin_enabled,
+            commands::pin::verify_pin_cmd,
+            commands::pin::enable_pin,
+            commands::pin::disable_pin,
+            commands::pin::reset_all_data,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
