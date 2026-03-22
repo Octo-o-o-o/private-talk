@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Private Talk</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <script>
+      (() => {
+        const storageKey = "private-talk-ui-theme-mode";
+        const storedMode = (() => {
+          try {
+            return window.localStorage.getItem(storageKey);
+          } catch {
+            return null;
+          }
+        })();
+
+        const themeMode =
+          storedMode === "light" || storedMode === "dark" || storedMode === "system"
+            ? storedMode
+            : "system";
+
+        let resolvedTheme = "dark";
+
+        try {
+          if (themeMode === "light" || themeMode === "dark") {
+            resolvedTheme = themeMode;
+          } else if (typeof window.matchMedia === "function") {
+            resolvedTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          }
+        } catch {
+          resolvedTheme = "dark";
+        }
+
+        document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+        document.documentElement.dataset.themeMode = themeMode;
+        document.documentElement.dataset.theme = resolvedTheme;
+        document.documentElement.style.colorScheme = resolvedTheme;
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

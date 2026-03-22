@@ -1,0 +1,39 @@
+[package]
+name = "private-talk"
+version = "0.1.0"
+description = "Local-first lightweight desktop toolkit for LLM chat, TTS, and OpenClaw Agent debugging."
+authors = ["Yixiao Wang"]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Octo-o-o-o/private-talk"
+homepage = "https://github.com/Octo-o-o-o/private-talk"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "private_talk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["stream", "json", "multipart"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+chrono = "0.4"
+anyhow = "1"
+tokio-stream = "0.1"
+base64 = "0.22"
+dirs = "6"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }

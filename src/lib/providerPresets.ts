@@ -1,0 +1,180 @@
+export type ProviderDiscoveryMode = "openai-compatible" | "ollama";
+
+export type ProviderPresetConfig = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  description: {
+    zh: string;
+    en: string;
+  };
+  category: "cloud" | "local";
+  discoveryMode: ProviderDiscoveryMode;
+  apiKeyRequired: boolean;
+  apiKeyPlaceholder: string;
+  defaultModels: string[];
+  recommendedModels: string[];
+};
+
+export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
+  {
+    id: "openai",
+    name: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    description: {
+      zh: "官方 OpenAI 端点。",
+      en: "Official OpenAI endpoint.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "sk-...",
+    defaultModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4.1"],
+    recommendedModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4.1"],
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    description: {
+      zh: "统一接入多家模型供应商。",
+      en: "Unified access to multiple model providers.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "sk-or-...",
+    defaultModels: [
+      "openai/gpt-5.2",
+      "anthropic/claude-opus-4.6",
+      "google/gemini-2.5-pro",
+      "deepseek/deepseek-chat-v3.2",
+      "x-ai/grok-4.1",
+      "qwen/qwen3-coder",
+    ],
+    recommendedModels: [
+      "openai/gpt-5.2",
+      "anthropic/claude-opus-4.6",
+      "google/gemini-2.5-pro",
+      "deepseek/deepseek-chat-v3.2",
+      "x-ai/grok-4.1",
+      "qwen/qwen3-coder",
+    ],
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    description: {
+      zh: "Google Gemini OpenAI 兼容入口。",
+      en: "Google Gemini OpenAI-compatible endpoint.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "AIza...",
+    defaultModels: [
+      "gemini-3-flash-preview",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+    ],
+    recommendedModels: [
+      "gemini-3-flash-preview",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+    ],
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    description: {
+      zh: "DeepSeek 官方 OpenAI 兼容端点。",
+      en: "Official DeepSeek OpenAI-compatible endpoint.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "sk-...",
+    defaultModels: ["deepseek-chat", "deepseek-reasoner"],
+    recommendedModels: ["deepseek-chat", "deepseek-reasoner"],
+  },
+  {
+    id: "zhipu",
+    name: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    description: {
+      zh: "智谱 OpenAI 兼容入口。",
+      en: "Zhipu OpenAI-compatible endpoint.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "your-bigmodel-key",
+    defaultModels: ["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
+    recommendedModels: ["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
+  },
+];
+
+const NON_CHAT_MODEL_PATTERN =
+  /(embedding|rerank|tts|speech|transcribe|transcription|moderation|image|imagen|video|veo|audio|realtime|whisper)/i;
+
+function dedupe(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function sortLexically(values: string[]) {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function keepPreferred(discovered: string[], preferred: string[]) {
+  const discoveredSet = new Set(discovered);
+  return preferred.filter((model) => discoveredSet.has(model));
+}
+
+function excludeNonChatModels(models: string[]) {
+  return models.filter((model) => !NON_CHAT_MODEL_PATTERN.test(model));
+}
+
+function filterModelsByPreset(preset: ProviderPresetConfig, discovered: string[]) {
+  const chatLike = excludeNonChatModels(dedupe(discovered));
+
+  switch (preset.id) {
+    case "openai":
+      return chatLike.filter(
+        (model) => model.startsWith("gpt-") || /^o\d/.test(model)
+      );
+    case "openrouter":
+      return chatLike.filter((model) =>
+        /^(openai|anthropic|google|deepseek|x-ai|qwen|moonshotai|z-ai|minimax)\//i.test(model)
+      );
+    case "gemini":
+      return chatLike.filter((model) => model.startsWith("gemini-"));
+    case "deepseek":
+      return chatLike.filter((model) => model.startsWith("deepseek-"));
+    case "zhipu":
+      return chatLike.filter((model) => model.toLowerCase().startsWith("glm-"));
+    default:
+      return dedupe(discovered);
+  }
+}
+
+export function createProviderModelsString(preset?: ProviderPresetConfig | null) {
+  return preset ? preset.defaultModels.join(",") : "";
+}
+
+export function pickModelsForPreset(
+  preset: ProviderPresetConfig,
+  discoveredModels: string[]
+) {
+  const filtered = filterModelsByPreset(preset, discoveredModels);
+  const preferred = keepPreferred(filtered, preset.recommendedModels);
+  const remaining = sortLexically(filtered.filter((model) => !preferred.includes(model)));
+  const limit = preset.category === "local" ? 16 : 8;
+  const combined = dedupe([...preferred, ...remaining]).slice(0, limit);
+  return combined.length > 0 ? combined : preset.defaultModels;
+}

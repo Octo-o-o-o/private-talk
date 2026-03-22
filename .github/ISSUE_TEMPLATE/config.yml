@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy
+    url: https://github.com/Octo-o-o-o/private-talk/blob/master/SECURITY.md
+    about: Read this before reporting security issues.
+  - name: Chinese documentation
+    url: https://github.com/Octo-o-o-o/private-talk/blob/master/README.zh-CN.md
+    about: Chinese introduction and usage notes.

@@ -1,0 +1,21 @@
+{
+  "name": "private-talk-pair",
+  "version": "0.1.0",
+  "description": "Generate a connection string for Private Talk to connect to your OpenClaw instance",
+  "bin": {
+    "private-talk-pair": "./index.mjs"
+  },
+  "type": "module",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Octo-o-o-o/private-talk/tree/master/tools/private-talk-pair",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Octo-o-o-o/private-talk.git",
+    "directory": "tools/private-talk-pair"
+  },
+  "bugs": {
+    "url": "https://github.com/Octo-o-o-o/private-talk/issues"
+  },
+  "keywords": ["private-talk", "openclaw", "pairing"],
+  "engines": { "node": ">=16" }
+}
