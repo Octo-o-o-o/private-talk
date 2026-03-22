@@ -314,7 +314,7 @@ export function Sidebar() {
                         setOpenclawError(null);
                         setLoadingAgentsFor(instance.id);
                         try {
-                          const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token);
+                          const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token, instance.id);
                           openclawAgentsCacheRef.current[instance.id] = agents;
                           setOpenclawAgents((prev) => ({ ...prev, [instance.id]: agents }));
                           if (agents.length === 0) {
@@ -347,7 +347,7 @@ export function Sidebar() {
                             setRefreshingAgentsFor(instance.id);
                             setOpenclawError(null);
                             try {
-                              const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token);
+                              const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token, instance.id);
                               openclawAgentsCacheRef.current[instance.id] = agents;
                               setOpenclawAgents((prev) => ({ ...prev, [instance.id]: agents }));
                             } catch (err) {

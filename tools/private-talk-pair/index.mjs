@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "fs";
+import { execSync } from "child_process";
 import { join } from "path";
 import { homedir } from "os";
 import { createInterface } from "readline";
@@ -49,7 +50,6 @@ async function main() {
 
     if (publicHost.trim()) {
       const host = publicHost.trim();
-      // If user entered a full URL, use it; otherwise construct ws://host:port
       if (host.startsWith("ws://") || host.startsWith("wss://")) {
         gatewayUrl = host;
       } else {
@@ -68,12 +68,48 @@ async function main() {
     token = await ask("  Token (press Enter to skip): ");
   }
 
-  const name = (await ask("  Instance name (default: Remote OpenClaw): ")) || "Remote OpenClaw";
+  const name =
+    (await ask("  Instance name (default: Remote OpenClaw): ")) ||
+    "Remote OpenClaw";
 
-  // 4. Generate connection string
+  // 4. Fetch agent list from local openclaw CLI
+  let agents = [];
+  try {
+    console.log("\n  Fetching agent list...");
+    const raw = execSync("openclaw agents list --json", {
+      encoding: "utf-8",
+      timeout: 15000,
+    });
+    // Strip ANSI codes and find JSON array
+    const cleaned = raw.replace(/\x1b\[[0-9;]*m/g, "");
+    const jsonStart = cleaned.indexOf("\n[");
+    const jsonStr =
+      jsonStart >= 0
+        ? cleaned.slice(jsonStart + 1)
+        : cleaned.startsWith("[")
+          ? cleaned
+          : null;
+    if (jsonStr) {
+      const parsed = JSON.parse(jsonStr);
+      agents = parsed.map((a) => ({
+        id: a.id,
+        name: a.name,
+        model: a.model || "",
+        isDefault: a.isDefault || false,
+      }));
+      console.log(`  Found ${agents.length} agent(s): ${agents.map((a) => a.name).join(", ")}`);
+    }
+  } catch {
+    console.log("  Warning: could not fetch agent list (openclaw CLI not found or failed)");
+  }
+
+  // 5. Generate connection string
   const payload = { v: 1, url: gatewayUrl.trim(), token: token.trim() };
   if (name.trim() && name.trim() !== "Remote OpenClaw") {
     payload.name = name.trim();
+  }
+  if (agents.length > 0) {
+    payload.agents = agents;
   }
 
   const json = JSON.stringify(payload);
@@ -85,7 +121,7 @@ async function main() {
   console.log(`  ${connectionString}`);
   console.log("\n" + "─".repeat(60));
 
-  // 5. Try to display QR code (for mobile scanning in the future)
+  // 6. Try to display QR code (for mobile scanning in the future)
   try {
     const { default: qr } = await import("qrcode-terminal");
     console.log("\n  QR Code (scan from Private Talk mobile):\n");

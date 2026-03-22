@@ -1,10 +1,12 @@
+use crate::attachments::{self, PreparedAttachment};
 use crate::context::compressor;
 use crate::db::DbState;
 use crate::llm::provider::{chat_complete, stream_chat, StreamItem};
-use crate::llm::types::ChatMessage;
+use crate::llm::types::{ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail};
 use serde::Serialize;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 // Global stop flag
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
@@ -56,12 +58,22 @@ pub async fn send_message(
     content: String,
     provider_id: String,
     model: String,
+    user_msg_id: String,
+    attachment_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
     STOP_FLAG.store(false, Ordering::SeqCst);
 
-    // Save user message
-    let user_msg_id = uuid::Uuid::new_v4().to_string();
+    // Save user message (ID provided by frontend for consistency)
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    // Collect prepared attachments for this message
+    let prepared_attachments: Vec<PreparedAttachment> = attachment_ids
+        .as_ref()
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id_json| serde_json::from_str::<PreparedAttachment>(id_json).ok())
+                .collect()
+        })
+        .unwrap_or_default();
     {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.execute(
@@ -69,6 +81,11 @@ pub async fn send_message(
             rusqlite::params![user_msg_id, conversation_id, content, now],
         )
         .map_err(|e| e.to_string())?;
+
+        // Link attachments to this message
+        for att in &prepared_attachments {
+            attachments::save_attachment(&conn, att, &user_msg_id)?;
+        }
 
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
@@ -97,6 +114,7 @@ pub async fn send_message(
                 needs_compression: false,
                 conversation_text: String::new(),
                 conversation_id: conversation_id.clone(),
+                covered_until_message_id: None,
             },
         )
     };
@@ -113,9 +131,11 @@ pub async fn send_message(
         {
             Ok(summary) => {
                 // Step 3: Save summary back to DB (sync, brief lock)
-                let conn = db.0.lock().map_err(|e| e.to_string())?;
-                if let Err(e) = compressor::save_summary(&conn, &conversation_id, &summary) {
-                    eprintln!("Failed to save summary: {}", e);
+                if let Some(ref boundary_id) = compression_input.covered_until_message_id {
+                    let conn = db.0.lock().map_err(|e| e.to_string())?;
+                    if let Err(e) = compressor::save_summary(&conn, &conversation_id, &summary, boundary_id) {
+                        eprintln!("Failed to save summary: {}", e);
+                    }
                 }
             }
             Err(e) => eprintln!("Context compression failed (non-blocking): {}", e),
@@ -123,10 +143,48 @@ pub async fn send_message(
     }
 
     // Build context using compressor (respects hot_size, pinned, summaries)
-    let messages = {
+    let mut messages = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         compressor::build_context(&conn, &conversation_id)?
     };
+
+    // Inject attachment content into the last user message (current message)
+    if !prepared_attachments.is_empty() {
+        if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == "user") {
+            let text = last_user.content.as_text().to_string();
+            let mut parts: Vec<ChatContentPart> = vec![ChatContentPart::Text { text }];
+
+            for att in &prepared_attachments {
+                match att.file_type.as_str() {
+                    "image" => {
+                        if let Ok((b64, mime)) = attachments::read_image_as_base64(&att.file_path) {
+                            parts.push(ChatContentPart::ImageUrl {
+                                image_url: ImageUrlDetail {
+                                    url: format!("data:{};base64,{}", mime, b64),
+                                    detail: Some("auto".to_string()),
+                                },
+                            });
+                        }
+                    }
+                    "text_file" => {
+                        if let Ok(file_content) =
+                            attachments::read_text_file_content(&att.file_path)
+                        {
+                            parts.push(ChatContentPart::Text {
+                                text: format!(
+                                    "--- File: {} ---\n{}\n--- End of file ---",
+                                    att.file_name, file_content
+                                ),
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            last_user.content = ChatContent::Multipart(parts);
+        }
+    }
 
     // Start streaming
     let conv_id = conversation_id.clone();
@@ -330,11 +388,11 @@ pub async fn generate_title(
     let messages = vec![
         ChatMessage {
             role: "system".to_string(),
-            content: "Generate a short title (max 20 characters) for a conversation based on the user's first message. Return ONLY the title text, no quotes, no punctuation at the end. Use the same language as the user's message.".to_string(),
+            content: ChatContent::text("Generate a short title (max 20 characters) for a conversation based on the user's first message. Return ONLY the title text, no quotes, no punctuation at the end. Use the same language as the user's message."),
         },
         ChatMessage {
             role: "user".to_string(),
-            content: first_message,
+            content: ChatContent::text(first_message),
         },
     ];
 
@@ -356,4 +414,48 @@ pub async fn generate_title(
     }
 
     Ok(title)
+}
+
+/// Prepare file attachments: copy/compress to app data, return metadata.
+/// Called from frontend before sending a message.
+#[tauri::command]
+pub fn prepare_attachments(
+    app: tauri::AppHandle,
+    file_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let mut results = Vec::new();
+    for path_str in &file_paths {
+        let path = Path::new(path_str);
+        let prepared = attachments::prepare_attachment(&app_data_dir, path)?;
+        let json = serde_json::to_string(&prepared).map_err(|e| e.to_string())?;
+        results.push(json);
+    }
+    Ok(results)
+}
+
+/// Prepare an image from base64 data (e.g., clipboard paste).
+#[tauri::command]
+pub fn prepare_image_attachment(
+    app: tauri::AppHandle,
+    image_base64: String,
+    mime_type: String,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let data = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &image_base64,
+    )
+    .map_err(|e| format!("Invalid base64: {}", e))?;
+
+    let prepared = attachments::prepare_image_from_bytes(&app_data_dir, &data, &mime_type)?;
+    serde_json::to_string(&prepared).map_err(|e| e.to_string())
 }

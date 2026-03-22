@@ -182,16 +182,14 @@ impl AcpClient {
     pub async fn prompt(
         &mut self,
         acp_session_id: &str,
-        content: &str,
+        content_blocks: Vec<ContentBlock>,
         conversation_id: &str,
         message_id: &str,
         app: &AppHandle,
     ) -> Result<String, String> {
         let params = serde_json::to_value(SessionPromptParams {
             session_id: acp_session_id.to_string(),
-            prompt: vec![ContentBlock::Text {
-                text: content.to_string(),
-            }],
+            prompt: content_blocks,
         })
         .map_err(|e| e.to_string())?;
 
@@ -211,10 +209,23 @@ impl AcpClient {
         let mut full_content = String::new();
 
         // Read notifications + final response
+        let mut had_error = false;
         loop {
-            let msg = self.rx.recv().await.ok_or_else(|| {
-                "openclaw acp process exited during streaming".to_string()
-            })?;
+            let msg = match self.rx.recv().await {
+                Some(msg) => msg,
+                None => {
+                    // Process died mid-stream
+                    had_error = true;
+                    let _ = app.emit(
+                        "chat-stream-error",
+                        StreamErrorPayload {
+                            conversation_id: conversation_id.to_string(),
+                            error: "openclaw acp process exited during streaming".to_string(),
+                        },
+                    );
+                    break;
+                }
+            };
 
             if msg.is_notification() {
                 if let Some(method) = &msg.method {
@@ -239,21 +250,35 @@ impl AcpClient {
             } else if msg.is_response() && msg.id == Some(id) {
                 // Final response to the prompt
                 if let Some(err) = msg.error {
-                    return Err(format!("ACP prompt error: {}", err.message));
+                    had_error = true;
+                    let _ = app.emit(
+                        "chat-stream-error",
+                        StreamErrorPayload {
+                            conversation_id: conversation_id.to_string(),
+                            error: format!("ACP prompt error: {}", err.message),
+                        },
+                    );
+                    break;
                 }
                 break;
             }
         }
 
-        // Emit done event
-        let _ = app.emit(
-            "chat-stream-done",
-            StreamDonePayload {
-                conversation_id: conversation_id.to_string(),
-                message_id: message_id.to_string(),
-                full_content: full_content.clone(),
-            },
-        );
+        // Emit done event (with partial content if error occurred mid-stream)
+        if !had_error || !full_content.is_empty() {
+            let _ = app.emit(
+                "chat-stream-done",
+                StreamDonePayload {
+                    conversation_id: conversation_id.to_string(),
+                    message_id: message_id.to_string(),
+                    full_content: full_content.clone(),
+                },
+            );
+        }
+
+        if had_error && full_content.is_empty() {
+            return Err("ACP streaming failed".to_string());
+        }
 
         Ok(full_content)
     }
@@ -322,44 +347,8 @@ pub struct AcpState {
     pub clients: Mutex<HashMap<String, Arc<Mutex<AcpClientEntry>>>>,
 }
 
-/// Wraps either a subprocess-based or WebSocket-based ACP client.
-pub enum AcpClientBackend {
-    Process(AcpClient),
-    WebSocket(crate::acp::ws_client::WsAcpClient),
-}
-
-impl AcpClientBackend {
-    pub async fn prompt(
-        &mut self,
-        acp_session_id: &str,
-        content: &str,
-        conversation_id: &str,
-        message_id: &str,
-        app: &AppHandle,
-    ) -> Result<String, String> {
-        match self {
-            Self::Process(c) => c.prompt(acp_session_id, content, conversation_id, message_id, app).await,
-            Self::WebSocket(c) => c.prompt(acp_session_id, content, conversation_id, message_id, app).await,
-        }
-    }
-
-    pub async fn cancel(&mut self, acp_session_id: &str) -> Result<(), String> {
-        match self {
-            Self::Process(c) => c.cancel(acp_session_id).await,
-            Self::WebSocket(c) => c.cancel(acp_session_id).await,
-        }
-    }
-
-    pub async fn kill(&mut self) {
-        match self {
-            Self::Process(c) => c.kill().await,
-            Self::WebSocket(c) => c.kill().await,
-        }
-    }
-}
-
 pub struct AcpClientEntry {
-    pub client: AcpClientBackend,
+    pub client: AcpClient,
     pub acp_session_id: String,
 }
 

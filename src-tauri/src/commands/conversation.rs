@@ -23,6 +23,7 @@ pub struct Message {
     pub content: String,
     pub is_pinned: bool,
     pub created_at: String,
+    pub attachments: Vec<crate::attachments::Attachment>,
 }
 
 fn query_conversations(
@@ -227,6 +228,21 @@ pub async fn delete_conversation(
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Load attachments so we can delete files from disk
+    let msg_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM messages WHERE conversation_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(rusqlite::params![id], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    if !msg_ids.is_empty() {
+        let attachments = crate::attachments::get_attachments_for_messages(&conn, &msg_ids)?;
+        crate::attachments::delete_attachment_files(&attachments);
+    }
+
     conn.execute(
         "DELETE FROM messages WHERE conversation_id = ?1",
         rusqlite::params![id],
@@ -272,12 +288,23 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
                 content: row.get(3)?,
                 is_pinned: pinned != 0,
                 created_at: row.get(5)?,
+                attachments: vec![],
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut msgs = Vec::new();
+    let mut msgs: Vec<Message> = Vec::new();
     for row in rows {
         msgs.push(row.map_err(|e| e.to_string())?);
     }
+
+    // Batch-load attachments for all messages
+    let msg_ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+    let all_attachments = crate::attachments::get_attachments_for_messages(&conn, &msg_ids)?;
+    for att in all_attachments {
+        if let Some(msg) = msgs.iter_mut().find(|m| m.id == att.message_id) {
+            msg.attachments.push(att);
+        }
+    }
+
     Ok(msgs)
 }

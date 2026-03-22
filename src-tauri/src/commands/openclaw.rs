@@ -1,12 +1,46 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
-use crate::acp::client::{AcpClientBackend, AcpClientEntry, AcpState};
+use crate::acp::client::{AcpClientEntry, AcpState};
 use crate::db::DbState;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 use tokio::sync::Mutex;
 
+/// Per-conversation stop flags for HTTP streaming.
+/// Each conversation gets its own AtomicBool so stopping one doesn't affect others.
+fn http_stop_flags() -> &'static std::sync::Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static FLAGS: OnceLock<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    FLAGS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Get or create a stop flag for a specific conversation.
+fn get_stop_flag(conversation_id: &str) -> Arc<AtomicBool> {
+    let mut flags = http_stop_flags().lock().unwrap();
+    flags
+        .entry(conversation_id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+/// Cached CLI availability check (checked once per app session).
+static CLI_AVAILABLE_CACHE: OnceLock<bool> = OnceLock::new();
+
 // ── Tauri event payloads (same shape as chat.rs) ──
+
+#[derive(Clone, Serialize)]
+struct StreamChunkPayload {
+    conversation_id: String,
+    content: String,
+}
+
+#[derive(Clone, Serialize)]
+struct StreamDonePayload {
+    conversation_id: String,
+    message_id: String,
+    full_content: String,
+}
 
 #[derive(Clone, Serialize)]
 struct StreamErrorPayload {
@@ -22,6 +56,7 @@ pub struct OpenClawInstance {
     pub name: String,
     pub gateway_url: String,
     pub token: String,
+    pub agents_cache: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -30,7 +65,7 @@ pub struct OpenClawInstance {
 pub fn list_openclaw_instances(db: State<DbState>) -> Result<Vec<OpenClawInstance>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, gateway_url, token, created_at, updated_at FROM openclaw_instances ORDER BY created_at DESC")
+        .prepare("SELECT id, name, gateway_url, token, agents_cache, created_at, updated_at FROM openclaw_instances ORDER BY created_at DESC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
@@ -39,8 +74,9 @@ pub fn list_openclaw_instances(db: State<DbState>) -> Result<Vec<OpenClawInstanc
                 name: row.get(1)?,
                 gateway_url: row.get(2)?,
                 token: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                agents_cache: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -61,6 +97,7 @@ pub async fn create_openclaw_instance(
     gateway_url: String,
     token: String,
     skip_cli_check: Option<bool>,
+    agents_cache: Option<String>,
 ) -> Result<OpenClawInstance, String> {
     if !skip_cli_check.unwrap_or(false) {
         // Validate that the openclaw CLI is available
@@ -86,12 +123,13 @@ pub async fn create_openclaw_instance(
         }
     }
 
+    let agents_json = agents_cache.unwrap_or_else(|| "[]".to_string());
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     conn.execute(
-        "INSERT INTO openclaw_instances (id, name, gateway_url, token, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![id, name, gateway_url, token, now, now],
+        "INSERT INTO openclaw_instances (id, name, gateway_url, token, agents_cache, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![id, name, gateway_url, token, agents_json, now, now],
     )
     .map_err(|e| e.to_string())?;
     Ok(OpenClawInstance {
@@ -99,6 +137,7 @@ pub async fn create_openclaw_instance(
         name,
         gateway_url,
         token,
+        agents_cache: agents_json,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -265,6 +304,18 @@ pub struct ConnectionStringPayload {
     pub token: String,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub agents: Option<Vec<ConnectionStringAgent>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionStringAgent {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default, rename = "isDefault")]
+    pub is_default: bool,
 }
 
 /// Parse a `ptalk:<base64>` connection string and return the decoded payload.
@@ -324,7 +375,7 @@ fn strip_ansi_codes(s: &str) -> String {
 
 // ── Agent Listing ──
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OpenClawAgent {
     pub id: String,
     pub name: String,
@@ -377,14 +428,43 @@ fn parse_identity_md(content: &str) -> (Option<String>, Option<String>, Option<S
 
 #[tauri::command]
 pub async fn list_openclaw_agents(
+    db: State<'_, DbState>,
     gateway_url: String,
     token: String,
+    instance_id: Option<String>,
 ) -> Result<Vec<OpenClawAgent>, String> {
-    // Try CLI first, fall back to HTTP API
-    match list_agents_via_cli(&gateway_url, &token).await {
-        Ok(agents) => Ok(agents),
-        Err(_) => list_agents_via_http(&gateway_url, &token).await,
+    // Try CLI first
+    if let Ok(agents) = list_agents_via_cli(&gateway_url, &token).await {
+        // Update cache in DB if we have an instance_id
+        if let Some(ref iid) = instance_id {
+            if let Ok(json) = serde_json::to_string(&agents) {
+                let conn = db.0.lock().map_err(|e| e.to_string())?;
+                let _ = conn.execute(
+                    "UPDATE openclaw_instances SET agents_cache = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![json, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(), iid],
+                );
+            }
+        }
+        return Ok(agents);
     }
+
+    // CLI not available — return cached agents from instance
+    if let Some(ref iid) = instance_id {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let cache: String = conn
+            .query_row(
+                "SELECT agents_cache FROM openclaw_instances WHERE id = ?1",
+                rusqlite::params![iid],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "[]".to_string());
+        let agents: Vec<OpenClawAgent> = serde_json::from_str(&cache).unwrap_or_default();
+        if !agents.is_empty() {
+            return Ok(agents);
+        }
+    }
+
+    Err("Unable to list agents: openclaw CLI not available and no cached agents found. Re-generate the connection string on the remote server to include agents.".to_string())
 }
 
 /// List agents using the local `openclaw` CLI.
@@ -446,63 +526,8 @@ async fn list_agents_via_cli(
     Ok(agents)
 }
 
-/// List agents via the gateway HTTP API (no CLI needed).
-async fn list_agents_via_http(
-    gateway_url: &str,
-    token: &str,
-) -> Result<Vec<OpenClawAgent>, String> {
-    // Convert ws:// to http:// for the REST API
-    let http_url = gateway_url
-        .replace("ws://", "http://")
-        .replace("wss://", "https://");
-    let api_url = format!("{}/agents", http_url.trim_end_matches('/'));
+// ── OpenClaw Chat ──
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let mut req = client.get(&api_url);
-    if !token.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", token));
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("Failed to connect to gateway: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Gateway returned status {}", resp.status()));
-    }
-
-    let raw_agents: Vec<RawOpenClawAgent> = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse agents response: {}", e))?;
-
-    let agents = raw_agents
-        .into_iter()
-        .map(|raw| OpenClawAgent {
-            id: raw.id,
-            name: raw.name,
-            model: raw.model,
-            is_default: raw.is_default,
-            emoji: None,
-            avatar: None,
-            description: None,
-        })
-        .collect();
-
-    Ok(agents)
-}
-
-// ── OpenClaw Chat (ACP Bridge) ──
-
-/// Fixes applied:
-/// - Issue #1: Emit chat-stream-error on ACP failure
-/// - Issue #2: Use per-entry Arc<Mutex> so global lock is released during prompt()
-/// - Issue #8: Atomically insert new entry to prevent TOCTOU race
 #[tauri::command]
 pub async fn send_openclaw_message(
     app: tauri::AppHandle,
@@ -510,9 +535,20 @@ pub async fn send_openclaw_message(
     acp_state: State<'_, AcpState>,
     conversation_id: String,
     content: String,
+    user_msg_id: String,
+    attachment_ids: Option<Vec<String>>,
 ) -> Result<(), String> {
-    // Save user message
-    let user_msg_id = uuid::Uuid::new_v4().to_string();
+    // Parse prepared attachments from JSON strings
+    let prepared_attachments: Vec<crate::attachments::PreparedAttachment> = attachment_ids
+        .as_ref()
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|json| serde_json::from_str(json).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Save user message (ID provided by frontend for consistency)
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Load conversation OpenClaw fields
@@ -523,6 +559,11 @@ pub async fn send_openclaw_message(
             rusqlite::params![user_msg_id, conversation_id, content, now],
         )
         .map_err(|e| e.to_string())?;
+
+        // Link attachments to this message
+        for att in &prepared_attachments {
+            crate::attachments::save_attachment(&conn, att, &user_msg_id)?;
+        }
 
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
@@ -555,100 +596,165 @@ pub async fn send_openclaw_message(
         .map_err(|e| format!("OpenClaw instance not found: {}", e))?
     };
 
-    // Get or create the per-conversation Arc<Mutex<AcpClientEntry>>
+    // Try ACP (local CLI) first; if it fails, use HTTP API
+    let has_acp = acp_state.clients.lock().await.contains_key(&conversation_id);
+    let cli_available = has_acp || cli_is_available().await;
+
+    if cli_available {
+        send_via_acp(
+            &app, &db, &acp_state,
+            &conversation_id, &content, &prepared_attachments,
+            &gateway_url, &token, &agent_id, &session_key,
+        )
+        .await
+    } else {
+        send_via_http(
+            &app, &db,
+            &conversation_id, &content, &prepared_attachments,
+            &gateway_url, &token, &agent_id, &session_key,
+        )
+        .await
+    }
+}
+
+/// Check if openclaw CLI is available (cached for app session).
+async fn cli_is_available() -> bool {
+    if let Some(&cached) = CLI_AVAILABLE_CACHE.get() {
+        return cached;
+    }
+    let available = tokio::process::Command::new("openclaw")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false);
+    let _ = CLI_AVAILABLE_CACHE.set(available);
+    available
+}
+
+/// Build ACP content blocks from text + attachments.
+fn build_acp_content_blocks(
+    content: &str,
+    attachments: &[crate::attachments::PreparedAttachment],
+) -> Vec<crate::acp::types::ContentBlock> {
+    use crate::acp::types::{ContentBlock, EmbeddedResource};
+
+    let mut blocks = Vec::new();
+    if !content.is_empty() {
+        blocks.push(ContentBlock::Text { text: content.to_string() });
+    }
+
+    for att in attachments {
+        match att.file_type.as_str() {
+            "image" => {
+                if let Ok((b64, mime)) = crate::attachments::read_image_as_base64(&att.file_path) {
+                    blocks.push(ContentBlock::Image {
+                        data: b64,
+                        mime_type: mime,
+                    });
+                }
+            }
+            "text_file" => {
+                if let Ok(file_content) = crate::attachments::read_text_file_content(&att.file_path) {
+                    blocks.push(ContentBlock::Resource {
+                        resource: EmbeddedResource {
+                            uri: format!("file://{}", att.file_name),
+                            mime_type: Some(att.mime_type.clone()),
+                            text: Some(file_content),
+                            blob: None,
+                        },
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if blocks.is_empty() {
+        blocks.push(ContentBlock::Text { text: String::new() });
+    }
+
+    blocks
+}
+
+/// Send via ACP subprocess (local CLI).
+async fn send_via_acp(
+    app: &tauri::AppHandle,
+    db: &State<'_, DbState>,
+    acp_state: &State<'_, AcpState>,
+    conversation_id: &str,
+    content: &str,
+    prepared_attachments: &[crate::attachments::PreparedAttachment],
+    gateway_url: &str,
+    token: &str,
+    agent_id: &str,
+    session_key: &str,
+) -> Result<(), String> {
+    let emit_error = |e: &str| {
+        let _ = app.emit(
+            "chat-stream-error",
+            StreamErrorPayload {
+                conversation_id: conversation_id.to_string(),
+                error: e.to_string(),
+            },
+        );
+    };
+
     let entry_arc = {
         let clients = acp_state.clients.lock().await;
-        if let Some(existing) = clients.get(&conversation_id) {
+        if let Some(existing) = clients.get(conversation_id) {
             existing.clone()
         } else {
-            // Create placeholder — drop global lock, then init
             drop(clients);
 
-            let emit_error = |e: &str| {
-                let _ = app.emit(
-                    "chat-stream-error",
-                    StreamErrorPayload {
-                        conversation_id: conversation_id.clone(),
-                        error: e.to_string(),
-                    },
-                );
-            };
-
-            // Try subprocess (local CLI) first; fall back to direct WebSocket
-            let backend = match crate::acp::client::AcpClient::start(
-                &gateway_url,
-                &token,
-                &agent_id,
-                &session_key,
+            let mut client = crate::acp::client::AcpClient::start(
+                gateway_url, token, agent_id, session_key,
             )
             .await
-            {
-                Ok(mut cli_client) => {
-                    cli_client.initialize().await.map_err(|e| { emit_error(&e); e })?;
-                    let sid = cli_client.new_session().await.map_err(|e| { emit_error(&e); e })?;
-                    (AcpClientBackend::Process(cli_client), sid)
-                }
-                Err(_) => {
-                    // CLI not available — connect directly via WebSocket
-                    let mut ws_client = crate::acp::ws_client::WsAcpClient::connect(
-                        &gateway_url,
-                        &token,
-                        &agent_id,
-                        &session_key,
-                    )
-                    .await
-                    .map_err(|e| { emit_error(&e); e })?;
+            .map_err(|e| { emit_error(&e); e })?;
 
-                    ws_client.initialize().await.map_err(|e| { emit_error(&e); e })?;
-                    let sid = ws_client.new_session().await.map_err(|e| { emit_error(&e); e })?;
-                    (AcpClientBackend::WebSocket(ws_client), sid)
-                }
-            };
+            client.initialize().await.map_err(|e| { emit_error(&e); e })?;
+            let acp_session_id = client.new_session().await.map_err(|e| { emit_error(&e); e })?;
 
             let new_entry = Arc::new(Mutex::new(AcpClientEntry {
-                client: backend.0,
-                acp_session_id: backend.1,
+                client,
+                acp_session_id,
             }));
 
-            // Re-acquire global lock and insert (if someone else raced us, use theirs)
             let mut clients = acp_state.clients.lock().await;
             clients
-                .entry(conversation_id.clone())
+                .entry(conversation_id.to_string())
                 .or_insert_with(|| new_entry.clone());
-            clients.get(&conversation_id).unwrap().clone()
+            clients.get(conversation_id).unwrap().clone()
         }
     };
 
-    // Lock only the per-entry mutex — global lock is NOT held
+    // Build content blocks: text + attachments
+    let content_blocks = build_acp_content_blocks(content, prepared_attachments);
+
     let assistant_msg_id = uuid::Uuid::new_v4().to_string();
     let result = {
         let mut entry = entry_arc.lock().await;
         let session_id = entry.acp_session_id.clone();
         entry
             .client
-            .prompt(
-                &session_id,
-                &content,
-                &conversation_id,
-                &assistant_msg_id,
-                &app,
-            )
+            .prompt(&session_id, content_blocks, conversation_id, &assistant_msg_id, app)
             .await
     };
 
-    let full_content = result.map_err(|e| {
-        let _ = app.emit(
-            "chat-stream-error",
-            StreamErrorPayload {
-                conversation_id: conversation_id.clone(),
-                error: e.clone(),
-            },
-        );
-        e
-    })?;
+    // prompt() now handles error events internally (emits chat-stream-error/done).
+    // Save content to DB on success or partial content on error.
+    let full_content = match result {
+        Ok(content) => content,
+        Err(e) => {
+            // prompt() already emitted events; just propagate
+            return Err(e);
+        }
+    };
 
-    // Save assistant message to DB
-    {
+    if !full_content.is_empty() {
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.execute(
@@ -661,17 +767,175 @@ pub async fn send_openclaw_message(
     Ok(())
 }
 
+/// Send via OpenAI-compatible HTTP API (no CLI needed).
+async fn send_via_http(
+    app: &tauri::AppHandle,
+    db: &State<'_, DbState>,
+    conversation_id: &str,
+    _content: &str,
+    prepared_attachments: &[crate::attachments::PreparedAttachment],
+    gateway_url: &str,
+    token: &str,
+    agent_id: &str,
+    session_key: &str,
+) -> Result<(), String> {
+    use crate::llm::provider::{stream_chat_with_headers, StreamItem};
+    use crate::llm::types::{ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail};
+
+    let stop_flag = get_stop_flag(conversation_id);
+    stop_flag.store(false, Ordering::SeqCst);
+
+    // Convert ws:// to http:// for the REST API
+    let base_url = gateway_url
+        .replace("ws://", "http://")
+        .replace("wss://", "https://");
+    let model = format!("agent:{}", agent_id);
+
+    // Build message history from DB
+    let mut messages = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC")
+            .map_err(|e| e.to_string())?;
+        let msgs: Vec<ChatMessage> = stmt
+            .query_map(rusqlite::params![conversation_id], |row| {
+                Ok(ChatMessage {
+                    role: row.get(0)?,
+                    content: ChatContent::text(row.get::<_, String>(1)?),
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        msgs
+    };
+
+    // Inject attachment content into the last user message (same logic as chat.rs)
+    if !prepared_attachments.is_empty() {
+        if let Some(last_user) = messages.iter_mut().rev().find(|m| m.role == "user") {
+            let text = last_user.content.as_text().to_string();
+            let mut parts: Vec<ChatContentPart> = vec![ChatContentPart::Text { text }];
+
+            for att in prepared_attachments {
+                match att.file_type.as_str() {
+                    "image" => {
+                        if let Ok((b64, mime)) = crate::attachments::read_image_as_base64(&att.file_path) {
+                            parts.push(ChatContentPart::ImageUrl {
+                                image_url: ImageUrlDetail {
+                                    url: format!("data:{};base64,{}", mime, b64),
+                                    detail: Some("auto".to_string()),
+                                },
+                            });
+                        }
+                    }
+                    "text_file" => {
+                        if let Ok(file_content) = crate::attachments::read_text_file_content(&att.file_path) {
+                            parts.push(ChatContentPart::Text {
+                                text: format!(
+                                    "--- File: {} ---\n{}\n--- End of file ---",
+                                    att.file_name, file_content
+                                ),
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            last_user.content = ChatContent::Multipart(parts);
+        }
+    }
+
+    let extra_headers = vec![
+        ("x-openclaw-session-key".to_string(), session_key.to_string()),
+    ];
+
+    let mut rx = stream_chat_with_headers(
+        &base_url, token, &model, messages, None, Some(extra_headers),
+    )
+    .await
+    .map_err(|e| {
+        // Don't emit chat-stream-error here — the invoke error
+        // propagates to the frontend catch block, avoiding double-error.
+        e
+    })?;
+
+    let assistant_msg_id = uuid::Uuid::new_v4().to_string();
+    let mut full_content = String::new();
+    let mut had_error = false;
+
+    while let Some(chunk) = rx.recv().await {
+        if stop_flag.load(Ordering::SeqCst) {
+            break;
+        }
+        match chunk {
+            Ok(item) => match item {
+                StreamItem::Content(text) => {
+                    full_content.push_str(&text);
+                    let _ = app.emit(
+                        "chat-stream-chunk",
+                        StreamChunkPayload {
+                            conversation_id: conversation_id.to_string(),
+                            content: text,
+                        },
+                    );
+                }
+                StreamItem::Usage(_) => {}
+            },
+            Err(e) => {
+                had_error = true;
+                let _ = app.emit(
+                    "chat-stream-error",
+                    StreamErrorPayload {
+                        conversation_id: conversation_id.to_string(),
+                        error: e,
+                    },
+                );
+                break;
+            }
+        }
+    }
+
+    if !had_error || !full_content.is_empty() {
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'assistant', ?3, ?4)",
+            rusqlite::params![assistant_msg_id, conversation_id, full_content, now],
+        )
+        .map_err(|e| e.to_string())?;
+
+        let _ = app.emit(
+            "chat-stream-done",
+            StreamDonePayload {
+                conversation_id: conversation_id.to_string(),
+                message_id: assistant_msg_id,
+                full_content,
+            },
+        );
+    }
+
+    // Clean up stop flag to avoid memory leak
+    if let Ok(mut flags) = http_stop_flags().lock() {
+        flags.remove(conversation_id);
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn stop_openclaw_generation(
     acp_state: State<'_, AcpState>,
     conversation_id: String,
 ) -> Result<(), String> {
-    // Get the Arc clone (brief global lock)
+    // Set HTTP stop flag for this specific conversation
+    get_stop_flag(&conversation_id).store(true, Ordering::SeqCst);
+
+    // Also try ACP cancel (for conversations using CLI subprocess)
     let entry_arc = {
         let clients = acp_state.clients.lock().await;
         clients.get(&conversation_id).cloned()
     };
-    // Lock the per-entry mutex to send cancel (won't deadlock with prompt)
     if let Some(entry_arc) = entry_arc {
         let mut entry = entry_arc.lock().await;
         let session_id = entry.acp_session_id.clone();

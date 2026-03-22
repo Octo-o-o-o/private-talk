@@ -30,6 +30,18 @@ pub async fn stream_chat(
     messages: Vec<ChatMessage>,
     temperature: Option<f64>,
 ) -> Result<mpsc::Receiver<Result<StreamItem, String>>, String> {
+    stream_chat_with_headers(base_url, api_key, model, messages, temperature, None).await
+}
+
+/// Stream chat completions with optional extra headers (e.g. x-openclaw-session-key).
+pub async fn stream_chat_with_headers(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: Vec<ChatMessage>,
+    temperature: Option<f64>,
+    extra_headers: Option<Vec<(String, String)>>,
+) -> Result<mpsc::Receiver<Result<StreamItem, String>>, String> {
     let client = Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
@@ -43,16 +55,21 @@ pub async fn stream_chat(
         }),
     };
 
-    let response = with_optional_bearer(
-        client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&request),
-        api_key,
-    )
-    .send()
-    .await
-    .map_err(|e| format!("Request failed: {}", e))?;
+    let mut req_builder = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&request);
+
+    if let Some(headers) = extra_headers {
+        for (key, value) in headers {
+            req_builder = req_builder.header(key, value);
+        }
+    }
+
+    let response = with_optional_bearer(req_builder, api_key)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
 
     if !response.status().is_success() {
         let status = response.status();

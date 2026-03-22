@@ -1,17 +1,18 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ChatView } from "./components/chat/ChatView";
 import { PinLock } from "./components/pin/PinLock";
-import { ScenarioEditor } from "./components/scenario/ScenarioEditor";
-import { ScenarioManager } from "./components/scenario/ScenarioManager";
-import { SettingsPage } from "./components/settings/SettingsPage";
-import { UsagePage } from "./components/usage/UsagePage";
-import { VoiceEditor } from "./components/voice/VoiceEditor";
-import { VoiceManager } from "./components/voice/VoiceManager";
 import { useAppStore } from "./stores/appStore";
 import { appZoomStep, usePreferencesStore } from "./stores/preferencesStore";
+
+const SettingsPage = lazy(() => import("./components/settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
+const UsagePage = lazy(() => import("./components/usage/UsagePage").then(m => ({ default: m.UsagePage })));
+const VoiceManager = lazy(() => import("./components/voice/VoiceManager").then(m => ({ default: m.VoiceManager })));
+const VoiceEditor = lazy(() => import("./components/voice/VoiceEditor").then(m => ({ default: m.VoiceEditor })));
+const ScenarioManager = lazy(() => import("./components/scenario/ScenarioManager").then(m => ({ default: m.ScenarioManager })));
+const ScenarioEditor = lazy(() => import("./components/scenario/ScenarioEditor").then(m => ({ default: m.ScenarioEditor })));
 
 interface MenuZoomPayload {
   action: "in" | "out" | "reset" | "set";
@@ -139,21 +140,23 @@ function App() {
 
   return (
     <div className="h-full bg-background text-foreground">
-      <Routes>
-        <Route element={<AppLayout />}>
-          <Route index element={<ChatView />} />
-          <Route path="/usage" element={<UsagePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/voices" element={<VoiceManager />} />
-          <Route path="/voices/new" element={<VoiceEditor />} />
-          <Route path="/voices/edit/:voiceId" element={<VoiceEditor />} />
-          <Route path="/scenarios" element={<ScenarioManager />} />
-          <Route path="/scenarios/new" element={<ScenarioEditor />} />
-          <Route path="/scenarios/edit/:scenarioId" element={<ScenarioEditor />} />
-          <Route path="/scenarios/view/:scenarioId" element={<ScenarioEditor />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route index element={<ChatView />} />
+            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/voices" element={<VoiceManager />} />
+            <Route path="/voices/new" element={<VoiceEditor />} />
+            <Route path="/voices/edit/:voiceId" element={<VoiceEditor />} />
+            <Route path="/scenarios" element={<ScenarioManager />} />
+            <Route path="/scenarios/new" element={<ScenarioEditor />} />
+            <Route path="/scenarios/edit/:scenarioId" element={<ScenarioEditor />} />
+            <Route path="/scenarios/view/:scenarioId" element={<ScenarioEditor />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </div>
   );
 }

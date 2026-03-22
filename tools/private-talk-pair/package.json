@@ -1,6 +1,6 @@
 {
   "name": "private-talk-pair",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generate a connection string for Private Talk to connect to your OpenClaw instance",
   "bin": {
     "private-talk-pair": "./index.mjs"

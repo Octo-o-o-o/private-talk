@@ -98,6 +98,36 @@ pub struct SessionPromptParams {
 pub enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+
+    #[serde(rename = "image")]
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+
+    #[serde(rename = "audio")]
+    Audio {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+
+    #[serde(rename = "resource")]
+    Resource {
+        resource: EmbeddedResource,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EmbeddedResource {
+    pub uri: String,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
 }
 
 /// Notification params for session/update

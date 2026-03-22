@@ -14,6 +14,7 @@ export interface OpenClawInstance {
   name: string;
   gateway_url: string;
   token: string;
+  agents_cache: string;
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +38,27 @@ export interface LocalOpenClawDetection {
   gateway_running: boolean;
 }
 
+export interface Attachment {
+  id: string;
+  message_id: string;
+  file_type: "image" | "text_file" | "audio";
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  file_size: number;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PreparedAttachment {
+  id: string;
+  file_type: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  file_size: number;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -44,6 +66,7 @@ export interface Message {
   content: string;
   is_pinned: boolean;
   created_at: string;
+  attachments: Attachment[];
 }
 
 export interface Provider {

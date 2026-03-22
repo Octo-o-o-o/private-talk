@@ -375,5 +375,63 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         set_schema_version(conn, 9)?;
     }
 
+    // ── V10: Add agents_cache to openclaw_instances ──
+    if version < 10 {
+        let instance_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(openclaw_instances)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if !instance_cols.contains(&"agents_cache".to_string()) {
+            conn.execute_batch(
+                "ALTER TABLE openclaw_instances ADD COLUMN agents_cache TEXT NOT NULL DEFAULT '[]';",
+            )?;
+        }
+
+        set_schema_version(conn, 10)?;
+    }
+
+    // V10 → V11: Attachments table for multimedia messages
+    if version < 11 {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS attachments (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                file_type TEXT NOT NULL CHECK(file_type IN ('image', 'text_file', 'audio')),
+                file_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                metadata TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_attachments_message
+                ON attachments(message_id);
+            ",
+        )?;
+        set_schema_version(conn, 11)?;
+    }
+
+    // V11 → V12: Conversation summaries table + clean up old summary messages
+    if version < 12 {
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS conversation_summaries (
+                conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+                summary TEXT NOT NULL,
+                covered_until_message_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            -- Clean up old summary messages stored as system messages
+            DELETE FROM messages WHERE role = 'system' AND content LIKE '[上下文摘要]%';
+            ",
+        )?;
+        set_schema_version(conn, 12)?;
+    }
+
     Ok(())
 }

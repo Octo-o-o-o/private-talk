@@ -236,18 +236,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadProviders: async () => {
     const providers = await api.listProviders();
     set({ providers });
-    // Auto-select default provider
-    const defaultProvider = providers.find((p) => p.is_default);
-    if (defaultProvider) {
-      set({
-        selectedProviderId: defaultProvider.id,
-        selectedModel: defaultProvider.models[0] || null,
-      });
-    } else if (providers.length > 0) {
-      set({
-        selectedProviderId: providers[0].id,
-        selectedModel: providers[0].models[0] || null,
-      });
+    // Only auto-select if current selection is null or no longer valid
+    const { selectedProviderId } = get();
+    const currentStillExists = selectedProviderId && providers.some((p) => p.id === selectedProviderId);
+    if (!currentStillExists) {
+      const defaultProvider = providers.find((p) => p.is_default);
+      if (defaultProvider) {
+        set({
+          selectedProviderId: defaultProvider.id,
+          selectedModel: defaultProvider.models[0] || null,
+        });
+      } else if (providers.length > 0) {
+        set({
+          selectedProviderId: providers[0].id,
+          selectedModel: providers[0].models[0] || null,
+        });
+      }
     }
   },
   setSelectedProvider: (id) => {

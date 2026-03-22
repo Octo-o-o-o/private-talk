@@ -179,6 +179,7 @@ export function ChatView() {
           content: event.payload.full_content,
           is_pinned: false,
           created_at: new Date().toISOString(),
+          attachments: [],
         });
         clearStreamingContent();
       }
@@ -224,11 +225,11 @@ export function ChatView() {
   };
 
   // Helper: send via the correct API based on conversation type
-  const sendViaCorrectApi = async (conversationId: string, content: string) => {
+  const sendViaCorrectApi = async (conversationId: string, content: string, userMsgId: string, attachmentJsons?: string[]) => {
     if (isOpenClawConversation) {
-      await api.sendOpenClawMessage(conversationId, content);
+      await api.sendOpenClawMessage(conversationId, content, userMsgId, attachmentJsons);
     } else {
-      await api.sendMessage(conversationId, content, selectedProviderId!, selectedModel!);
+      await api.sendMessage(conversationId, content, selectedProviderId!, selectedModel!, userMsgId, attachmentJsons);
     }
   };
 
@@ -240,20 +241,25 @@ export function ChatView() {
       const msg = messages.find((m) => m.id === messageId);
       if (!msg) return;
       const content = msg.content;
+      const originalAttachments = msg.attachments ?? [];
       await deleteMessagesFrom(messageId);
+      const retryMsgId = crypto.randomUUID();
       addMessage({
-        id: crypto.randomUUID(),
+        id: retryMsgId,
         conversation_id: currentConversationId,
         role: "user",
         content,
         is_pinned: false,
         created_at: new Date().toISOString(),
+        attachments: originalAttachments,
       });
       setStreaming(true, currentConversationId);
       clearStreamingContent();
       setStreamingError("");
       try {
-        await sendViaCorrectApi(currentConversationId, content);
+        // Re-send with original attachments
+        const attachmentJsons = originalAttachments.map((a) => JSON.stringify(a));
+        await sendViaCorrectApi(currentConversationId, content, retryMsgId, attachmentJsons.length > 0 ? attachmentJsons : undefined);
       } catch (error) {
         setStreaming(false);
         clearStreamingContent();
@@ -268,12 +274,15 @@ export function ChatView() {
         .find((m) => m.role === "user");
       if (!prevUserMsg) return;
       const userContent = prevUserMsg.content;
+      const originalAttachments = prevUserMsg.attachments ?? [];
       await deleteMessagesFrom(messageId);
+      const retryUserMsgId = crypto.randomUUID();
       setStreaming(true, currentConversationId);
       clearStreamingContent();
       setStreamingError("");
       try {
-        await sendViaCorrectApi(currentConversationId, userContent);
+        const attachmentJsons = originalAttachments.map((a) => JSON.stringify(a));
+        await sendViaCorrectApi(currentConversationId, userContent, retryUserMsgId, attachmentJsons.length > 0 ? attachmentJsons : undefined);
       } catch (error) {
         setStreaming(false);
         clearStreamingContent();
@@ -287,11 +296,12 @@ export function ChatView() {
     if (!currentConversationId) return;
     if (!isOpenClawConversation && (!selectedProviderId || !selectedModel)) return;
     await deleteMessagesFrom(messageId);
+    const editMsgId = crypto.randomUUID();
     setStreaming(true, currentConversationId);
     clearStreamingContent();
     setStreamingError("");
     try {
-      await sendViaCorrectApi(currentConversationId, newContent);
+      await sendViaCorrectApi(currentConversationId, newContent, editMsgId);
     } catch (error) {
       setStreaming(false);
       clearStreamingContent();
@@ -300,7 +310,7 @@ export function ChatView() {
     }
   };
 
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, attachmentJsons?: string[]) => {
     let conversationId = currentConversationId;
     let isNewConversation = false;
 
@@ -325,13 +335,30 @@ export function ChatView() {
       isNewConversation ||
       messages.filter((m) => m.role === "user").length === 0;
 
+    // Parse attachment metadata for local display
+    const parsedAttachments = (attachmentJsons ?? []).map((json) => {
+      const att = JSON.parse(json);
+      return {
+        id: att.id,
+        message_id: "",
+        file_type: att.file_type as "image" | "text_file" | "audio",
+        file_name: att.file_name,
+        file_path: att.file_path,
+        mime_type: att.mime_type,
+        file_size: att.file_size,
+        created_at: new Date().toISOString(),
+      };
+    });
+
+    const userMsgId = crypto.randomUUID();
     addMessage({
-      id: crypto.randomUUID(),
+      id: userMsgId,
       conversation_id: conversationId,
       role: "user",
       content,
       is_pinned: false,
       created_at: new Date().toISOString(),
+      attachments: parsedAttachments,
     });
 
     setStreaming(true, conversationId);
@@ -340,9 +367,9 @@ export function ChatView() {
 
     try {
       if (isAcp) {
-        await api.sendOpenClawMessage(conversationId, content);
+        await api.sendOpenClawMessage(conversationId, content, userMsgId, attachmentJsons);
       } else {
-        await api.sendMessage(conversationId, content, selectedProviderId!, selectedModel!);
+        await api.sendMessage(conversationId, content, selectedProviderId!, selectedModel!, userMsgId, attachmentJsons);
       }
       // Auto-generate title after first message (only for local LLM)
       if (isFirstMessage && !isAcp) {
@@ -530,6 +557,7 @@ export function ChatView() {
                       scenarioId={currentScenarioId}
                       messageId={message.id}
                       isPinned={message.is_pinned}
+                      attachments={message.attachments}
                       onRetry={handleRetry}
                       onDelete={handleDelete}
                       onEditSubmit={handleEditSubmit}

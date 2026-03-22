@@ -1,4 +1,5 @@
 mod acp;
+mod attachments;
 mod commands;
 mod context;
 mod db;
@@ -245,6 +246,8 @@ pub fn run() {
             commands::chat::generate_title,
             commands::chat::delete_messages_from,
             commands::chat::update_message_content,
+            commands::chat::prepare_attachments,
+            commands::chat::prepare_image_attachment,
             // PIN commands
             commands::pin::is_pin_enabled,
             commands::pin::verify_pin_cmd,

@@ -559,11 +559,11 @@ export function SettingsPage() {
     }
   };
 
-  const handleTestOpenClaw = async (gatewayUrl: string, token: string) => {
+  const handleTestOpenClaw = async (gatewayUrl: string, token: string, instanceId?: string) => {
     setIsTestingOpenclaw(true);
     setOpenclawTestAgents(null);
     try {
-      const agents = await api.listOpenClawAgents(gatewayUrl, token);
+      const agents = await api.listOpenClawAgents(gatewayUrl, token, instanceId);
       setOpenclawTestAgents(agents);
     } catch (e) {
       setOpenclawFormError(String(e));
@@ -582,7 +582,11 @@ export function SettingsPage() {
     try {
       const payload = await api.parseConnectionString(input);
       const name = payload.name || t("远程 OpenClaw", "Remote OpenClaw");
-      await api.createOpenClawInstance(name, payload.url, payload.token, true);
+      const agentsCache = payload.agents ? JSON.stringify(payload.agents.map(a => ({
+        id: a.id, name: a.name, model: a.model, is_default: a.isDefault,
+        emoji: null, avatar: null, description: null,
+      }))) : undefined;
+      await api.createOpenClawInstance(name, payload.url, payload.token, true, agentsCache);
       const instances = await api.listOpenClawInstances();
       setOpenclawInstances(instances);
       setConnectionString("");
@@ -1118,7 +1122,7 @@ export function SettingsPage() {
                             variant="outline"
                             size="sm"
                             disabled={isTestingOpenclaw}
-                            onClick={() => void handleTestOpenClaw(instance.gateway_url, instance.token)}
+                            onClick={() => void handleTestOpenClaw(instance.gateway_url, instance.token, instance.id)}
                           >
                             {isTestingOpenclaw ? (
                               <Loader2 className="mr-1 h-3 w-3 animate-spin" />

@@ -144,9 +144,18 @@ export const sendMessage = (
   conversationId: string,
   content: string,
   providerId: string,
-  model: string
+  model: string,
+  userMsgId: string,
+  attachmentIds?: string[]
 ) =>
-  invoke<void>("send_message", { conversationId, content, providerId, model });
+  invoke<void>("send_message", { conversationId, content, providerId, model, userMsgId, attachmentIds });
+
+// Attachment commands
+export const prepareAttachments = (filePaths: string[]) =>
+  invoke<string[]>("prepare_attachments", { filePaths });
+
+export const prepareImageAttachment = (imageBase64: string, mimeType: string) =>
+  invoke<string>("prepare_image_attachment", { imageBase64, mimeType });
 
 export const stopGeneration = () => invoke<void>("stop_generation");
 
@@ -265,13 +274,15 @@ export const createOpenClawInstance = (
   name: string,
   gatewayUrl: string,
   token: string,
-  skipCliCheck?: boolean
+  skipCliCheck?: boolean,
+  agentsCache?: string
 ) =>
   invoke<OpenClawInstance>("create_openclaw_instance", {
     name,
     gatewayUrl,
     token,
     skipCliCheck,
+    agentsCache,
   });
 
 export const updateOpenClawInstance = (
@@ -288,20 +299,33 @@ export const deleteOpenClawInstance = (id: string) =>
 export const detectLocalOpenClaw = () =>
   invoke<LocalOpenClawDetection>("detect_local_openclaw");
 
-export const listOpenClawAgents = (gatewayUrl: string, token: string) =>
-  invoke<OpenClawAgent[]>("list_openclaw_agents", { gatewayUrl, token });
+export const listOpenClawAgents = (
+  gatewayUrl: string,
+  token: string,
+  instanceId?: string
+) =>
+  invoke<OpenClawAgent[]>("list_openclaw_agents", {
+    gatewayUrl,
+    token,
+    instanceId,
+  });
 
 export const sendOpenClawMessage = (
   conversationId: string,
-  content: string
+  content: string,
+  userMsgId: string,
+  attachmentIds?: string[]
 ) =>
-  invoke<void>("send_openclaw_message", { conversationId, content });
+  invoke<void>("send_openclaw_message", { conversationId, content, userMsgId, attachmentIds });
 
 export const stopOpenClawGeneration = (conversationId: string) =>
   invoke<void>("stop_openclaw_generation", { conversationId });
 
 export const parseConnectionString = (input: string) =>
-  invoke<{ v: number; url: string; token: string; name: string | null }>(
-    "parse_connection_string",
-    { input }
-  );
+  invoke<{
+    v: number;
+    url: string;
+    token: string;
+    name: string | null;
+    agents: { id: string; name: string; model: string; isDefault: boolean }[] | null;
+  }>("parse_connection_string", { input });
