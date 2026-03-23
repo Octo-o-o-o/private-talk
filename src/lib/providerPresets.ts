@@ -29,8 +29,8 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     discoveryMode: "openai-compatible",
     apiKeyRequired: true,
     apiKeyPlaceholder: "sk-...",
-    defaultModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4.1"],
-    recommendedModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-4.1"],
+    defaultModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o3", "o4-mini", "gpt-4.1"],
+    recommendedModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o3", "o4-mini", "gpt-4.1"],
   },
   {
     id: "openrouter",
@@ -45,19 +45,19 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyRequired: true,
     apiKeyPlaceholder: "sk-or-...",
     defaultModels: [
-      "openai/gpt-5.2",
+      "openai/gpt-5.4",
       "anthropic/claude-opus-4.6",
-      "google/gemini-2.5-pro",
-      "deepseek/deepseek-chat-v3.2",
-      "x-ai/grok-4.1",
+      "google/gemini-3.1-pro-preview",
+      "deepseek/deepseek-chat",
+      "x-ai/grok-4.20-0309-reasoning",
       "qwen/qwen3-coder",
     ],
     recommendedModels: [
-      "openai/gpt-5.2",
+      "openai/gpt-5.4",
       "anthropic/claude-opus-4.6",
-      "google/gemini-2.5-pro",
-      "deepseek/deepseek-chat-v3.2",
-      "x-ai/grok-4.1",
+      "google/gemini-3.1-pro-preview",
+      "deepseek/deepseek-chat",
+      "x-ai/grok-4.20-0309-reasoning",
       "qwen/qwen3-coder",
     ],
   },
@@ -115,8 +115,18 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     discoveryMode: "openai-compatible",
     apiKeyRequired: true,
     apiKeyPlaceholder: "xai-...",
-    defaultModels: ["grok-4", "grok-3", "grok-3-mini", "grok-3-fast"],
-    recommendedModels: ["grok-4", "grok-3", "grok-3-mini", "grok-3-fast"],
+    defaultModels: [
+      "grok-4.20-0309-reasoning",
+      "grok-4.20-0309-non-reasoning",
+      "grok-4-1-fast-reasoning",
+      "grok-4-1-fast-non-reasoning",
+    ],
+    recommendedModels: [
+      "grok-4.20-0309-reasoning",
+      "grok-4.20-0309-non-reasoning",
+      "grok-4-1-fast-reasoning",
+      "grok-4-1-fast-non-reasoning",
+    ],
   },
   {
     id: "volcengine",
@@ -131,20 +141,20 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyRequired: true,
     apiKeyPlaceholder: "your-ark-api-key",
     defaultModels: [
-      "doubao-seed-1.6",
+      "doubao-seed-1-8",
+      "doubao-seed-1-6",
+      "doubao-seed-1-6-thinking",
+      "doubao-seed-1-6-flash",
       "doubao-1.5-pro-256k",
       "doubao-1.5-pro-32k",
-      "doubao-1.5-lite-32k",
-      "deepseek-r1-250120",
-      "deepseek-v3-250324",
     ],
     recommendedModels: [
-      "doubao-seed-1.6",
+      "doubao-seed-1-8",
+      "doubao-seed-1-6",
+      "doubao-seed-1-6-thinking",
+      "doubao-seed-1-6-flash",
       "doubao-1.5-pro-256k",
       "doubao-1.5-pro-32k",
-      "doubao-1.5-lite-32k",
-      "deepseek-r1-250120",
-      "deepseek-v3-250324",
     ],
   },
   {
@@ -159,8 +169,8 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     discoveryMode: "openai-compatible",
     apiKeyRequired: true,
     apiKeyPlaceholder: "your-bigmodel-key",
-    defaultModels: ["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
-    recommendedModels: ["glm-5", "glm-4.7", "glm-4.6", "glm-4.5-air"],
+    defaultModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
+    recommendedModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
   },
 ];
 
@@ -201,7 +211,7 @@ function filterModelsByPreset(preset: ProviderPresetConfig, discovered: string[]
     case "deepseek":
       return chatLike.filter((model) => model.startsWith("deepseek-"));
     case "grok":
-      return chatLike.filter((model) => model.startsWith("grok-"));
+      return chatLike.filter((model) => model.startsWith("grok-") && !model.startsWith("grok-imagine"));
     case "volcengine":
       return chatLike.filter(
         (model) => model.startsWith("doubao-") || model.startsWith("deepseek-")
