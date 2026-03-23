@@ -648,7 +648,7 @@ mod platform {
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionResultGeneratedEventArgs,
                 >::new(move |_, args| {
-                    let result = args.Result()?;
+                    let result = (*args).Result()?;
                     if result.Status()? == SpeechRecognitionResultStatus::Success {
                         append_transcript(&transcript_for_results, &result.Text()?.to_string());
                     }
@@ -661,7 +661,7 @@ mod platform {
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionCompletedEventArgs,
                 >::new(move |_, args| {
-                    let status = args.Status()
+                    let status = (*args).Status()
                         .unwrap_or(SpeechRecognitionResultStatus::Unknown);
                     let _ = completed_tx.send(status);
                     Ok(())
