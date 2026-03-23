@@ -375,13 +375,13 @@ export function Sidebar() {
         <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
 
         <div className="space-y-2 px-3 pb-4" style={{ paddingTop: 10 }}>
-          <div className="relative z-10 flex items-center gap-2">
+          <div className="relative z-10 flex items-center justify-between">
             <Button
               onClick={() => {
                 navigate("/");
                 void createConversation();
               }}
-              className="flex-1 bg-primary shadow-lg shadow-primary/20 hover:bg-primary/90"
+              className="bg-primary shadow-lg shadow-primary/20 hover:bg-primary/90"
             >
               <Plus className="h-4 w-4" />
               {t("新建会话", "New Session")}
