@@ -442,14 +442,12 @@ mod platform {
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{NativeSttInfo, NativeSttStatus};
-    use futures::executor::block_on;
     use std::process::Command;
     use std::sync::{mpsc, Arc, Mutex};
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
-    use windows::core::{initialize_mta, Error as WindowsError};
+    use windows::core::Error as WindowsError;
     use windows::Foundation::TypedEventHandler;
-    use windows::Globalization::Language;
     use windows::Media::SpeechRecognition::{
         SpeechContinuousRecognitionCompletedEventArgs,
         SpeechContinuousRecognitionResultGeneratedEventArgs, SpeechRecognitionResultStatus,
@@ -491,13 +489,11 @@ mod platform {
         }
 
         fn stop_and_collect(self) -> Result<String, String> {
-            block_on(async {
-                self.session
-                    .StopAsync()
-                    .map_err(|error| map_windows_error(&error))?
-                    .await
-                    .map_err(|error| map_windows_error(&error))
-            })?;
+            self.session
+                .StopAsync()
+                .map_err(|error| map_windows_error(&error))?
+                .get()
+                .map_err(|error| map_windows_error(&error))?;
 
             let completed_status = self.completed_rx.recv_timeout(Duration::from_secs(8)).ok();
             self.cleanup();
@@ -524,12 +520,10 @@ mod platform {
         }
 
         fn cancel(self) {
-            let _ = block_on(async {
-                self.session
-                    .CancelAsync()
-                    .map_err(|_| ())
-                    .and_then(|action| action.await.map_err(|_| ()))
-            });
+            let _ = self
+                .session
+                .CancelAsync()
+                .and_then(|action| action.get());
             self.cleanup();
         }
     }
@@ -617,25 +611,25 @@ mod platform {
         command_rx: mpsc::Receiver<WorkerCommand>,
         result_tx: mpsc::Sender<Result<String, String>>,
     ) {
-        let _guard = match initialize_mta() {
-            Ok(guard) => guard,
-            Err(error) => {
+        {
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+            if let Err(error) = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok() {
                 let _ = started_tx.send(Err(error.to_string()));
                 return;
             }
-        };
+        }
 
         let startup = (|| -> Result<(WorkerRuntime, Option<String>), String> {
             let (recognizer, language_tag) = create_recognizer()?;
 
-            let compile_status = block_on(async {
+            let compile_status = {
                 let result = recognizer
                     .CompileConstraintsAsync()
                     .map_err(|error| map_windows_error(&error))?
-                    .await
+                    .get()
                     .map_err(|error| map_windows_error(&error))?;
                 result.Status().map_err(|error| map_windows_error(&error))
-            })?;
+            }?;
 
             if compile_status != SpeechRecognitionResultStatus::Success {
                 return Err(map_result_status(compile_status));
@@ -680,13 +674,11 @@ mod platform {
                 }))
                 .map_err(|error| map_windows_error(&error))?;
 
-            block_on(async {
-                session
-                    .StartAsync()
-                    .map_err(|error| map_windows_error(&error))?
-                    .await
-                    .map_err(|error| map_windows_error(&error))
-            })?;
+            session
+                .StartAsync()
+                .map_err(|error| map_windows_error(&error))?
+                .get()
+                .map_err(|error| map_windows_error(&error))?;
 
             Ok((
                 WorkerRuntime {

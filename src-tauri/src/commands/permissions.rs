@@ -194,11 +194,11 @@ mod platform {
 mod platform {
     use super::{MicrophonePermissionInfo, MicrophonePermissionStatus};
     use std::process::Command;
-    use windows::core::initialize_mta;
     use windows::Devices::Enumeration::{DeviceAccessInformation, DeviceAccessStatus, DeviceClass};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
     fn current_status() -> Result<MicrophonePermissionStatus, String> {
-        let _guard = initialize_mta().map_err(|error| error.to_string())?;
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok().ok();
         let access = DeviceAccessInformation::CreateFromDeviceClass(DeviceClass::AudioCapture)
             .map_err(|error| error.to_string())?;
         let status = access.CurrentStatus().map_err(|error| error.to_string())?;
