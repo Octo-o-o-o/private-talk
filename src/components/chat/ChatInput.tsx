@@ -17,7 +17,7 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "../../stores/appStore";
 import * as api from "../../lib/tauri";
-import type { PreparedAttachment } from "../../lib/types";
+import type { NativeSttInfo, PreparedAttachment } from "../../lib/types";
 import { AttachmentImage } from "./AttachmentImage";
 
 interface Props {
@@ -25,7 +25,13 @@ interface Props {
   onStop: () => void;
 }
 
-type PlatformKind = "macos" | "windows" | "linux" | "unknown";
+type PlatformKind =
+  | "macos"
+  | "windows"
+  | "linux"
+  | "ios"
+  | "android"
+  | "unknown";
 type MicrophoneCapability =
   | "ready"
   | "missing-get-user-media"
@@ -175,13 +181,23 @@ function readFileAsText(file: File): Promise<string> {
 }
 
 function getSupportedMimeType(): string {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-  ];
+  const platform = detectPlatform();
+  const candidates =
+    platform === "macos" || platform === "ios"
+      ? [
+          "audio/mp4",
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/ogg;codecs=opus",
+          "audio/ogg",
+        ]
+      : [
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+          "audio/ogg;codecs=opus",
+          "audio/ogg",
+        ];
 
   for (const mime of candidates) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mime)) {
@@ -201,6 +217,19 @@ function getErrorMessage(error: unknown, fallback: string) {
 function detectPlatform(): PlatformKind {
   if (typeof navigator === "undefined") return "unknown";
   const userAgent = navigator.userAgent.toLowerCase();
+  const touchPoints =
+    typeof navigator.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
+  if (
+    userAgent.includes("iphone") ||
+    userAgent.includes("ipad") ||
+    userAgent.includes("ipod") ||
+    (userAgent.includes("macintosh") && touchPoints > 1)
+  ) {
+    return "ios";
+  }
+  if (userAgent.includes("android")) {
+    return "android";
+  }
   if (userAgent.includes("mac os") || userAgent.includes("macintosh")) {
     return "macos";
   }
@@ -279,6 +308,8 @@ export function ChatInput({ onSend, onStop }: Props) {
     useState(false);
   const [didAttemptOpenMicrophoneSettings, setDidAttemptOpenMicrophoneSettings] =
     useState(false);
+  const [nativeSttInfo, setNativeSttInfo] = useState<NativeSttInfo | null>(null);
+  const [isResolvingNativeStt, setIsResolvingNativeStt] = useState(false);
 
   const dragCounterRef = useRef(0);
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([]);
@@ -288,7 +319,12 @@ export function ChatInput({ onSend, onStop }: Props) {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingMimeTypeRef = useRef("");
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [waveformLevels, setWaveformLevels] = useState<number[]>(new Array(24).fill(0));
   const systemSpeechSessionRef = useRef<SystemSpeechSession | null>(null);
+  const nativeSttCaptureArmedRef = useRef(false);
 
   const isStreaming = useAppStore((s) => s.isStreaming);
   const streamingConversationId = useAppStore((s) => s.streamingConversationId);
@@ -301,8 +337,17 @@ export function ChatInput({ onSend, onStop }: Props) {
   const { t, locale } = useI18n();
   const platform = detectPlatform();
   const microphoneCapability = detectMicrophoneCapability();
-  const systemSpeechRecognitionSupported =
+  const runtimeSpeechRecognitionSupported =
     getSpeechRecognitionConstructor() !== null;
+  const nativeSpeechReady = nativeSttInfo?.status === "ready";
+  const nativeSpeechPrompt = nativeSttInfo?.status === "prompt";
+  const nativeSpeechDenied = nativeSttInfo?.status === "denied";
+  const nativeSpeechUnavailable = nativeSttInfo?.status === "unavailable";
+  const nativeSpeechSupported = nativeSpeechReady || nativeSpeechPrompt;
+  const nativeSpeechNeedsSettings =
+    nativeSpeechDenied ||
+    (platform === "android" && nativeSpeechUnavailable) ||
+    !!nativeSttInfo?.detail?.startsWith("native-stt-speech-privacy-disabled:");
 
   const isOtherStreaming =
     isStreaming &&
@@ -318,7 +363,7 @@ export function ChatInput({ onSend, onStop }: Props) {
     : null;
   const hasConfiguredSttProvider = !!selectedSttProviderId;
   const hasAnySpeechTranscriptionPath =
-    hasConfiguredSttProvider || systemSpeechRecognitionSupported;
+    hasConfiguredSttProvider || nativeSpeechSupported || runtimeSpeechRecognitionSupported;
   const readyAttachments = composerAttachments.filter(
     (attachment): attachment is ComposerAttachment & { prepared: PreparedAttachment } =>
       attachment.status === "ready" && !!attachment.prepared
@@ -350,13 +395,18 @@ export function ChatInput({ onSend, onStop }: Props) {
   const canUseVoiceMessageAction =
     canUseVoiceToTextAction && canSendChatMessage;
   const canUseAttachmentPicker = !isStreaming && !isOtherStreaming && !isRecording && !isTranscribing;
+  const shouldUseRuntimeSpeechFallback =
+    runtimeSpeechRecognitionSupported && !nativeSpeechReady;
 
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    const maxHeight = 144; // 5 lines × 24px (leading-6) + 24px vertical padding
+    const scrollHeight = textarea.scrollHeight;
+    textarea.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   }, [input]);
 
   useEffect(() => {
@@ -384,6 +434,11 @@ export function ChatInput({ onSend, onStop }: Props) {
           speechSession.resolved = true;
           speechSession.resolveEnd(speechSession.transcript);
         }
+      }
+      if (nativeSttCaptureArmedRef.current) {
+        void api.cancelNativeSttCapture().catch((error) => {
+          console.error("Failed to cancel native STT capture during cleanup:", error);
+        });
       }
       composerAttachmentsRef.current.forEach((attachment) => {
         if (attachment.previewUrl) {
@@ -497,6 +552,65 @@ export function ChatInput({ onSend, onStop }: Props) {
       );
     };
   }, [refreshMicrophonePermission]);
+
+  const refreshNativeSttInfo = useCallback(async () => {
+    setIsResolvingNativeStt(true);
+    try {
+      const info = await api.getNativeSttInfo();
+      setNativeSttInfo(info);
+    } catch (error) {
+      console.error("Failed to read native STT info:", error);
+      setNativeSttInfo({
+        supported: false,
+        status: "unavailable",
+        source: "unsupported",
+        platform:
+          platform === "macos" ||
+          platform === "windows" ||
+          platform === "ios" ||
+          platform === "android"
+            ? platform
+            : "other",
+        mode: "unsupported",
+        detail: null,
+      });
+    } finally {
+      setIsResolvingNativeStt(false);
+    }
+  }, [platform]);
+
+  useEffect(() => {
+    void refreshNativeSttInfo();
+    const warmupTimer = window.setTimeout(() => {
+      void refreshNativeSttInfo();
+    }, 900);
+
+    return () => {
+      window.clearTimeout(warmupTimer);
+    };
+  }, [refreshNativeSttInfo]);
+
+  useEffect(() => {
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void refreshNativeSttInfo();
+      }
+    };
+    const handleFocusRefresh = () => {
+      void refreshNativeSttInfo();
+    };
+
+    window.addEventListener("focus", handleFocusRefresh);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      window.removeEventListener("focus", handleFocusRefresh);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityRefresh
+      );
+    };
+  }, [refreshNativeSttInfo]);
 
   const clearComposerError = () => {
     if (composerError) {
@@ -692,6 +806,18 @@ export function ChatInput({ onSend, onStop }: Props) {
         "Allow this app to use the microphone in Windows Settings > Privacy & security > Microphone"
       );
     }
+    if (platform === "ios") {
+      return t(
+        "请在 iPhone/iPad 设置里允许 Private Talk 使用麦克风",
+        "Allow Private Talk to use the microphone in iPhone/iPad Settings"
+      );
+    }
+    if (platform === "android") {
+      return t(
+        "请在 Android 设置 > 应用 > Private Talk > 权限 中允许麦克风",
+        "Allow microphone access in Android Settings > Apps > Private Talk > Permissions"
+      );
+    }
     if (platform === "macos") {
       return t(
         "请在 系统设置 > 隐私与安全性 > 麦克风 中允许 Private Talk",
@@ -704,11 +830,134 @@ export function ChatInput({ onSend, onStop }: Props) {
     );
   };
 
+  const getSpeechRecognitionSettingsHint = () => {
+    if (platform === "windows") {
+      return t(
+        "请在 Windows 设置 > 隐私和安全性 > 语音 中启用在线语音识别",
+        "Enable Online speech recognition in Windows Settings > Privacy & security > Speech"
+      );
+    }
+    if (platform === "ios") {
+      return t(
+        "请在 iPhone/iPad 设置里允许 Private Talk 使用语音识别",
+        "Allow Private Talk to use Speech Recognition in iPhone/iPad Settings"
+      );
+    }
+    if (platform === "android") {
+      return t(
+        "请确认 Android 设备已启用系统语音识别服务，并允许 Private Talk 使用麦克风",
+        "Make sure Android system speech recognition is enabled and Private Talk can use the microphone"
+      );
+    }
+    if (platform === "macos") {
+      return t(
+        "请在 系统设置 > 隐私与安全性 > 语音识别 中允许 Private Talk",
+        "Allow Private Talk in System Settings > Privacy & Security > Speech Recognition"
+      );
+    }
+    return t(
+      "请在系统设置里允许此应用使用系统语音识别",
+      "Allow this app to use native speech recognition in system settings"
+    );
+  };
+
+  const getSpeechRecognitionSettingsSteps = () => {
+    if (platform === "windows") {
+      return t(
+        "手动路径：1. 打开设置 2. 隐私和安全性 3. 语音 4. 打开“在线语音识别”",
+        "Manual path: 1. Open Settings 2. Privacy & security 3. Speech 4. Turn on Online speech recognition"
+      );
+    }
+    if (platform === "ios") {
+      return t(
+        "手动路径：1. 打开设置 2. 找到 Private Talk 3. 打开“语音识别”",
+        "Manual path: 1. Open Settings 2. Find Private Talk 3. Turn on Speech Recognition"
+      );
+    }
+    if (platform === "android") {
+      return t(
+        "手动路径：1. 打开设置 2. 应用 3. Private Talk 4. 权限 5. 允许麦克风，并确认设备可用系统语音服务",
+        "Manual path: 1. Open Settings 2. Apps 3. Private Talk 4. Permissions 5. Allow microphone and confirm the device has a system speech service"
+      );
+    }
+    if (platform === "macos") {
+      return t(
+        "手动路径：1. 打开系统设置 2. 隐私与安全性 3. 语音识别 4. 打开 Private Talk 的开关",
+        "Manual path: 1. Open System Settings 2. Privacy & Security 3. Speech Recognition 4. Turn on Private Talk"
+      );
+    }
+    return t(
+      "请到系统隐私设置里的语音识别页面，允许 Private Talk 使用系统语音识别",
+      "Go to the speech recognition privacy page in system settings and allow Private Talk"
+    );
+  };
+
+  const getNativeSttErrorMessage = (error: unknown) => {
+    const raw = getErrorMessage(
+      error,
+      t("系统原生语音识别不可用", "Native speech recognition is unavailable")
+    );
+
+    if (raw.startsWith("native-stt-permission-denied:")) {
+      return `${getSpeechRecognitionSettingsHint()} ${getSpeechRecognitionSettingsSteps()}`;
+    }
+    if (raw.startsWith("native-stt-permission-required:")) {
+      return t(
+        "还没有授予系统语音识别权限。再次尝试语音转文字时会触发系统授权。",
+        "Native speech recognition permission has not been granted yet. Try voice-to-text again to trigger the system prompt."
+      );
+    }
+    if (raw.startsWith("native-stt-speech-privacy-disabled:")) {
+      return `${getSpeechRecognitionSettingsHint()} ${getSpeechRecognitionSettingsSteps()}`;
+    }
+    if (raw.startsWith("native-stt-language-unsupported:")) {
+      return t(
+        "系统原生语音识别暂不支持当前系统语音语言，请切换系统语音语言或配置 STT Provider。",
+        "The current system speech language is not supported by native speech recognition. Change the system speech language or configure an STT provider."
+      );
+    }
+    if (raw.startsWith("native-stt-network-required:")) {
+      return t(
+        "系统原生语音识别当前需要联网能力，请检查网络与系统语音设置。",
+        "Native speech recognition currently needs network access. Check your network connection and system speech settings."
+      );
+    }
+    if (raw.startsWith("native-stt-empty-result:")) {
+      return t("没有识别到语音内容，请重试", "No speech was detected");
+    }
+    if (raw.startsWith("native-stt-timeout:")) {
+      return t(
+        "系统原生语音识别超时，请再试一次。",
+        "Native speech recognition timed out. Please try again."
+      );
+    }
+    if (raw.startsWith("native-stt-microphone-unavailable:")) {
+      return t(
+        "系统原生语音识别无法访问麦克风，请确认麦克风没有被其它应用占用。",
+        "Native speech recognition could not access the microphone. Make sure another app is not holding it."
+      );
+    }
+
+    return raw.replace(/^native-stt-[^:]+:\s*/, "");
+  };
+
   const getMicrophoneSettingsSteps = () => {
     if (platform === "windows") {
       return t(
         "手动路径：1. 打开设置 2. 隐私和安全性 3. 麦克风 4. 打开“允许桌面应用访问你的麦克风”，并确认 Private Talk 可访问",
         "Manual path: 1. Open Settings 2. Privacy & security 3. Microphone 4. Turn on desktop app microphone access and confirm Private Talk is allowed"
+      );
+    }
+    if (platform === "ios") {
+      return t(
+        "手动路径：1. 打开设置 2. 找到 Private Talk 3. 打开“麦克风”",
+        "Manual path: 1. Open Settings 2. Find Private Talk 3. Turn on Microphone"
+      );
+    }
+    if (platform === "android") {
+      return t(
+        "手动路径：1. 打开设置 2. 应用 3. Private Talk 4. 权限 5. 允许麦克风",
+        "Manual path: 1. Open Settings 2. Apps 3. Private Talk 4. Permissions 5. Allow microphone"
       );
     }
     if (platform === "macos") {
@@ -728,6 +977,18 @@ export function ChatInput({ onSend, onStop }: Props) {
       return t(
         "如果 Windows 设置已经打开，请进入“隐私和安全性 > 麦克风”，然后打开“允许桌面应用访问你的麦克风”，并确认 Private Talk 可访问。",
         "If Windows Settings is already open, go to Privacy & security > Microphone, then enable desktop app microphone access and confirm Private Talk is allowed."
+      );
+    }
+    if (platform === "ios") {
+      return t(
+        "如果设置已经打开，请进入 Private Talk 的应用设置页，然后打开“麦克风”。",
+        "If Settings is already open, open the Private Talk app settings page and turn on Microphone."
+      );
+    }
+    if (platform === "android") {
+      return t(
+        "如果设置已经打开，请进入“应用 > Private Talk > 权限”，然后允许麦克风。",
+        "If Settings is already open, go to Apps > Private Talk > Permissions and allow Microphone."
       );
     }
     if (platform === "macos") {
@@ -755,6 +1016,22 @@ export function ChatInput({ onSend, onStop }: Props) {
       console.error("Failed to open microphone settings:", error);
       setComposerError(
         `${getMicrophoneSettingsHint()} ${getMicrophoneSettingsSteps()}`
+      );
+    }
+  };
+
+  const openNativeSttSettings = async () => {
+    try {
+      const opened = await api.openNativeSttSettings();
+      if (!opened) {
+        setComposerError(
+          `${getSpeechRecognitionSettingsHint()} ${getSpeechRecognitionSettingsSteps()}`
+        );
+      }
+    } catch (error) {
+      console.error("Failed to open native STT settings:", error);
+      setComposerError(
+        `${getSpeechRecognitionSettingsHint()} ${getSpeechRecognitionSettingsSteps()}`
       );
     }
   };
@@ -900,7 +1177,7 @@ export function ChatInput({ onSend, onStop }: Props) {
       recognition.start();
       return true;
     } catch (error) {
-      console.error("Failed to start system speech recognition:", error);
+      console.error("Failed to start runtime speech recognition:", error);
       systemSpeechSessionRef.current = null;
       return false;
     }
@@ -946,9 +1223,11 @@ export function ChatInput({ onSend, onStop }: Props) {
     async (
       audioBase64: string,
       mimeType: string,
-      systemTranscriptPromise: Promise<string>
+      nativeTranscriptPromise: Promise<string>,
+      runtimeTranscriptPromise: Promise<string>
     ) => {
       let providerError: unknown = null;
+      let nativeError: unknown = null;
 
       if (selectedSttProviderId) {
         try {
@@ -969,23 +1248,62 @@ export function ChatInput({ onSend, onStop }: Props) {
         }
       }
 
-      const systemTranscript = (await systemTranscriptPromise).trim();
-      if (systemTranscript) {
-        return systemTranscript;
+      if (nativeSpeechSupported) {
+        try {
+          const nativeTranscript = (await nativeTranscriptPromise).trim();
+          if (nativeTranscript) {
+            return nativeTranscript;
+          }
+          nativeError = new Error(
+            t("没有识别到语音内容，请重试", "No speech was detected")
+          );
+        } catch (error) {
+          nativeError = error;
+        }
+      }
+
+      const runtimeTranscript = (await runtimeTranscriptPromise).trim();
+      if (runtimeTranscript) {
+        return runtimeTranscript;
+      }
+
+      if (providerError && nativeError) {
+        throw new Error(
+          t(
+            `STT Provider 调用失败，且系统原生回退不可用：${getNativeSttErrorMessage(nativeError)}`,
+            `The STT provider failed, and the native system fallback is unavailable: ${getNativeSttErrorMessage(nativeError)}`
+          )
+        );
+      }
+
+      if (nativeError) {
+        throw new Error(getNativeSttErrorMessage(nativeError));
       }
 
       if (providerError) {
         throw providerError;
       }
 
+      if (runtimeSpeechRecognitionSupported) {
+        throw new Error(
+          t("没有识别到语音内容，请重试", "No speech was detected")
+        );
+      }
+
       throw new Error(
         t(
-          "当前系统没有可用的语音识别能力，请在设置里配置 STT Provider",
-          "No system speech recognition is available. Configure an STT provider in Settings."
+          "当前没有可用的语音识别链路，请在设置里配置 STT Provider",
+          "No speech recognition path is available. Configure an STT provider in Settings."
         )
       );
     },
-    [selectedSttProviderId, t]
+    [
+      getNativeSttErrorMessage,
+      nativeSpeechSupported,
+      runtimeSpeechRecognitionSupported,
+      selectedSttProviderId,
+      t,
+    ]
   );
 
   const handleDragEnter = (event: React.DragEvent) => {
@@ -1020,11 +1338,63 @@ export function ChatInput({ onSend, onStop }: Props) {
     prepareSelectedFiles(files);
   };
 
+  const stopWaveformAnalysis = () => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setWaveformLevels(new Array(24).fill(0));
+  };
+
+  const startWaveformAnalysis = (stream: MediaStream) => {
+    try {
+      const audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.4;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const barCount = 24;
+
+      const updateLevels = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+
+        const levels: number[] = [];
+        const usableBins = Math.min(dataArray.length, barCount);
+        for (let i = 0; i < barCount; i++) {
+          const binIndex = Math.floor((i / barCount) * usableBins);
+          // Normalize 0-255 to 0-1, apply slight curve for visual appeal
+          const raw = dataArray[binIndex] / 255;
+          const scaled = Math.pow(raw, 0.7);
+          // Map to height: min 3px, max 28px
+          levels.push(3 + scaled * 25);
+        }
+        setWaveformLevels(levels);
+        animationFrameRef.current = requestAnimationFrame(updateLevels);
+      };
+
+      animationFrameRef.current = requestAnimationFrame(updateLevels);
+    } catch (error) {
+      console.error("Failed to start waveform analysis:", error);
+    }
+  };
+
   const resetRecordingState = () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    stopWaveformAnalysis();
     setRecordingMode(null);
     setRecordingDuration(0);
     mediaRecorderRef.current = null;
@@ -1034,14 +1404,14 @@ export function ChatInput({ onSend, onStop }: Props) {
   const ensureSpeechReady = () => {
     if (!hasAnySpeechTranscriptionPath) {
       setComposerError(
-        systemSpeechRecognitionSupported
+        isResolvingNativeStt
           ? t(
-              "当前可用系统语音识别，但还没有独立 STT Provider。你也可以直接使用系统识别。",
-              "System speech recognition is available, but no dedicated STT provider is configured. You can still use system recognition directly."
+              "正在检测系统语音识别能力...",
+              "Checking native speech recognition..."
             )
           : t(
-              "当前系统没有可用的语音识别能力，请先在设置里配置 STT Provider",
-              "No system speech recognition is available. Configure an STT provider first."
+              "当前没有可用的语音识别链路，请先在设置里配置 STT Provider",
+              "No speech recognition path is available yet. Configure an STT provider first."
             )
       );
       return false;
@@ -1063,6 +1433,25 @@ export function ChatInput({ onSend, onStop }: Props) {
     if (!ensureSpeechReady()) return;
 
     try {
+      nativeSttCaptureArmedRef.current = false;
+      if (nativeSpeechSupported) {
+        try {
+          const info = await api.beginNativeSttCapture();
+          setNativeSttInfo(info);
+          nativeSttCaptureArmedRef.current =
+            info.supported &&
+            info.status !== "denied" &&
+            info.status !== "unavailable";
+        } catch (error) {
+          console.error("Failed to begin native STT capture:", error);
+          void refreshNativeSttInfo();
+          if (!selectedSttProviderId && !runtimeSpeechRecognitionSupported) {
+            setComposerError(getNativeSttErrorMessage(error));
+            return;
+          }
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = getSupportedMimeType();
       const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
@@ -1081,20 +1470,41 @@ export function ChatInput({ onSend, onStop }: Props) {
 
         const actualMime = recordingMimeTypeRef.current || "audio/webm";
         const recordedChunks = [...chunksRef.current];
-        const systemTranscriptPromise = stopSystemSpeechRecognition();
+        const runtimeTranscriptPromise = shouldUseRuntimeSpeechFallback
+          ? stopSystemSpeechRecognition()
+          : Promise.resolve("");
         resetRecordingState();
 
-        if (recordedChunks.length === 0) return;
+        if (recordedChunks.length === 0) {
+          if (nativeSttCaptureArmedRef.current) {
+            nativeSttCaptureArmedRef.current = false;
+            void api.cancelNativeSttCapture().catch((error) => {
+              console.error("Failed to cancel native STT after empty recording:", error);
+            });
+          }
+          return;
+        }
 
         setTranscribingMode(mode);
 
         try {
           const blob = new Blob(recordedChunks, { type: actualMime });
           const base64 = await readFileAsBase64(blob);
+          const nativeTranscriptPromise = nativeSttCaptureArmedRef.current
+            ? (async () => {
+                try {
+                  return await api.finishNativeSttCapture(base64, actualMime);
+                } finally {
+                  nativeSttCaptureArmedRef.current = false;
+                  void refreshNativeSttInfo();
+                }
+              })()
+            : Promise.resolve("");
           const transcript = await transcribeRecordedAudio(
             base64,
             actualMime,
-            systemTranscriptPromise
+            nativeTranscriptPromise,
+            runtimeTranscriptPromise
           );
           const normalizedTranscript = transcript.trim();
 
@@ -1132,7 +1542,8 @@ export function ChatInput({ onSend, onStop }: Props) {
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
-      if (systemSpeechRecognitionSupported) {
+      startWaveformAnalysis(stream);
+      if (shouldUseRuntimeSpeechFallback) {
         startSystemSpeechRecognition();
       }
       setRecordingMode(mode);
@@ -1144,6 +1555,12 @@ export function ChatInput({ onSend, onStop }: Props) {
     } catch (error) {
       console.error("Microphone access denied:", error);
       handleMicrophoneAccessFailure(error, "recording");
+      if (nativeSttCaptureArmedRef.current) {
+        nativeSttCaptureArmedRef.current = false;
+        void api.cancelNativeSttCapture().catch((cancelError) => {
+          console.error("Failed to cancel native STT capture after start failure:", cancelError);
+        });
+      }
       void stopSystemSpeechRecognition("abort");
       resetRecordingState();
       void refreshMicrophonePermission();
@@ -1165,6 +1582,12 @@ export function ChatInput({ onSend, onStop }: Props) {
       }
     }
     void stopSystemSpeechRecognition("abort");
+    if (nativeSttCaptureArmedRef.current) {
+      nativeSttCaptureArmedRef.current = false;
+      void api.cancelNativeSttCapture().catch((error) => {
+        console.error("Failed to cancel native STT capture:", error);
+      });
+    }
     resetRecordingState();
   };
 
@@ -1188,10 +1611,14 @@ export function ChatInput({ onSend, onStop }: Props) {
                 "当前 WebView2 缺少录音编码能力，请先更新 Microsoft Edge WebView2 Runtime",
                 "This WebView2 runtime does not expose MediaRecorder. Update Microsoft Edge WebView2 Runtime first"
               )
-            : platform === "macos"
+            : platform === "macos" || platform === "ios"
               ? t(
-                  "当前系统 WebKit 没有提供 MediaRecorder，授权后也无法录音。请先升级 macOS / WebKit",
-                  "This system WebKit does not expose MediaRecorder, so permission alone will not enable recording. Update macOS / WebKit first"
+                  platform === "ios"
+                    ? "当前 iOS WebKit 没有提供 MediaRecorder，授权后也无法录音。请先确认系统版本与 WebKit 能力"
+                    : "当前系统 WebKit 没有提供 MediaRecorder，授权后也无法录音。请先升级 macOS / WebKit",
+                  platform === "ios"
+                    ? "This iOS WebKit runtime does not expose MediaRecorder, so permission alone will not enable recording. Check the iOS version and WebKit capability first"
+                    : "This system WebKit does not expose MediaRecorder, so permission alone will not enable recording. Update macOS / WebKit first"
                 )
               : t(
                   "当前环境缺少录音编码能力，授权后也无法录音",
@@ -1215,22 +1642,36 @@ export function ChatInput({ onSend, onStop }: Props) {
     : hasFailedAttachments
       ? t("有附件处理失败，请移除失败项后再发送", "Some attachments failed. Remove the failed items before sending")
       : null;
+  const nativeSttDetailNotice = nativeSttInfo?.detail
+    ? getNativeSttErrorMessage(nativeSttInfo.detail)
+    : null;
   const sttRouteNotice = hasConfiguredSttProvider
-    ? systemSpeechRecognitionSupported
+    ? nativeSpeechSupported
       ? t(
-          `语音转写使用 ${selectedSttProvider?.name ?? "STT Provider"} · ${sttModel}，失败时自动回退到系统识别`,
-          `Speech-to-text uses ${selectedSttProvider?.name ?? "the STT provider"} · ${sttModel}, with automatic fallback to system recognition on failure`
+          `语音转写使用 ${selectedSttProvider?.name ?? "STT Provider"} · ${sttModel}，失败时自动回退到系统原生识别${shouldUseRuntimeSpeechFallback ? "，必要时再回退到运行时识别" : ""}`,
+          `Speech-to-text uses ${selectedSttProvider?.name ?? "the STT provider"} · ${sttModel}, with automatic fallback to native system recognition${shouldUseRuntimeSpeechFallback ? ", then runtime recognition if needed" : ""}`
         )
+      : runtimeSpeechRecognitionSupported
+        ? t(
+            `语音转写使用 ${selectedSttProvider?.name ?? "STT Provider"} · ${sttModel}，失败时自动回退到当前运行时的识别能力`,
+            `Speech-to-text uses ${selectedSttProvider?.name ?? "the STT provider"} · ${sttModel}, with automatic fallback to the current runtime recognition capability on failure`
+          )
       : t(
           `语音转写使用 ${selectedSttProvider?.name ?? "STT Provider"} · ${sttModel}`,
           `Speech-to-text uses ${selectedSttProvider?.name ?? "the STT provider"} · ${sttModel}`
         )
-    : systemSpeechRecognitionSupported
-      ? t(
-          "未配置独立 STT Provider，当前直接使用系统识别",
-          "No dedicated STT provider is configured. Using system recognition directly"
-        )
-      : null;
+    : nativeSpeechSupported
+      ? null
+      : runtimeSpeechRecognitionSupported
+        ? null
+        : isResolvingNativeStt
+          ? t(
+              "正在检测系统原生语音识别能力...",
+              "Checking native system speech recognition..."
+            )
+          : nativeSpeechDenied || nativeSpeechUnavailable
+            ? nativeSttDetailNotice
+            : null;
 
   const helperText = composerError
     ? composerError
@@ -1242,14 +1683,16 @@ export function ChatInput({ onSend, onStop }: Props) {
         ? t("正在处理语音消息...", "Processing voice message...")
         : microphoneNotice
           ? microphoneNotice
-          : !hasAnySpeechTranscriptionPath
-          ? t(
-              "当前系统没有可用语音识别能力，请在设置里配置独立 STT Provider",
-              "No speech recognition is available in this environment. Configure a dedicated STT provider in Settings."
-            )
           : sttRouteNotice
             ? sttRouteNotice
-          : t("Enter 发送，Shift+Enter 换行，也支持粘贴图片", "Press Enter to send, Shift+Enter for a new line, and paste images directly");
+            : !hasAnySpeechTranscriptionPath
+              ? t(
+                  "当前没有可用语音识别链路，请在设置里配置独立 STT Provider",
+                  "No speech recognition path is available. Configure a dedicated STT provider in Settings."
+                )
+              : null;
+
+  const hasImportantHelperText = helperText !== null;
 
   const utilityButtonClass =
     "flex h-10 w-10 items-center justify-center rounded-2xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
@@ -1458,20 +1901,17 @@ export function ChatInput({ onSend, onStop }: Props) {
                       : t("录音中，完成后转成文字", "Recording, stop to convert to text")}
                   </span>
                 </div>
-                <div className="mt-2 flex items-end gap-1">
-                  {[10, 20, 14, 24, 12, 18, 26, 16].map((height, index) => (
+                <div className="mt-2 flex items-end gap-[2px]">
+                  {waveformLevels.map((height, index) => (
                     <div
-                      key={height}
+                      key={index}
                       className={cn(
-                        "w-1 rounded-full animate-pulse",
+                        "w-[3px] rounded-full transition-[height] duration-75",
                         recordingMode === "voice-message"
-                          ? "bg-destructive/50"
-                          : "bg-primary/50"
+                          ? "bg-destructive/60"
+                          : "bg-primary/60"
                       )}
-                      style={{
-                        height,
-                        animationDelay: `${index * 0.08}s`,
-                      }}
+                      style={{ height }}
                     />
                   ))}
                 </div>
@@ -1525,7 +1965,7 @@ export function ChatInput({ onSend, onStop }: Props) {
                   />
                 </div>
 
-                <div className="min-w-0 flex-1">
+                <div className="relative min-w-0 flex-1">
                   <Textarea
                     ref={textareaRef}
                     value={input}
@@ -1545,8 +1985,13 @@ export function ChatInput({ onSend, onStop }: Props) {
                     }
                     disabled={isOtherStreaming}
                     rows={1}
-                    className="min-h-[48px] max-h-40 resize-none border-0 bg-transparent px-3 py-3 leading-6 shadow-none focus-visible:ring-0"
+                    className="min-h-[48px] resize-none overflow-x-hidden overflow-y-hidden break-words border-0 bg-transparent px-3 py-3 pr-14 leading-6 shadow-none focus-visible:ring-0 [overflow-wrap:break-word] [word-break:break-word]"
                   />
+                  {input.trim().length > 0 && (
+                    <span className="pointer-events-none absolute right-2 bottom-1.5 select-none text-[11px] text-muted-foreground/60">
+                      {input.trim().length}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1 self-end pb-0.5">
@@ -1554,8 +1999,10 @@ export function ChatInput({ onSend, onStop }: Props) {
                 </div>
               </div>
 
+              {(hasImportantHelperText || composerAttachments.length > 0) && (
               <div className="flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
+                  {helperText && (
                   <p
                     className={cn(
                       "text-xs leading-5 break-words",
@@ -1564,6 +2011,7 @@ export function ChatInput({ onSend, onStop }: Props) {
                   >
                   {helperText}
                   </p>
+                  )}
                   {microphoneCapability === "ready" &&
                   hasResolvedMicrophonePermission &&
                   (microphonePermission === "prompt" ||
@@ -1593,7 +2041,10 @@ export function ChatInput({ onSend, onStop }: Props) {
                         </Button>
                       )}
                       {microphonePermission === "denied" &&
-                      (platform === "macos" || platform === "windows") ? (
+                      (platform === "macos" ||
+                        platform === "windows" ||
+                        platform === "ios" ||
+                        platform === "android") ? (
                         <Button
                           type="button"
                           variant="outline"
@@ -1605,7 +2056,11 @@ export function ChatInput({ onSend, onStop }: Props) {
                         >
                           {platform === "macos"
                             ? t("打开系统设置", "Open System Settings")
-                            : t("打开 Windows 设置", "Open Windows Settings")}
+                            : platform === "windows"
+                              ? t("打开 Windows 设置", "Open Windows Settings")
+                              : platform === "android"
+                                ? t("打开 Android 设置", "Open Android Settings")
+                                : t("打开应用设置", "Open App Settings")}
                         </Button>
                       ) : null}
                       <Button
@@ -1635,16 +2090,62 @@ export function ChatInput({ onSend, onStop }: Props) {
                       </p>
                     </div>
                   ) : null}
+                  {!hasConfiguredSttProvider &&
+                  !runtimeSpeechRecognitionSupported &&
+                  nativeSpeechNeedsSettings &&
+                  (platform === "macos" ||
+                    platform === "windows" ||
+                    platform === "ios" ||
+                    platform === "android") ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          void openNativeSttSettings();
+                        }}
+                        className="h-7 rounded-full px-3 text-xs"
+                      >
+                        {platform === "macos"
+                          ? t("打开语音识别设置", "Open Speech Recognition Settings")
+                          : platform === "windows"
+                            ? t("打开语音设置", "Open Speech Settings")
+                            : platform === "android"
+                              ? t("打开语音输入设置", "Open Voice Input Settings")
+                              : t("打开应用设置", "Open App Settings")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          void refreshNativeSttInfo();
+                        }}
+                        className="h-7 rounded-full px-2.5 text-xs text-muted-foreground"
+                      >
+                        {t("重新检测", "Refresh")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {!hasConfiguredSttProvider &&
+                  !runtimeSpeechRecognitionSupported &&
+                  nativeSpeechNeedsSettings ? (
+                    <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                      {getSpeechRecognitionSettingsSteps()}
+                    </p>
+                  ) : null}
                 </div>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
-                  {composerAttachments.length > 0
-                    ? t(
-                        `${readyAttachments.length}/${composerAttachments.length} 个附件已就绪`,
-                        `${readyAttachments.length}/${composerAttachments.length} attachment(s) ready`
-                      )
-                    : `${input.trim().length} ${t("字符", "chars")}`}
-                </span>
+                {composerAttachments.length > 0 && (
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {t(
+                      `${readyAttachments.length}/${composerAttachments.length} 个附件已就绪`,
+                      `${readyAttachments.length}/${composerAttachments.length} attachment(s) ready`
+                    )}
+                  </span>
+                )}
               </div>
+              )}
             </>
           )}
         </div>

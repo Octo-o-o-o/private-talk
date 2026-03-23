@@ -58,6 +58,53 @@ function splitTextIntoChunks(text: string): string[] {
   return merged.length > 0 ? merged : [text.trim()];
 }
 
+interface ResolvedPlaybackSegment {
+  roleName: string;
+  text: string;
+  voiceId: string;
+}
+
+interface PlaybackChunk {
+  roleName: string;
+  text: string;
+  voiceId: string;
+}
+
+function mergeAdjacentPlaybackSegments(
+  segments: ResolvedPlaybackSegment[]
+): ResolvedPlaybackSegment[] {
+  const merged: ResolvedPlaybackSegment[] = [];
+
+  for (const segment of segments) {
+    if (!segment.text.trim()) continue;
+
+    const previous = merged[merged.length - 1];
+    if (previous && previous.voiceId === segment.voiceId) {
+      previous.text = `${previous.text}\n${segment.text}`;
+      continue;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return merged;
+}
+
+function expandPlaybackChunks(
+  segments: ResolvedPlaybackSegment[]
+): PlaybackChunk[] {
+  return mergeAdjacentPlaybackSegments(segments).flatMap((segment) =>
+    splitTextIntoChunks(segment.text)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text) => ({
+        roleName: segment.roleName,
+        text,
+        voiceId: segment.voiceId,
+      }))
+  );
+}
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const byteChars = atob(base64);
   const bytes = new Uint8Array(byteChars.length);
@@ -81,11 +128,11 @@ export type TtsPhase = "idle" | "loading" | "playing" | "error";
 
 interface UseTtsOptions {
   messageContent: string;
-  scenarioId?: string;
+  assistantId?: string;
   voiceId?: string;
 }
 
-export function useTts({ messageContent, scenarioId, voiceId }: UseTtsOptions) {
+export function useTts({ messageContent, assistantId, voiceId }: UseTtsOptions) {
   const [phase, setPhase] = useState<TtsPhase>("idle");
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -182,18 +229,54 @@ export function useTts({ messageContent, scenarioId, voiceId }: UseTtsOptions) {
     rafRef.current = requestAnimationFrame(tick);
   }, [cleanup, setTtsPlaying, setPhaseAndRef, resetState]);
 
-  const resolveVoiceId = useCallback(async (): Promise<string | null> => {
-    let vid = voiceId ?? null;
-    if (!vid && scenarioId) {
-      const segments = await api.parseVoiceSegments(messageContent, scenarioId);
-      if (segments.length > 0 && segments[0].voice_id) vid = segments[0].voice_id;
+  const resolvePlaybackChunks = useCallback(async (): Promise<PlaybackChunk[]> => {
+    const voices = useAppStore.getState().voices;
+    const fallbackVoiceId = voiceId ?? voices[0]?.id ?? null;
+
+    if (voiceId) {
+      return expandPlaybackChunks([
+        { roleName: "assistant", text: messageContent, voiceId },
+      ]);
     }
-    if (!vid) {
-      const voices = useAppStore.getState().voices;
-      if (voices.length > 0) vid = voices[0].id;
+
+    if (!assistantId) {
+      return fallbackVoiceId
+        ? expandPlaybackChunks([
+            { roleName: "assistant", text: messageContent, voiceId: fallbackVoiceId },
+          ])
+        : [];
     }
-    return vid;
-  }, [messageContent, scenarioId, voiceId]);
+
+    let parsedSegments;
+    try {
+      parsedSegments = await api.parseVoiceSegments(messageContent, assistantId);
+    } catch (error) {
+      console.warn("[TTS] Failed to parse voice segments, falling back to default voice:", error);
+      return fallbackVoiceId
+        ? expandPlaybackChunks([
+            { roleName: "assistant", text: messageContent, voiceId: fallbackVoiceId },
+          ])
+        : [];
+    }
+
+    const resolvedSegments = parsedSegments
+      .map((segment) => ({
+        roleName: segment.role_name,
+        text: segment.text,
+        voiceId: segment.voice_id ?? fallbackVoiceId,
+      }))
+      .filter((segment): segment is ResolvedPlaybackSegment => Boolean(segment.voiceId));
+
+    if (resolvedSegments.length === 0) {
+      return fallbackVoiceId
+        ? expandPlaybackChunks([
+            { roleName: "assistant", text: messageContent, voiceId: fallbackVoiceId },
+          ])
+        : [];
+    }
+
+    return expandPlaybackChunks(resolvedSegments);
+  }, [messageContent, assistantId, voiceId]);
 
   const toggle = useCallback(async () => {
     // Use ref to avoid stale closure issues with phase
@@ -212,16 +295,15 @@ export function useTts({ messageContent, scenarioId, voiceId }: UseTtsOptions) {
     activeRef.current = true;
 
     try {
-      const vid = await resolveVoiceId();
-      if (!vid || cancelledRef.current) {
+      const playbackChunks = await resolvePlaybackChunks();
+      if (playbackChunks.length === 0 || cancelledRef.current) {
         console.error("[TTS] No voice available");
         setPhaseAndRef("error");
         setTimeout(() => setPhaseAndRef("idle"), 3000);
         return;
       }
 
-      const chunks = splitTextIntoChunks(messageContent);
-      console.log("[TTS] Progressive: split into", chunks.length, "chunks", chunks);
+      console.log("[TTS] Progressive: split into", playbackChunks.length, "chunks", playbackChunks);
 
       // Create AudioContext and ensure it's running
       const ctx = new AudioContext();
@@ -241,11 +323,14 @@ export function useTts({ messageContent, scenarioId, voiceId }: UseTtsOptions) {
       let firstPlayed = false;
       audioDurationRef.current = 0;
 
-      for (let i = 0; i < chunks.length; i++) {
+      for (let i = 0; i < playbackChunks.length; i++) {
         if (cancelledRef.current) break;
         try {
-          console.log(`[TTS] Synthesizing chunk ${i + 1}/${chunks.length}: "${chunks[i].slice(0, 50)}..."`);
-          const result = await api.ttsSynthesize(vid, chunks[i]);
+          const chunk = playbackChunks[i];
+          console.log(
+            `[TTS] Synthesizing chunk ${i + 1}/${playbackChunks.length} (${chunk.roleName}, ${chunk.voiceId}): "${chunk.text.slice(0, 50)}..."`
+          );
+          const result = await api.ttsSynthesize(chunk.voiceId, chunk.text);
           if (cancelledRef.current) break;
 
           const arrayBuf = base64ToArrayBuffer(result.audio_base64);
@@ -300,7 +385,7 @@ export function useTts({ messageContent, scenarioId, voiceId }: UseTtsOptions) {
       setTtsPlaying(false);
       setTimeout(() => setPhaseAndRef("idle"), 3000);
     }
-  }, [messageContent, cleanup, resolveVoiceId, startProgressTracking, stopAllTts, setTtsPlaying, setPhaseAndRef, resetState]);
+  }, [cleanup, resolvePlaybackChunks, startProgressTracking, stopAllTts, setTtsPlaying, setPhaseAndRef, resetState]);
 
   return { phase, progress, elapsed, totalDuration, toggle };
 }

@@ -2,13 +2,13 @@
 
 [简体中文](./README.zh-CN.md)
 
-Private Talk is a local-first, lightweight desktop toolkit for choosing agents and debugging LLM chat, TTS, and OpenClaw Agents.
+Private Talk is a local-first, lightweight desktop toolkit for choosing local assistants, working with OpenClaw Agents, and debugging LLM chat, TTS, and STT flows.
 
 It is built for people who want a small, direct, hackable desktop client instead of a full hosted platform.
 
 ## Highlights
 
-- Local-first. Conversations, providers, scenarios, voices, and OpenClaw connection metadata are stored on your device in local SQLite.
+- Local-first. Conversations, providers, assistant presets, voices, and OpenClaw connection metadata are stored on your device in local SQLite.
 - Bring your own model endpoints. Use your own OpenAI-compatible APIs, self-hosted gateways, or cloud providers.
 - Voice included. Supports both local voice engines and cloud voice endpoints.
 - OpenClaw ready. Works with local OpenClaw Gateways, remote OpenClaw Gateways, local OpenClaw Agents, and native OpenClaw Agents.
@@ -26,7 +26,7 @@ It is built for people who want a small, direct, hackable desktop client instead
 ## Core Features
 
 - Local chat with your own provider configuration
-- Scenario-based prompting and reusable system prompts
+- Assistant presets with reusable instructions and system prompts
 - Local and cloud TTS profiles
 - Voice routing per role
 - STT input support
@@ -78,6 +78,20 @@ pnpm tauri dev
 ```bash
 pnpm build
 pnpm tauri build
+```
+
+### Verified Packaging
+
+For the verified macOS, iOS, and Android packaging flow, see [`docs/packaging.md`](./docs/packaging.md).
+
+Quick commands:
+
+```bash
+pnpm mac:build
+pnpm ios:build
+pnpm ios:build:device
+pnpm android:build
+pnpm package:all
 ```
 
 ## Need More OpenClaw Services?

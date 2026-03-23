@@ -9,37 +9,67 @@ import type {
   OpenClawAgent,
   OpenClawInstance,
   MicrophonePermissionInfo,
+  NativeSttInfo,
   Provider,
   ProviderModelDiscovery,
-  Scenario,
+  Assistant,
   TtsResult,
   Voice,
   VoiceSegmentResult,
   VoiceEngineConfig,
 } from "./types";
 
+interface BackendConversation {
+  id: string;
+  title: string;
+  assistant_id?: string | null;
+  scenario_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  openclaw_instance_id: string | null;
+  openclaw_agent_id: string | null;
+  openclaw_session_key: string | null;
+}
+
+function normalizeConversation(conversation: BackendConversation): Conversation {
+  const assistantId = conversation.assistant_id ?? conversation.scenario_id ?? null;
+  return {
+    ...conversation,
+    assistant_id: assistantId,
+    scenario_id: assistantId,
+  };
+}
+
 // Conversation commands
-export const listConversations = (scenarioId?: string) =>
-  invoke<Conversation[]>("list_conversations", { scenarioId });
+export const listConversations = async (assistantId?: string) =>
+  (await invoke<BackendConversation[]>("list_conversations", { assistantId })).map(
+    normalizeConversation
+  );
 
 export const listFreeConversations = () =>
-  invoke<Conversation[]>("list_free_conversations");
+  invoke<BackendConversation[]>("list_free_conversations").then((conversations) =>
+    conversations.map(normalizeConversation)
+  );
 
 export const createConversation = (
   title?: string,
-  scenarioId?: string,
+  assistantId?: string,
   openclawInstanceId?: string,
   openclawAgentId?: string
 ) =>
-  invoke<Conversation>("create_conversation", {
+  invoke<BackendConversation>("create_conversation", {
     title,
-    scenarioId,
+    assistantId,
     openclawInstanceId,
     openclawAgentId,
-  });
+  }).then(normalizeConversation);
 
-export const updateConversationScenario = (id: string, scenarioId?: string) =>
-  invoke<Conversation>("update_conversation_scenario", { id, scenarioId });
+export const updateConversationAssistant = (id: string, assistantId?: string) =>
+  invoke<BackendConversation>("update_conversation_assistant", { id, assistantId }).then(
+    normalizeConversation
+  );
+
+export const updateConversationScenario = updateConversationAssistant;
 
 export const deleteConversation = (id: string) =>
   invoke<void>("delete_conversation", { id });
@@ -88,13 +118,13 @@ export const discoverProviderModels = (
 export const scanLocalProviders = () =>
   invoke<LocalProviderScanResult[]>("scan_local_providers");
 
-// Scenario commands
-export const listScenarios = () => invoke<Scenario[]>("list_scenarios");
+// Assistant commands
+export const listAssistants = () => invoke<Assistant[]>("list_assistants");
 
-export const getScenario = (id: string) =>
-  invoke<Scenario>("get_scenario", { id });
+export const getAssistant = (id: string) =>
+  invoke<Assistant>("get_assistant", { id });
 
-export const createScenario = (
+export const createAssistant = (
   name: string,
   description: string,
   systemPrompt: string,
@@ -103,7 +133,7 @@ export const createScenario = (
   ttsEnabled?: boolean,
   autoPlay?: boolean
 ) =>
-  invoke<Scenario>("create_scenario", {
+  invoke<Assistant>("create_assistant", {
     name,
     description,
     systemPrompt,
@@ -113,7 +143,7 @@ export const createScenario = (
     autoPlay,
   });
 
-export const updateScenario = (
+export const updateAssistant = (
   id: string,
   name?: string,
   description?: string,
@@ -123,7 +153,7 @@ export const updateScenario = (
   ttsEnabled?: boolean,
   autoPlay?: boolean
 ) =>
-  invoke<void>("update_scenario", {
+  invoke<void>("update_assistant", {
     id,
     name,
     description,
@@ -134,11 +164,18 @@ export const updateScenario = (
     autoPlay,
   });
 
-export const deleteScenario = (id: string) =>
-  invoke<void>("delete_scenario", { id });
+export const deleteAssistant = (id: string) =>
+  invoke<void>("delete_assistant", { id });
 
-export const duplicateScenario = (id: string) =>
-  invoke<Scenario>("duplicate_scenario", { id });
+export const duplicateAssistant = (id: string) =>
+  invoke<Assistant>("duplicate_assistant", { id });
+
+export const listScenarios = listAssistants;
+export const getScenario = getAssistant;
+export const createScenario = createAssistant;
+export const updateScenario = updateAssistant;
+export const deleteScenario = deleteAssistant;
+export const duplicateScenario = duplicateAssistant;
 
 // Chat commands
 export const sendMessage = (
@@ -181,6 +218,24 @@ export const requestNativeMicrophonePermission = () =>
 
 export const openMicrophoneSettings = () =>
   invoke<boolean>("open_microphone_settings");
+
+export const getNativeSttInfo = () =>
+  invoke<NativeSttInfo>("get_native_stt_info");
+
+export const beginNativeSttCapture = () =>
+  invoke<NativeSttInfo>("begin_native_stt_capture");
+
+export const finishNativeSttCapture = (
+  audioBase64: string,
+  mimeType?: string
+) =>
+  invoke<string>("finish_native_stt_capture", { audioBase64, mimeType });
+
+export const cancelNativeSttCapture = () =>
+  invoke<void>("cancel_native_stt_capture");
+
+export const openNativeSttSettings = () =>
+  invoke<boolean>("open_native_stt_settings");
 
 // PIN commands
 export const isPinEnabled = () => invoke<boolean>("is_pin_enabled");
@@ -246,11 +301,11 @@ export const ttsSynthesize = (voiceId: string, text: string) =>
 
 export const parseVoiceSegments = (
   text: string,
-  scenarioId?: string
+  assistantId?: string
 ) =>
   invoke<VoiceSegmentResult[]>("parse_voice_segments", {
     text,
-    scenarioId,
+    assistantId,
   });
 
 // STT commands

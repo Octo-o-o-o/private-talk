@@ -27,7 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 json5 = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.12", features = ["stream", "json", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "multipart", "rustls-tls"] }
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
@@ -39,10 +39,18 @@ base64 = "0.22"
 dirs = "6"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
 objc2-av-foundation = { version = "0.3.2", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
+objc2-foundation = { version = "0.3.2", features = ["NSError", "NSLocale", "NSString", "NSURL"] }
+objc2-speech = "0.3.2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-ui-kit = { version = "0.3.2", features = ["UIApplication"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-native-stt-mobile = { path = "plugins/native-stt-mobile" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61.3", features = ["Devices_Enumeration"] }
+windows = { version = "0.61.3", features = ["Devices_Enumeration", "Foundation", "Globalization", "Media_SpeechRecognition"] }

@@ -10,6 +10,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Empty, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const TEST_TEXT_ZH =
   "春风轻轻吹过窗台，带来了花园里淡淡的清香。这样美好的午后，最适合泡一杯茶，静静地读一本好书。";
@@ -18,9 +28,11 @@ const TEST_TEXT_EN =
 
 export function VoiceManager() {
   const navigate = useNavigate();
-  const { voices, loadVoices } = useAppStore();
+  const { voices, loadVoices, loadAssistants } = useAppStore();
   const { t } = useI18n();
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
@@ -98,12 +110,6 @@ export function VoiceManager() {
     [playingId, stopCurrent, t]
   );
 
-  const handleDelete = async (id: string) => {
-    if (playingId === id) stopCurrent();
-    await api.deleteVoice(id);
-    await loadVoices();
-  };
-
   const presetVoices = voices.filter((voice) => voice.is_preset);
   const customVoices = voices.filter((voice) => !voice.is_preset);
 
@@ -156,7 +162,7 @@ export function VoiceManager() {
                     isLoading={loadingId === voice.id}
                     error={errorId === voice.id ? errorMsg : undefined}
                     onEdit={() => navigate(`/voices/edit/${voice.id}`)}
-                    onDelete={() => void handleDelete(voice.id)}
+                    onDelete={() => { setPendingDeleteId(voice.id); setDeleteConfirmOpen(true); }}
                     onTest={() => void handleTest(voice)}
                     onDismissError={() => setErrorId(null)}
                   />
@@ -176,6 +182,35 @@ export function VoiceManager() {
           </section>
         </div>
       </ScrollArea>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("删除声音？", "Delete voice?")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "此操作将永久删除该声音配置，无法撤销。",
+                "This will permanently delete this voice. This action cannot be undone."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("取消", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (pendingDeleteId) {
+                if (playingId === pendingDeleteId) stopCurrent();
+                void api.deleteVoice(pendingDeleteId).then(() =>
+                  Promise.all([loadVoices(), loadAssistants()])
+                );
+              }
+            }}>
+              {t("确认删除", "Delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

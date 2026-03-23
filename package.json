@@ -25,7 +25,15 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "mobile:setup": "node tools/mobile-toolchain/setup.mjs",
+    "android:init": "node tools/mobile-toolchain/setup.mjs android && node tools/mobile-toolchain/run-tauri.mjs android init --ci",
+    "android:build": "node tools/mobile-toolchain/build-android.mjs",
+    "ios:init": "node tools/mobile-toolchain/setup.mjs ios && node tools/mobile-toolchain/run-tauri.mjs ios init",
+    "ios:build": "node tools/mobile-toolchain/build-ios.mjs",
+    "ios:build:device": "node tools/mobile-toolchain/build-ios.mjs --target aarch64",
+    "mac:build": "node tools/mobile-toolchain/build-macos.mjs",
+    "package:all": "pnpm mac:build && pnpm ios:build:device && pnpm android:build"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

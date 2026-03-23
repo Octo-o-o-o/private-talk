@@ -1,6 +1,7 @@
 use crate::db::DbState;
 use crate::tts::{engine, parser, types::VoiceEngineConfig};
 use serde::Serialize;
+use rusqlite::OptionalExtension;
 use std::collections::HashMap;
 use tauri::State;
 
@@ -57,23 +58,51 @@ pub async fn tts_synthesize(
     })
 }
 
-/// Parse message text into voice segments based on scenario's voice_mapping.
+/// Parse message text into voice segments based on an assistant voice mapping.
 #[tauri::command]
 pub fn parse_voice_segments(
     db: State<DbState>,
     text: String,
-    scenario_id: Option<String>,
+    assistant_id: Option<String>,
 ) -> Result<Vec<VoiceSegmentResult>, String> {
-    let voice_mapping: HashMap<String, Option<String>> = if let Some(sid) = scenario_id {
+    let voice_mapping: HashMap<String, Option<String>> = if let Some(assistant_id) = assistant_id {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mapping_str: String = conn
+        let mapping_str: Option<String> = conn
             .query_row(
                 "SELECT voice_mapping FROM scenarios WHERE id = ?1",
-                rusqlite::params![sid],
+                rusqlite::params![assistant_id],
                 |row| row.get(0),
             )
-            .map_err(|e| format!("Scenario not found: {}", e))?;
-        serde_json::from_str(&mapping_str).unwrap_or_default()
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        let mut mapping: HashMap<String, Option<String>> = mapping_str
+            .as_deref()
+            .map(|value| serde_json::from_str(value).unwrap_or_default())
+            .unwrap_or_default();
+
+        let mut stmt = conn
+            .prepare("SELECT id FROM voices")
+            .map_err(|e| e.to_string())?;
+        let voice_rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        let available_voice_ids: std::collections::HashSet<String> = voice_rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
+
+        for voice_id in mapping.values_mut() {
+            if voice_id
+                .as_ref()
+                .is_some_and(|id| !available_voice_ids.contains(id))
+            {
+                *voice_id = None;
+            }
+        }
+
+        mapping
     } else {
         HashMap::new()
     };
@@ -124,5 +153,12 @@ pub async fn stt_transcribe(
         .decode(&audio_base64)
         .map_err(|e| format!("Invalid base64 audio: {}", e))?;
 
-    engine::transcribe(&base_url, &api_key, audio_data, &stt_model, mime_type.as_deref()).await
+    engine::transcribe(
+        &base_url,
+        &api_key,
+        audio_data,
+        &stt_model,
+        mime_type.as_deref(),
+    )
+    .await
 }

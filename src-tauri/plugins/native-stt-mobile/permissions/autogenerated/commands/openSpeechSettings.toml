@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-openSpeechSettings"
+description = "Enables the openSpeechSettings command without any pre-configured scope."
+commands.allow = ["openSpeechSettings"]
+
+[[permission]]
+identifier = "deny-openSpeechSettings"
+description = "Denies the openSpeechSettings command without any pre-configured scope."
+commands.deny = ["openSpeechSettings"]

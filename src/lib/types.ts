@@ -1,7 +1,9 @@
 export interface Conversation {
   id: string;
   title: string;
-  scenario_id: string | null;
+  assistant_id: string | null;
+  /** @deprecated Legacy compatibility alias for older callers. */
+  scenario_id?: string | null;
   created_at: string;
   updated_at: string;
   openclaw_instance_id: string | null;
@@ -15,6 +17,7 @@ export interface OpenClawInstance {
   gateway_url: string;
   token: string;
   agents_cache: string;
+  is_remote: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -105,7 +108,7 @@ export interface DetectedLocalService {
   openclawDetection?: LocalOpenClawDetection;
 }
 
-export interface Scenario {
+export interface Assistant {
   id: string;
   name: string;
   name_en: string;
@@ -120,6 +123,8 @@ export interface Scenario {
   created_at: string;
   updated_at: string;
 }
+
+export type Scenario = Assistant;
 
 export interface Voice {
   id: string;
@@ -156,6 +161,15 @@ export interface TtsResult {
 export interface MicrophonePermissionInfo {
   status: "unknown" | "prompt" | "granted" | "denied";
   source: "native" | "unsupported";
+}
+
+export interface NativeSttInfo {
+  supported: boolean;
+  status: "ready" | "prompt" | "denied" | "unavailable";
+  source: "native" | "unsupported";
+  platform: "macos" | "windows" | "ios" | "android" | "other";
+  mode: "file" | "live" | "unsupported";
+  detail?: string | null;
 }
 
 export interface VoiceSegmentResult {

@@ -505,6 +505,7 @@ pub struct OpenClawInstance {
     pub gateway_url: String,
     pub token: String,
     pub agents_cache: String,
+    pub is_remote: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -513,7 +514,7 @@ pub struct OpenClawInstance {
 pub fn list_openclaw_instances(db: State<DbState>) -> Result<Vec<OpenClawInstance>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, name, gateway_url, token, agents_cache, created_at, updated_at FROM openclaw_instances ORDER BY created_at DESC")
+        .prepare("SELECT id, name, gateway_url, token, agents_cache, is_remote, created_at, updated_at FROM openclaw_instances ORDER BY created_at DESC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
@@ -523,8 +524,9 @@ pub fn list_openclaw_instances(db: State<DbState>) -> Result<Vec<OpenClawInstanc
                 gateway_url: row.get(2)?,
                 token: row.get(3)?,
                 agents_cache: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                is_remote: row.get::<_, i32>(5)? != 0,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -544,7 +546,9 @@ pub async fn create_openclaw_instance(
     skip_cli_check: Option<bool>,
     agents_cache: Option<String>,
 ) -> Result<OpenClawInstance, String> {
-    if !skip_cli_check.unwrap_or(false) {
+    let is_remote = skip_cli_check.unwrap_or(false);
+
+    if !is_remote {
         // Validate that the openclaw CLI is available
         let cli_check = openclaw_command().arg("--version").output().await;
 
@@ -565,7 +569,12 @@ pub async fn create_openclaw_instance(
         }
     }
 
-    let local_profile = load_matching_local_openclaw_profile(&gateway_url).await;
+    // Only use local profile for non-remote instances
+    let local_profile = if is_remote {
+        None
+    } else {
+        load_matching_local_openclaw_profile(&gateway_url).await
+    };
     let effective_token = if token.trim().is_empty() {
         local_profile
             .as_ref()
@@ -586,8 +595,8 @@ pub async fn create_openclaw_instance(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     conn.execute(
-        "INSERT INTO openclaw_instances (id, name, gateway_url, token, agents_cache, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![id, name, gateway_url, effective_token, agents_json, now, now],
+        "INSERT INTO openclaw_instances (id, name, gateway_url, token, agents_cache, is_remote, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![id, name, gateway_url, effective_token, agents_json, is_remote as i32, now, now],
     )
     .map_err(|e| e.to_string())?;
     Ok(OpenClawInstance {
@@ -596,6 +605,7 @@ pub async fn create_openclaw_instance(
         gateway_url,
         token: effective_token,
         agents_cache: agents_json,
+        is_remote,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -908,7 +918,27 @@ pub async fn list_openclaw_agents(
     token: String,
     instance_id: Option<String>,
 ) -> Result<Vec<OpenClawAgent>, String> {
-    let local_profile = load_matching_local_openclaw_profile(&gateway_url).await;
+    // Check if this is a remote instance — skip local profile merging for remote instances
+    let is_remote = instance_id
+        .as_deref()
+        .map(|iid| {
+            let conn = db.0.lock().ok()?;
+            conn.query_row(
+                "SELECT is_remote FROM openclaw_instances WHERE id = ?1",
+                rusqlite::params![iid],
+                |row| row.get::<_, i32>(0),
+            )
+            .ok()
+            .map(|v| v != 0)
+        })
+        .flatten()
+        .unwrap_or(false);
+
+    let local_profile = if is_remote {
+        None
+    } else {
+        load_matching_local_openclaw_profile(&gateway_url).await
+    };
     let effective_token = if token.trim().is_empty() {
         local_profile
             .as_ref()
@@ -929,8 +959,10 @@ pub async fn list_openclaw_agents(
 
     let cli_result = list_agents_via_cli(&gateway_url, &effective_token).await;
     if let Ok(agents) = cli_result {
-        if let Some(iid) = instance_id.as_deref() {
-            persist_instance_hints(&db, iid, Some(effective_token.as_str()), Some(&agents))?;
+        if !is_remote {
+            if let Some(iid) = instance_id.as_deref() {
+                persist_instance_hints(&db, iid, Some(effective_token.as_str()), Some(&agents))?;
+            }
         }
         return Ok(agents);
     }
@@ -1091,16 +1123,27 @@ pub async fn send_openclaw_message(
     let session_key = session_key.ok_or("Conversation has no OpenClaw session key")?;
 
     // Load instance info
-    let (gateway_url, token) = {
+    let (gateway_url, token, is_remote) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(
-            "SELECT gateway_url, token FROM openclaw_instances WHERE id = ?1",
+            "SELECT gateway_url, token, is_remote FROM openclaw_instances WHERE id = ?1",
             rusqlite::params![instance_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i32>(2)? != 0,
+                ))
+            },
         )
         .map_err(|e| format!("OpenClaw instance not found: {}", e))?
     };
-    let local_profile = load_matching_local_openclaw_profile(&gateway_url).await;
+    // Skip local profile merging for remote instances to avoid connecting to wrong gateway
+    let local_profile = if is_remote {
+        None
+    } else {
+        load_matching_local_openclaw_profile(&gateway_url).await
+    };
     let effective_token = if token.trim().is_empty() {
         local_profile
             .as_ref()

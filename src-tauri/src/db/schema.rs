@@ -95,9 +95,7 @@ pub fn seed_preset_voices(conn: &Connection) -> Result<()> {
     )?;
 
     // Clean up old narrator ID that was renamed
-    conn.execute_batch(
-        "DELETE FROM voices WHERE id = 'preset-voice-narrator' AND is_preset = 1;"
-    )?;
+    conn.execute_batch("DELETE FROM voices WHERE id = 'preset-voice-narrator' AND is_preset = 1;")?;
 
     Ok(())
 }
@@ -440,22 +438,22 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     if version < 14 {
         if !has_column(conn, "voices", "display_name_en")? {
             conn.execute_batch(
-                "ALTER TABLE voices ADD COLUMN display_name_en TEXT NOT NULL DEFAULT '';"
+                "ALTER TABLE voices ADD COLUMN display_name_en TEXT NOT NULL DEFAULT '';",
             )?;
         }
         if !has_column(conn, "voices", "tags_en")? {
             conn.execute_batch(
-                "ALTER TABLE voices ADD COLUMN tags_en TEXT NOT NULL DEFAULT '[]';"
+                "ALTER TABLE voices ADD COLUMN tags_en TEXT NOT NULL DEFAULT '[]';",
             )?;
         }
         if !has_column(conn, "scenarios", "name_en")? {
             conn.execute_batch(
-                "ALTER TABLE scenarios ADD COLUMN name_en TEXT NOT NULL DEFAULT '';"
+                "ALTER TABLE scenarios ADD COLUMN name_en TEXT NOT NULL DEFAULT '';",
             )?;
         }
         if !has_column(conn, "scenarios", "description_en")? {
             conn.execute_batch(
-                "ALTER TABLE scenarios ADD COLUMN description_en TEXT NOT NULL DEFAULT '';"
+                "ALTER TABLE scenarios ADD COLUMN description_en TEXT NOT NULL DEFAULT '';",
             )?;
         }
 
@@ -464,6 +462,17 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         seed_presets(conn)?;
 
         set_schema_version(conn, 14)?;
+    }
+
+    // ── V15: Add is_remote to openclaw_instances ──
+    if version < 15 {
+        if !has_column(conn, "openclaw_instances", "is_remote")? {
+            conn.execute_batch(
+                "ALTER TABLE openclaw_instances ADD COLUMN is_remote INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        set_schema_version(conn, 15)?;
     }
 
     Ok(())

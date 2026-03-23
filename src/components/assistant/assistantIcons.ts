@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export const SCENARIO_ICONS: Record<string, LucideIcon> = {
+export const ASSISTANT_ICONS: Record<string, LucideIcon> = {
   "message-circle": MessageCircle,
   "heart": Heart,
   "gamepad-2": Gamepad2,
@@ -41,6 +41,6 @@ export const SCENARIO_ICONS: Record<string, LucideIcon> = {
   "sparkles": Sparkles,
 };
 
-export function getScenarioIcon(name: string): LucideIcon | null {
-  return SCENARIO_ICONS[name] ?? null;
+export function getAssistantIcon(name: string): LucideIcon | null {
+  return ASSISTANT_ICONS[name] ?? null;
 }

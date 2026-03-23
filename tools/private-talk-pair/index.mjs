@@ -12,27 +12,64 @@ const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
 async function main() {
   console.log("\n  Private Talk - OpenClaw Pairing Tool\n");
 
-  // 1. Try to read local OpenClaw config
+  // 1. Try to read local OpenClaw config (new format first, then legacy)
   let gatewayUrl = "";
   let token = "";
-  const configPath = join(homedir(), ".openclaw", "config.json");
+  let configSource = "";
+
+  const stateDir = process.env.OPENCLAW_STATE_DIR?.trim() || join(homedir(), ".openclaw");
+  const newConfigPath = process.env.OPENCLAW_CONFIG_PATH?.trim() || join(stateDir, "openclaw.json");
+  const legacyConfigPath = join(stateDir, "config.json");
 
   try {
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    gatewayUrl = config.gateway_url || "";
-    token = config.token || "";
-    if (gatewayUrl) {
-      console.log(`  Found local config: ${configPath}`);
-      console.log(`  Gateway URL: ${gatewayUrl}`);
-      console.log(`  Token: ${token ? "***" : "(empty)"}\n`);
+    const root = JSON.parse(readFileSync(newConfigPath, "utf-8"));
+    const port = root?.gateway?.port || 18789;
+    gatewayUrl = `ws://127.0.0.1:${port}`;
+    configSource = newConfigPath;
+
+    // Resolve token from gateway.auth.token (supports plain string or {source, id} object)
+    const authToken = root?.gateway?.auth?.token;
+    if (typeof authToken === "string") {
+      token = authToken.trim();
+    } else if (authToken && typeof authToken === "object") {
+      const source = authToken.source?.trim();
+      const id = authToken.id?.trim()?.replace(/^\//, "");
+      if (source === "env" && id) {
+        token = process.env[id]?.trim() || "";
+      } else if (source === "file" && id && authToken.provider) {
+        // Resolve file-based secret
+        const provider = authToken.provider.trim();
+        const providerCfg = root?.secrets?.providers?.[provider]?.secrets;
+        if (providerCfg?.source === "file" && providerCfg?.path) {
+          try {
+            const secretPath = providerCfg.path.replace(/^~\//, homedir() + "/");
+            const secrets = JSON.parse(readFileSync(secretPath, "utf-8"));
+            token = (typeof secrets[id] === "string" ? secrets[id].trim() : "") || "";
+          } catch { /* ignore */ }
+        }
+      }
     }
   } catch {
-    // no config file
+    // new config not found, try legacy
+    try {
+      const legacy = JSON.parse(readFileSync(legacyConfigPath, "utf-8"));
+      gatewayUrl = legacy.gateway_url || "";
+      token = legacy.token || "";
+      configSource = legacyConfigPath;
+    } catch {
+      // no config file
+    }
   }
 
-  // Also check env var
+  // Also check env var as fallback
   if (!token && process.env.OPENCLAW_GATEWAY_TOKEN) {
     token = process.env.OPENCLAW_GATEWAY_TOKEN;
+  }
+
+  if (configSource) {
+    console.log(`  Found local config: ${configSource}`);
+    console.log(`  Gateway URL: ${gatewayUrl}`);
+    console.log(`  Token: ${token ? "(auto-detected) ***" : "(empty)"}\n`);
   }
 
   // 2. If gateway_url is localhost, ask for public address
@@ -64,7 +101,15 @@ async function main() {
   if (!gatewayUrl) {
     gatewayUrl = await ask("  Gateway URL: ");
   }
-  if (!token) {
+  if (token) {
+    const masked = token.length > 8
+      ? token.slice(0, 4) + "****" + token.slice(-4)
+      : "****";
+    const override = await ask(`  Token [${masked}] (press Enter to keep, or type new): `);
+    if (override.trim()) {
+      token = override.trim();
+    }
+  } else {
     token = await ask("  Token (press Enter to skip): ");
   }
 
@@ -105,9 +150,7 @@ async function main() {
 
   // 5. Generate connection string
   const payload = { v: 1, url: gatewayUrl.trim(), token: token.trim() };
-  if (name.trim() && name.trim() !== "Remote OpenClaw") {
-    payload.name = name.trim();
-  }
+  payload.name = name.trim();
   if (agents.length > 0) {
     payload.agents = agents;
   }

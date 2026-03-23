@@ -24,7 +24,7 @@
 - `src-tauri` 和 `src` 分层清楚，前后端职责没有混在一起。
 - 本地数据放 SQLite，很适合这个项目，不需要引入远端服务或同步层。
 - `usePreferencesStore` 和 `useAppStore` 的区分是对的，说明你已经有“全局状态分层”的意识。
-- Provider / Scenario / Voice / OpenClaw 四条业务线已经能独立演进，说明信息架构基本成型。
+- Provider / Assistant / Voice / OpenClaw 四条业务线已经能独立演进，说明信息架构基本成型。
 - OpenClaw 侧开始尝试做 CLI / 非 CLI 两种路径，这个方向是正确的。
 
 ### 2.2 不建议现在做的事

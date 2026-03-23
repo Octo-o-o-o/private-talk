@@ -11,8 +11,8 @@ const SettingsPage = lazy(() => import("./components/settings/SettingsPage").the
 const UsagePage = lazy(() => import("./components/usage/UsagePage").then(m => ({ default: m.UsagePage })));
 const VoiceManager = lazy(() => import("./components/voice/VoiceManager").then(m => ({ default: m.VoiceManager })));
 const VoiceEditor = lazy(() => import("./components/voice/VoiceEditor").then(m => ({ default: m.VoiceEditor })));
-const ScenarioManager = lazy(() => import("./components/scenario/ScenarioManager").then(m => ({ default: m.ScenarioManager })));
-const ScenarioEditor = lazy(() => import("./components/scenario/ScenarioEditor").then(m => ({ default: m.ScenarioEditor })));
+const AssistantManager = lazy(() => import("./components/assistant/AssistantManager").then(m => ({ default: m.AssistantManager })));
+const AssistantEditor = lazy(() => import("./components/assistant/AssistantEditor").then(m => ({ default: m.AssistantEditor })));
 
 interface MenuZoomPayload {
   action: "in" | "out" | "reset" | "set";
@@ -27,7 +27,7 @@ function App() {
     loadConversations,
     loadProviders,
     loadSpeechSettings,
-    loadScenarios,
+    loadAssistants,
     loadVoices,
     loadOpenClawInstances,
     scanLocalServices,
@@ -41,7 +41,7 @@ function App() {
       });
       const bootstrapResults = await Promise.allSettled([
         checkPinStatus(),
-        loadScenarios(),
+        loadAssistants(),
         loadVoices(),
         loadConversations(),
         loadProviders(),
@@ -67,7 +67,7 @@ function App() {
     loadOpenClawInstances,
     loadProviders,
     loadSpeechSettings,
-    loadScenarios,
+    loadAssistants,
     loadVoices,
     scanLocalServices,
   ]);
@@ -164,10 +164,14 @@ function App() {
             <Route path="/voices" element={<VoiceManager />} />
             <Route path="/voices/new" element={<VoiceEditor />} />
             <Route path="/voices/edit/:voiceId" element={<VoiceEditor />} />
-            <Route path="/scenarios" element={<ScenarioManager />} />
-            <Route path="/scenarios/new" element={<ScenarioEditor />} />
-            <Route path="/scenarios/edit/:scenarioId" element={<ScenarioEditor />} />
-            <Route path="/scenarios/view/:scenarioId" element={<ScenarioEditor />} />
+            <Route path="/assistants" element={<AssistantManager />} />
+            <Route path="/assistants/new" element={<AssistantEditor />} />
+            <Route path="/assistants/edit/:assistantId" element={<AssistantEditor />} />
+            <Route path="/assistants/view/:assistantId" element={<AssistantEditor />} />
+            <Route path="/scenarios" element={<AssistantManager />} />
+            <Route path="/scenarios/new" element={<AssistantEditor />} />
+            <Route path="/scenarios/edit/:scenarioId" element={<AssistantEditor />} />
+            <Route path="/scenarios/view/:scenarioId" element={<AssistantEditor />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

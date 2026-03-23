@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Conversation, DetectedLocalService, Message, OpenClawInstance, Provider, Scenario, Voice } from "../lib/types";
+import type { Conversation, DetectedLocalService, Message, OpenClawInstance, Provider, Assistant, Voice } from "../lib/types";
 import type { LocalOpenClawDetection, LocalProviderScanResult } from "../lib/types";
 import * as api from "../lib/tauri";
 
@@ -15,11 +15,11 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
 
-  // Scenarios
-  scenarios: Scenario[];
-  currentScenarioId: string | null; // null = free chat
-  loadScenarios: () => Promise<void>;
-  selectScenario: (id: string | null) => Promise<void>;
+  // Assistants
+  assistants: Assistant[];
+  currentAssistantId: string | null; // null = free chat
+  loadAssistants: () => Promise<void>;
+  selectAssistant: (id: string | null) => Promise<void>;
 
   // Conversations
   conversations: Conversation[];
@@ -101,31 +101,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 
-  // Scenarios
-  scenarios: [],
-  currentScenarioId: null,
-  loadScenarios: async () => {
-    const scenarios = await api.listScenarios();
-    set({ scenarios });
+  // Assistants
+  assistants: [],
+  currentAssistantId: null,
+  loadAssistants: async () => {
+    const assistants = await api.listAssistants();
+    set({ assistants });
   },
-  selectScenario: async (id) => {
+  selectAssistant: async (id) => {
     const { currentConversationId, messages } = get();
     const isDraftConversation =
       currentConversationId !== null &&
       messages.every((message) => message.role === "system");
 
     if (isDraftConversation) {
-      const updatedConversation = await api.updateConversationScenario(
+      const updatedConversation = await api.updateConversationAssistant(
         currentConversationId,
         id ?? undefined
       );
       set((s) => ({
-        currentScenarioId: id,
+        currentAssistantId: id,
         conversations: s.conversations.map((conversation) =>
           conversation.id === currentConversationId
             ? {
                 ...conversation,
-                scenario_id: updatedConversation.scenario_id,
+                assistant_id: updatedConversation.assistant_id,
                 updated_at: updatedConversation.updated_at,
               }
             : conversation
@@ -133,47 +133,63 @@ export const useAppStore = create<AppState>((set, get) => ({
         messages: [],
       }));
       void get().loadConversations().catch((error) => {
-        console.error("Failed to refresh conversations after scenario change:", error);
+        console.error("Failed to refresh conversations after assistant change:", error);
       });
       return;
     }
 
-    set({ currentScenarioId: id, currentConversationId: null, messages: [] });
+    set({ currentAssistantId: id, currentConversationId: null, messages: [] });
   },
 
   // Conversations
   conversations: [],
   currentConversationId: null,
   loadConversations: async () => {
-    // Always load all conversations (no filtering by scenario)
+    // Always load all conversations (no assistant filtering here)
     const conversations = await api.listConversations();
     set({ conversations });
   },
   selectConversation: async (id) => {
-    // Sync scenario to match the conversation's scenario_id
+    // Sync the selected assistant to match the conversation snapshot
     const conversation = get().conversations.find((c) => c.id === id);
     const { streamingConversationId } = get();
     // Clear streaming display state when switching away from the streaming conversation
     const isTargetStreaming = streamingConversationId === id;
     set({
       currentConversationId: id,
-      currentScenarioId: conversation?.scenario_id ?? null,
+      currentAssistantId: conversation?.assistant_id ?? null,
       // Keep streamingContent only if switching TO the streaming conversation
       streamingContent: isTargetStreaming ? get().streamingContent : "",
       streamingError: "",
     });
     await get().loadMessages(id);
+
+    // If this conversation was marked as streaming, check whether the backend
+    // already has the complete assistant reply. This handles the case where
+    // chat-stream-done fired while the ChatView was unmounted (e.g. user
+    // navigated to another page), so the event listener missed it.
+    if (isTargetStreaming && get().isStreaming) {
+      const msgs = get().messages;
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        set({
+          isStreaming: false,
+          streamingConversationId: null,
+          streamingContent: "",
+        });
+      }
+    }
   },
   createConversation: async () => {
-    const { currentScenarioId } = get();
+    const { currentAssistantId } = get();
     const conv = await api.createConversation(
       undefined,
-      currentScenarioId ?? undefined
+      currentAssistantId ?? undefined
     );
     set((s) => ({
       conversations: [conv, ...s.conversations.filter((item) => item.id !== conv.id)],
       currentConversationId: conv.id,
-      currentScenarioId: conv.scenario_id,
+      currentAssistantId: conv.assistant_id,
       messages: [],
     }));
     void get().loadConversations().catch((error) => {
@@ -381,7 +397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       conversations: [conv, ...s.conversations.filter((item) => item.id !== conv.id)],
       currentConversationId: conv.id,
-      currentScenarioId: null,
+      currentAssistantId: null,
       messages: [],
     }));
     void get().loadConversations().catch((error) => {

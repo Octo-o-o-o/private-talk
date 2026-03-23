@@ -142,21 +142,22 @@ openclaw config set gateway.remote.url wss://gateway-host:18789
 - `loadSession` 仅支持文本历史，不支持 tool call replay
 - Tool streaming 显示原始 I/O，不支持结构化 diff
 
-这些限制对 Private Talk 的聊天场景影响不大。
+这些限制对 Private Talk 的聊天使用影响不大。
 
 ## 4. 推荐架构
 
 ### 4.1 统一用户概念
 
-对用户暴露三个概念：
+对用户暴露四个概念：
 
 - `Providers` — 本地 LLM / Free Chat（保留现有）
-- `Agents` — 统一入口，包含本地 Agent 和远程 OpenClaw Agent
+- `Assistants` — 本地可配置的聊天助手，负责提示词、语音路由和播放行为
+- `Agents` — 远程 OpenClaw Agents
 - `OpenClaw Instances` — 远程 Gateway 连接（通过 ACP 桥接）
 
-### 4.2 统一 Agent 模型
+### 4.2 本地助手与远程 Agent 的统一模型
 
-将当前 `Scenario` 产品语义收敛为 `Agent`：
+当前 `Scenario` 内部实体在 UI 上展示为 `Assistant`，远程 OpenClaw 保持 `Agent` 命名：
 
 - `local_prompt` — 本地可编辑，保留 system_prompt、语音映射等
 - `openclaw_remote` — 只读，来源于 Gateway
@@ -382,7 +383,7 @@ match conversation.route_kind {
 
 所有连接方式的复杂性都由 `openclaw acp --url` 参数吸收：
 
-| 场景 | Gateway URL |
+| 使用方式 | Gateway URL |
 | --- | --- |
 | 本机 | `ws://127.0.0.1:18789`（或省略，使用默认） |
 | 局域网 | `ws://<lan-ip>:18789` |
@@ -392,15 +393,15 @@ match conversation.route_kind {
 
 Private Talk 不需要自己处理传输层——只管传 URL 给 `openclaw acp`。
 
-## 9. Scenario → Agent 命名收敛
+## 9. Scenario → Assistant 命名收敛（UI）
 
-将 `Scenario` 统一为 `Agent`：
+将本地 `Scenario` 在 UI 上统一命名为 `Assistant`：
 
-- 产品语义更准确（Scenario 本质就是轻量 Agent）
-- 与 OpenClaw 的 Agent 概念对齐
-- 统一列表页展示
+- 对普通用户更直观，不需要理解 Scenario / Agent 区别
+- 与远程 OpenClaw `Agent` 保持区分，避免概念混淆
+- 内部数据表 `scenarios` 可继续保留，迁移成本最低
 
-策略：先改 UI 文案和 API 命名，数据表 `scenarios` 可暂时保留。
+策略：先改 UI 文案，保留内部 API 和数据表 `scenarios`。
 
 ## 10. 安全要求
 
@@ -424,7 +425,7 @@ Device identity 和 pairing 由 `openclaw acp` 内部管理，存储在 `~/.open
 
 ### Stage A：基础设施（2-3 天）
 
-- `Scenario -> Agent` UI 命名收敛
+- `Scenario -> Assistant` UI 命名收敛
 - `conversations` 表增加 `route_kind`、`provider_id`、`model`、`instance_id`、`acp_session_id` 字段
 - `send_message` 从 conversation 读取 provider/model（不再从前端参数接收）
 - `openclaw_instances` 表创建

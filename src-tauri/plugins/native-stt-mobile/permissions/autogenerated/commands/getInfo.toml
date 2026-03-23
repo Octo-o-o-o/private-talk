@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-getInfo"
+description = "Enables the getInfo command without any pre-configured scope."
+commands.allow = ["getInfo"]
+
+[[permission]]
+identifier = "deny-getInfo"
+description = "Denies the getInfo command without any pre-configured scope."
+commands.deny = ["getInfo"]

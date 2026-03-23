@@ -166,8 +166,12 @@ fn handle_menu_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri:
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_native_stt_mobile::init());
+
+    let builder = builder
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -181,6 +185,7 @@ pub fn run() {
 
             app.manage(DbState(Mutex::new(conn)));
             app.manage(acp::client::AcpState::new());
+            app.manage(commands::native_stt::NativeSttState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -188,6 +193,7 @@ pub fn run() {
             commands::conversation::list_conversations,
             commands::conversation::list_free_conversations,
             commands::conversation::create_conversation,
+            commands::conversation::update_conversation_assistant,
             commands::conversation::update_conversation_scenario,
             commands::conversation::delete_conversation,
             commands::conversation::rename_conversation,
@@ -200,13 +206,20 @@ pub fn run() {
             commands::provider::set_default_provider,
             commands::provider::discover_provider_models,
             commands::provider::scan_local_providers,
-            // Scenario commands
-            commands::scenario::list_scenarios,
-            commands::scenario::get_scenario,
-            commands::scenario::create_scenario,
-            commands::scenario::update_scenario,
-            commands::scenario::delete_scenario,
-            commands::scenario::duplicate_scenario,
+            // Assistant commands
+            commands::assistant::list_assistants,
+            commands::assistant::get_assistant,
+            commands::assistant::create_assistant,
+            commands::assistant::update_assistant,
+            commands::assistant::delete_assistant,
+            commands::assistant::duplicate_assistant,
+            // Legacy Scenario command aliases
+            commands::assistant::list_scenarios,
+            commands::assistant::get_scenario,
+            commands::assistant::create_scenario,
+            commands::assistant::update_scenario,
+            commands::assistant::delete_scenario,
+            commands::assistant::duplicate_scenario,
             // Settings commands
             commands::settings::get_setting,
             commands::settings::set_setting,
@@ -214,6 +227,11 @@ pub fn run() {
             commands::permissions::get_microphone_permission_status,
             commands::permissions::request_microphone_permission,
             commands::permissions::open_microphone_settings,
+            commands::native_stt::get_native_stt_info,
+            commands::native_stt::begin_native_stt_capture,
+            commands::native_stt::finish_native_stt_capture,
+            commands::native_stt::cancel_native_stt_capture,
+            commands::native_stt::open_native_stt_settings,
             // Voice commands
             commands::voice::list_voices,
             commands::voice::get_voice,

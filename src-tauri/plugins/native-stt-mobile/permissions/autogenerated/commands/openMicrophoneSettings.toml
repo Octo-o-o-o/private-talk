@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-openMicrophoneSettings"
+description = "Enables the openMicrophoneSettings command without any pre-configured scope."
+commands.allow = ["openMicrophoneSettings"]
+
+[[permission]]
+identifier = "deny-openMicrophoneSettings"
+description = "Denies the openMicrophoneSettings command without any pre-configured scope."
+commands.deny = ["openMicrophoneSettings"]

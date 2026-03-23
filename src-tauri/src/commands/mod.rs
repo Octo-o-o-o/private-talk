@@ -1,10 +1,11 @@
+pub mod assistant;
 pub mod chat;
 pub mod conversation;
+pub mod native_stt;
 pub mod openclaw;
 pub mod permissions;
 pub mod pin;
 pub mod provider;
-pub mod scenario;
 pub mod settings;
 pub mod tts;
 pub mod usage;

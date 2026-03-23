@@ -7,6 +7,7 @@ use tauri::State;
 pub struct Conversation {
     pub id: String,
     pub title: String,
+    pub assistant_id: Option<String>,
     pub scenario_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -34,10 +35,12 @@ fn query_conversations(
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(params, |row| {
+            let assistant_id: Option<String> = row.get(2)?;
             Ok(Conversation {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                scenario_id: row.get(2)?,
+                assistant_id: assistant_id.clone(),
+                scenario_id: assistant_id,
                 created_at: row.get(3)?,
                 updated_at: row.get(4)?,
                 openclaw_instance_id: row.get(5)?,
@@ -53,7 +56,7 @@ fn query_conversations(
 fn replace_system_prompt_snapshot(
     conn: &rusqlite::Connection,
     conversation_id: &str,
-    scenario_id: Option<&str>,
+    assistant_id: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
     conn.execute(
@@ -62,14 +65,14 @@ fn replace_system_prompt_snapshot(
     )
     .map_err(|e| e.to_string())?;
 
-    if let Some(sid) = scenario_id {
+    if let Some(assistant_id) = assistant_id {
         let system_prompt: String = conn
             .query_row(
                 "SELECT system_prompt FROM scenarios WHERE id = ?1",
-                rusqlite::params![sid],
+                rusqlite::params![assistant_id],
                 |row| row.get(0),
             )
-            .map_err(|e| format!("Scenario not found: {}", e))?;
+            .map_err(|e| format!("Assistant not found: {}", e))?;
 
         if !system_prompt.is_empty() {
             let msg_id = uuid::Uuid::new_v4().to_string();
@@ -87,17 +90,17 @@ fn replace_system_prompt_snapshot(
 #[tauri::command]
 pub fn list_conversations(
     db: State<DbState>,
-    scenario_id: Option<String>,
+    assistant_id: Option<String>,
 ) -> Result<Vec<Conversation>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    match scenario_id {
-        Some(sid) => query_conversations(
+    match assistant_id {
+        Some(assistant_id) => query_conversations(
             &conn,
             "SELECT id, title, scenario_id, created_at, updated_at, openclaw_instance_id, openclaw_agent_id, openclaw_session_key
              FROM conversations
              WHERE scenario_id = ?1 AND deleted_at IS NULL
              ORDER BY updated_at DESC",
-            &[&sid as &dyn rusqlite::types::ToSql],
+            &[&assistant_id as &dyn rusqlite::types::ToSql],
         ),
         None => query_conversations(
             &conn,
@@ -110,7 +113,7 @@ pub fn list_conversations(
     }
 }
 
-/// List conversations with no scenario (free chat)
+/// List conversations with no assistant preset (free chat)
 #[tauri::command]
 pub fn list_free_conversations(db: State<DbState>) -> Result<Vec<Conversation>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -128,7 +131,7 @@ pub fn list_free_conversations(db: State<DbState>) -> Result<Vec<Conversation>, 
 pub fn create_conversation(
     db: State<DbState>,
     title: Option<String>,
-    scenario_id: Option<String>,
+    assistant_id: Option<String>,
     openclaw_instance_id: Option<String>,
     openclaw_agent_id: Option<String>,
 ) -> Result<Conversation, String> {
@@ -145,16 +148,17 @@ pub fn create_conversation(
 
     conn.execute(
         "INSERT INTO conversations (id, title, scenario_id, openclaw_instance_id, openclaw_agent_id, openclaw_session_key, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![id, title, scenario_id, openclaw_instance_id, openclaw_agent_id, openclaw_session_key, now, now],
+        rusqlite::params![id, title, assistant_id, openclaw_instance_id, openclaw_agent_id, openclaw_session_key, now, now],
     )
     .map_err(|e| e.to_string())?;
 
-    replace_system_prompt_snapshot(&conn, &id, scenario_id.as_deref(), &now)?;
+    replace_system_prompt_snapshot(&conn, &id, assistant_id.as_deref(), &now)?;
 
     Ok(Conversation {
         id,
         title,
-        scenario_id,
+        assistant_id: assistant_id.clone(),
+        scenario_id: assistant_id,
         created_at: now.clone(),
         updated_at: now,
         openclaw_instance_id,
@@ -164,10 +168,10 @@ pub fn create_conversation(
 }
 
 #[tauri::command]
-pub fn update_conversation_scenario(
+pub fn update_conversation_assistant(
     db: State<DbState>,
     id: String,
-    scenario_id: Option<String>,
+    assistant_id: Option<String>,
 ) -> Result<Conversation, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
@@ -188,29 +192,39 @@ pub fn update_conversation_scenario(
         .map_err(|e| e.to_string())?;
 
     if sent_message_count > 0 {
-        return Err("Cannot change scenario after messages have been sent".to_string());
+        return Err("Cannot change assistant after messages have been sent".to_string());
     }
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     conn.execute(
         "UPDATE conversations SET scenario_id = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
-        rusqlite::params![scenario_id, now, id],
+        rusqlite::params![assistant_id, now, id],
     )
     .map_err(|e| e.to_string())?;
 
-    replace_system_prompt_snapshot(&conn, &id, scenario_id.as_deref(), &now)?;
+    replace_system_prompt_snapshot(&conn, &id, assistant_id.as_deref(), &now)?;
 
     Ok(Conversation {
         id,
         title,
-        scenario_id,
+        assistant_id: assistant_id.clone(),
+        scenario_id: assistant_id,
         created_at,
         updated_at: now,
         openclaw_instance_id: oc_instance_id,
         openclaw_agent_id: oc_agent_id,
         openclaw_session_key: oc_session_key,
     })
+}
+
+#[tauri::command]
+pub fn update_conversation_scenario(
+    db: State<DbState>,
+    id: String,
+    scenario_id: Option<String>,
+) -> Result<Conversation, String> {
+    update_conversation_assistant(db, id, scenario_id)
 }
 
 #[tauri::command]

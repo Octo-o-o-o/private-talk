@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, Sparkles, ArrowDown, AlertCircle, ChevronUp } from "lucide-react";
+import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp } from "lucide-react";
+import appIconUrl from "@/assets/app-icon.png";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -31,8 +32,8 @@ export function ChatView() {
     messages,
     conversations,
     currentConversationId,
-    currentScenarioId,
-    scenarios,
+    currentAssistantId,
+    assistants,
     isStreaming,
     streamingConversationId,
     streamingContent,
@@ -44,7 +45,7 @@ export function ChatView() {
     selectedModel,
     providers,
     createConversation,
-    selectScenario,
+    selectAssistant,
     setSelectedProvider,
     setSelectedModel,
     generateTitle,
@@ -66,12 +67,13 @@ export function ChatView() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [contextSize, setContextSize] = useState(20);
 
-  const currentScenario = scenarios.find((scenario) => scenario.id === currentScenarioId);
+  const currentAssistant = assistants.find((assistant) => assistant.id === currentAssistantId);
   const currentProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const systemPromptSnapshot = messages.find((message) => message.role === "system")?.content ?? null;
   const ttsEnabled = isOpenClawConversation
     ? voices.length > 0
-    : (currentScenario?.tts_enabled ?? false);
-  const canSelectScenario = !messages.some((message) => message.role !== "system");
+    : (currentAssistant?.tts_enabled ?? false);
+  const canSelectAssistant = !messages.some((message) => message.role !== "system");
 
   const checkIfNearBottom = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -140,6 +142,24 @@ export function ChatView() {
     };
     void load();
   }, []);
+
+  // On mount (or when conversation changes), clear stale streaming state.
+  // This handles the case where chat-stream-done fired while ChatView was
+  // unmounted (e.g. user navigated to Settings and back), so the event
+  // listener missed it and isStreaming was never cleared.
+  useEffect(() => {
+    if (
+      isStreaming &&
+      streamingConversationId === currentConversationId &&
+      currentConversationId
+    ) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        setStreaming(false);
+        clearStreamingContent();
+      }
+    }
+  }, [currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Buffer stream chunks and flush once per animation frame for smooth rendering
   const chunkBufferRef = useRef("");
@@ -397,7 +417,7 @@ export function ChatView() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-12 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4">
-        {/* Left: Scenario selector (local) or Agent name (OpenClaw) */}
+        {/* Left: Assistant selector (local) or Agent name (OpenClaw) */}
         <div className="flex min-w-0 items-center gap-2">
           {isOpenClawConversation ? (
             <div className="flex h-7 items-center gap-2 rounded-md px-2">
@@ -408,7 +428,7 @@ export function ChatView() {
                 {currentConversation?.title ?? "Agent"}
               </span>
             </div>
-          ) : canSelectScenario ? (
+          ) : canSelectAssistant ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -417,43 +437,43 @@ export function ChatView() {
                   className="h-7 gap-2 bg-background/50 hover:bg-background"
                 >
                   <span className="truncate text-sm">
-                    {currentScenario ? tField(currentScenario.name, currentScenario.name_en) : t("自由对话", "Free Chat")}
+                    {currentAssistant ? tField(currentAssistant.name, currentAssistant.name_en) : t("自由对话", "Free Chat")}
                   </span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuItem
-                  onClick={() => void selectScenario(null)}
-                  className={cn(currentScenarioId === null && "bg-accent")}
+                  onClick={() => void selectAssistant(null)}
+                  className={cn(currentAssistantId === null && "bg-accent")}
                 >
                   <span className="text-sm">{t("自由对话", "Free Chat")}</span>
                 </DropdownMenuItem>
-                {scenarios.map((scenario) => (
+                {assistants.map((assistant) => (
                   <DropdownMenuItem
-                    key={scenario.id}
-                    onClick={() => void selectScenario(scenario.id)}
-                    className={cn(scenario.id === currentScenarioId && "bg-accent")}
+                    key={assistant.id}
+                    onClick={() => void selectAssistant(assistant.id)}
+                    className={cn(assistant.id === currentAssistantId && "bg-accent")}
                   >
                     <div className="flex-1">
-                      <span className="text-sm">{tField(scenario.name, scenario.name_en)}</span>
-                      {scenario.is_preset ? (
+                      <span className="text-sm">{tField(assistant.name, assistant.name_en)}</span>
+                      {assistant.is_preset ? (
                         <span className="ml-2 text-xs text-primary">{t("预设", "Preset")}</span>
                       ) : null}
                     </div>
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate("/scenarios")}>
+                <DropdownMenuItem onClick={() => navigate("/assistants")}>
                   <Settings className="mr-2 h-4 w-4" />
-                  {t("管理场景", "Manage")}
+                  {t("管理助手", "Manage assistants")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <div className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground">
               <span className="truncate text-sm">
-                {currentScenario ? tField(currentScenario.name, currentScenario.name_en) : t("自由对话", "Free Chat")}
+                {currentAssistant ? tField(currentAssistant.name, currentAssistant.name_en) : t("自由对话", "Free Chat")}
               </span>
             </div>
           )}
@@ -527,8 +547,8 @@ export function ChatView() {
             {!currentConversationId ? (
               <div className="flex min-h-[calc(100vh-220px)] items-center justify-center">
                 <div className="flex max-w-md flex-col items-center text-center">
-                  <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <Sparkles className="h-7 w-7 text-primary" />
+                  <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl">
+                    <img src={appIconUrl} alt="Private Talk" className="h-16 w-16 rounded-2xl" />
                   </div>
                   <h2 className="text-xl font-semibold tracking-tight">Private Talk</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
@@ -549,11 +569,15 @@ export function ChatView() {
               </div>
             ) : (
               <>
-                {currentScenario?.system_prompt ? (
+                {(systemPromptSnapshot ?? currentAssistant?.system_prompt) ? (
                   <SystemPromptPreview
-                    scenarioName={tField(currentScenario.name, currentScenario.name_en)}
-                    systemPrompt={currentScenario.system_prompt}
-                    isPreset={currentScenario.is_preset}
+                    assistantName={
+                      currentAssistant
+                        ? tField(currentAssistant.name, currentAssistant.name_en)
+                        : t("会话快照", "Conversation Snapshot")
+                    }
+                    systemPrompt={systemPromptSnapshot ?? currentAssistant?.system_prompt ?? ""}
+                    isPreset={currentAssistant?.is_preset ?? false}
                   />
                 ) : null}
                 {messages
@@ -564,7 +588,7 @@ export function ChatView() {
                       role={message.role as "user" | "assistant"}
                       content={message.content}
                       showTts={ttsEnabled && message.role === "assistant"}
-                      scenarioId={currentScenarioId}
+                      assistantId={currentAssistantId}
                       messageId={message.id}
                       isPinned={message.is_pinned}
                       attachments={message.attachments}
@@ -578,8 +602,8 @@ export function ChatView() {
                 ) : null}
                 {isCurrentStreaming && !streamingContent ? (
                   <div className="flex gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full">
+                      <img src={appIconUrl} alt="" className="h-8 w-8 rounded-full" />
                     </div>
                     <div className="rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
                       <div className="flex items-center gap-1.5">
@@ -638,11 +662,11 @@ export function ChatView() {
 }
 
 function SystemPromptPreview({
-  scenarioName,
+  assistantName,
   systemPrompt,
   isPreset,
 }: {
-  scenarioName: string;
+  assistantName: string;
   systemPrompt: string;
   isPreset: boolean;
 }) {
@@ -666,7 +690,7 @@ function SystemPromptPreview({
             <span className="text-xs font-medium text-muted-foreground">
               {t("系统提示词", "System Prompt")}
             </span>
-            <span className="text-xs font-medium text-foreground">{scenarioName}</span>
+            <span className="text-xs font-medium text-foreground">{assistantName}</span>
             {isPreset ? (
               <span className="text-[10px] text-primary">{t("预设", "Preset")}</span>
             ) : null}

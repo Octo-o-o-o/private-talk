@@ -1,43 +1,56 @@
 import { useAppStore } from "../../stores/appStore";
 import * as api from "../../lib/tauri";
+import { useState } from "react";
 import { Plus, Edit2, Trash2, Copy, Eye, ArrowLeft, Check, MessageSquare, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
-import type { Scenario } from "../../lib/types";
+import type { Assistant } from "../../lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-export function ScenarioManager() {
+export function AssistantManager() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { scenarios, currentScenarioId, loadScenarios, selectScenario } = useAppStore();
+  const { assistants, currentAssistantId, loadAssistants, selectAssistant } = useAppStore();
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  const handleEdit = (scenario: Scenario) => {
-    navigate(`/scenarios/edit/${scenario.id}`);
+  const handleEdit = (assistant: Assistant) => {
+    navigate(`/assistants/edit/${assistant.id}`);
   };
 
-  const handleView = (scenario: Scenario) => {
-    navigate(`/scenarios/view/${scenario.id}`);
+  const handleView = (assistant: Assistant) => {
+    navigate(`/assistants/view/${assistant.id}`);
   };
 
   const handleDelete = async (id: string) => {
     try {
-      await api.deleteScenario(id);
-      await loadScenarios();
+      await api.deleteAssistant(id);
+      await loadAssistants();
     } catch (e) {
-      console.error("Delete scenario failed:", e);
+      console.error("Delete assistant failed:", e);
     }
   };
 
   const handleDuplicate = async (id: string) => {
     try {
-      await api.duplicateScenario(id);
-      await loadScenarios();
+      await api.duplicateAssistant(id);
+      await loadAssistants();
     } catch (e) {
-      console.error("Duplicate scenario failed:", e);
+      console.error("Duplicate assistant failed:", e);
     }
   };
 
@@ -48,11 +61,11 @@ export function ScenarioManager() {
           <Button variant="ghost" size="icon-sm" onClick={() => navigate("/settings")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-lg font-semibold">{t("场景", "Scenarios")}</h1>
+          <h1 className="text-lg font-semibold">{t("助手", "Assistants")}</h1>
         </div>
-        <Button onClick={() => navigate("/scenarios/new")}>
+        <Button onClick={() => navigate("/assistants/new")}>
           <Plus className="mr-2 h-4 w-4" />
-          {t("新建场景", "New Scenario")}
+          {t("新建助手", "New Assistant")}
         </Button>
       </div>
 
@@ -60,38 +73,60 @@ export function ScenarioManager() {
         <div className="mx-auto max-w-2xl p-6">
           <p className="mb-6 text-sm text-muted-foreground">
             {t(
-              "场景会把系统提示词、可选的语音路由和播放行为一起绑定到新会话上。",
-              "Scenarios bundle a system prompt, optional voice routing, and playback behavior for new sessions."
+              "每个助手都可以绑定系统提示词、语音路由和播放行为，新会话会自动继承这些设置。",
+              "Each assistant bundles its instructions, voice routing, and playback behavior for new chats."
             )}
           </p>
 
           <div className="space-y-3">
-            <ScenarioCard
-              scenario={null}
-              isSelected={currentScenarioId === null}
-              onSelect={() => void selectScenario(null)}
+            <AssistantCard
+              assistant={null}
+              isSelected={currentAssistantId === null}
+              onSelect={() => void selectAssistant(null)}
             />
-            {scenarios.map((scenario) => (
-              <ScenarioCard
-                key={scenario.id}
-                scenario={scenario}
-                isSelected={scenario.id === currentScenarioId}
-                onSelect={() => void selectScenario(scenario.id)}
-                onView={scenario.is_preset ? () => handleView(scenario) : undefined}
-                onEdit={!scenario.is_preset ? () => handleEdit(scenario) : undefined}
-                onDelete={!scenario.is_preset ? () => void handleDelete(scenario.id) : undefined}
-                onDuplicate={() => void handleDuplicate(scenario.id)}
+            {assistants.map((assistant) => (
+              <AssistantCard
+                key={assistant.id}
+                assistant={assistant}
+                isSelected={assistant.id === currentAssistantId}
+                onSelect={() => void selectAssistant(assistant.id)}
+                onView={assistant.is_preset ? () => handleView(assistant) : undefined}
+                onEdit={!assistant.is_preset ? () => handleEdit(assistant) : undefined}
+                onDelete={!assistant.is_preset ? () => { setPendingDeleteId(assistant.id); setDeleteConfirmOpen(true); } : undefined}
+                onDuplicate={() => void handleDuplicate(assistant.id)}
               />
             ))}
           </div>
         </div>
       </ScrollArea>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("删除助手？", "Delete assistant?")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "此操作将永久删除这个助手配置，无法撤销。",
+                "This will permanently delete this assistant. This action cannot be undone."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("取消", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (pendingDeleteId) void handleDelete(pendingDeleteId); }}>
+              {t("确认删除", "Delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-interface ScenarioCardProps {
-  scenario: Scenario | null;
+interface AssistantCardProps {
+  assistant: Assistant | null;
   isSelected: boolean;
   onSelect: () => void;
   onView?: () => void;
@@ -100,16 +135,16 @@ interface ScenarioCardProps {
   onDuplicate?: () => void;
 }
 
-function ScenarioCard({
-  scenario,
+function AssistantCard({
+  assistant,
   isSelected,
   onSelect,
   onView,
   onEdit,
   onDelete,
   onDuplicate,
-}: ScenarioCardProps) {
-  const isFreeChat = scenario === null;
+}: AssistantCardProps) {
+  const isFreeChat = assistant === null;
   const { t, tField } = useI18n();
 
   return (
@@ -132,8 +167,8 @@ function ScenarioCard({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-medium">{isFreeChat ? t("自由对话", "Free Chat") : tField(scenario.name, scenario.name_en)}</h3>
-              {!isFreeChat && scenario.is_preset ? (
+              <h3 className="font-medium">{isFreeChat ? t("自由对话", "Free Chat") : tField(assistant.name, assistant.name_en)}</h3>
+              {!isFreeChat && assistant.is_preset ? (
                 <Badge variant="secondary" className="text-xs">
                   {t("预设", "Preset")}
                 </Badge>
@@ -143,13 +178,13 @@ function ScenarioCard({
               {isFreeChat
                 ? t(
                     "启动不带预设提示词和语音路由的新会话。",
-                    "Start sessions without a preset system prompt or voice routing."
+                    "Start a chat without preset instructions or voice routing."
                   )
-                : tField(scenario.description, scenario.description_en)}
+                : tField(assistant.description, assistant.description_en)}
             </p>
-            {!isFreeChat && scenario.system_prompt ? (
+            {!isFreeChat && assistant.system_prompt ? (
               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground/80">
-                {scenario.system_prompt}
+                {assistant.system_prompt}
               </p>
             ) : null}
           </div>

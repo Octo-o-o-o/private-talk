@@ -23,6 +23,48 @@ fn parse_json_object(json_str: &str) -> serde_json::Value {
     serde_json::from_str(json_str).unwrap_or(serde_json::json!({}))
 }
 
+fn remove_voice_from_assistants(
+    conn: &rusqlite::Connection,
+    voice_id: &str,
+) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT id, voice_mapping FROM scenarios")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    for row in rows {
+        let (assistant_id, mapping_str) = row.map_err(|e| e.to_string())?;
+        let mut mapping: std::collections::HashMap<String, Option<String>> =
+            serde_json::from_str(&mapping_str).unwrap_or_default();
+        let mut changed = false;
+
+        for value in mapping.values_mut() {
+            if value.as_deref() == Some(voice_id) {
+                *value = None;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            continue;
+        }
+
+        let updated_mapping = serde_json::to_string(&mapping).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE scenarios SET voice_mapping = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![updated_mapping, now, assistant_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_voices(db: State<DbState>) -> Result<Vec<Voice>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -203,6 +245,7 @@ pub fn delete_voice(db: State<DbState>, id: String) -> Result<(), String> {
 
     conn.execute("DELETE FROM voices WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
+    remove_voice_from_assistants(&conn, &id)?;
     Ok(())
 }
 

@@ -1,0 +1,7 @@
+#!/bin/zsh
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+toolchain_bin="$("$script_dir/resolve-llvm-bin" )"
+
+exec "$toolchain_bin/x86_64-linux-android24-clang" "$@"

@@ -34,7 +34,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Private Talk needs microphone access for voice input</string>
+	<string>Private Talk needs microphone access for voice input and voice messages.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Private Talk needs Speech Recognition access to transcribe voice input with macOS native speech recognition.</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

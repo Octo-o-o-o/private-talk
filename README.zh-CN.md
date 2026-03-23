@@ -2,13 +2,13 @@
 
 [English](./README.md)
 
-Private Talk 是一个本地优先、非常轻量的桌面工具包，用来选择 Agent，并调试大模型对话、TTS 以及 OpenClaw Agents。
+Private Talk 是一个本地优先、非常轻量的桌面工具包，用来选择本地助手、连接 OpenClaw Agents，并调试大模型对话、TTS 和 STT 流程。
 
 它适合想要一个小而直接、可自己配置、可自己接模型和语音服务的本地桌面客户端，而不是一整套托管平台的人。
 
 ## 项目特点
 
-- 全本地化、无自建云端依赖。对话、Provider、Scenario、Voice、OpenClaw 连接信息都保存在本机 SQLite。
+- 全本地化、无自建云端依赖。对话、Provider、助手配置、Voice、OpenClaw 连接信息都保存在本机 SQLite。
 - 自己配置模型。支持接入你自己的 OpenAI-compatible 接口、本地模型网关或云端模型服务。
 - 同时支持本地 voice 和云端 voice。
 - 支持 OpenClaw Agents，包括本地 OpenClaw Gateway、远程 OpenClaw Gateway、本地 OpenClaw Agents 和原生 OpenClaw Agents。
@@ -26,7 +26,7 @@ Private Talk 是一个本地优先、非常轻量的桌面工具包，用来选�
 ## 核心能力
 
 - 本地聊天与自定义 Provider 配置
-- 基于 Scenario 的提示词管理
+- 基于助手的提示词管理与可复用系统提示词
 - 本地与云端 TTS 配置
 - 按角色映射不同 voice
 - STT 语音输入
@@ -78,6 +78,20 @@ pnpm tauri dev
 ```bash
 pnpm build
 pnpm tauri build
+```
+
+### 已验证打包流程
+
+已经验证过的 macOS、iOS、Android 打包流程见 [`docs/packaging.zh-CN.md`](./docs/packaging.zh-CN.md)。
+
+常用命令：
+
+```bash
+pnpm mac:build
+pnpm ios:build
+pnpm ios:build:device
+pnpm android:build
+pnpm package:all
 ```
 
 ## 如果你需要更多 OpenClaw 服务能力

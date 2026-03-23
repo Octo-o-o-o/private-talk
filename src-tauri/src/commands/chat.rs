@@ -514,8 +514,7 @@ pub async fn prepare_text_attachment(
             .and_then(|e| e.to_str())
             .unwrap_or("txt");
         let dest = month_dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
-        std::fs::write(&dest, &content)
-            .map_err(|e| format!("Failed to write text file: {}", e))?;
+        std::fs::write(&dest, &content).map_err(|e| format!("Failed to write text file: {}", e))?;
 
         let prepared = attachments::PreparedAttachment {
             id: uuid::Uuid::new_v4().to_string(),

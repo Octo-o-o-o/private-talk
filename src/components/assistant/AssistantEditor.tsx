@@ -25,21 +25,22 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { SCENARIO_ICONS } from "./scenarioIcons";
+import { ASSISTANT_ICONS } from "./assistantIcons";
 
-export function ScenarioEditor() {
+export function AssistantEditor() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { scenarioId } = useParams();
+  const { assistantId, scenarioId } = useParams();
+  const activeAssistantId = assistantId ?? scenarioId;
   const { t, tField } = useI18n();
-  const scenarios = useAppStore((s) => s.scenarios);
-  const loadScenarios = useAppStore((s) => s.loadScenarios);
-  const editingScenario = scenarioId
-    ? scenarios.find((scenario) => scenario.id === scenarioId) ?? null
+  const assistants = useAppStore((s) => s.assistants);
+  const loadAssistants = useAppStore((s) => s.loadAssistants);
+  const editingAssistant = activeAssistantId
+    ? assistants.find((assistant) => assistant.id === activeAssistantId) ?? null
     : null;
-  const isNew = !scenarioId;
-  const isPreset = location.pathname.includes("/view/") || (editingScenario?.is_preset ?? false);
-  const isMissing = Boolean(scenarioId) && !editingScenario;
+  const isNew = !activeAssistantId;
+  const isPreset = location.pathname.includes("/view/") || (editingAssistant?.is_preset ?? false);
+  const isMissing = Boolean(activeAssistantId) && !editingAssistant;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -52,14 +53,14 @@ export function ScenarioEditor() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (editingScenario) {
-      setName(tField(editingScenario.name, editingScenario.name_en));
-      setDescription(tField(editingScenario.description, editingScenario.description_en));
-      setIcon(editingScenario.icon || "");
-      setSystemPrompt(editingScenario.system_prompt);
-      setVoiceMapping(editingScenario.voice_mapping || {});
-      setTtsEnabled(editingScenario.tts_enabled ?? false);
-      setAutoPlay(editingScenario.auto_play ?? false);
+    if (editingAssistant) {
+      setName(tField(editingAssistant.name, editingAssistant.name_en));
+      setDescription(tField(editingAssistant.description, editingAssistant.description_en));
+      setIcon(editingAssistant.icon || "");
+      setSystemPrompt(editingAssistant.system_prompt);
+      setVoiceMapping(editingAssistant.voice_mapping || {});
+      setTtsEnabled(editingAssistant.tts_enabled ?? false);
+      setAutoPlay(editingAssistant.auto_play ?? false);
       return;
     }
 
@@ -70,19 +71,19 @@ export function ScenarioEditor() {
     setVoiceMapping({});
     setTtsEnabled(false);
     setAutoPlay(false);
-  }, [editingScenario, tField]);
+  }, [editingAssistant, tField]);
 
   const handleSave = async () => {
     setError("");
     if (!name.trim()) {
-      setError(t("场景名称不能为空", "Scenario name is required"));
+      setError(t("助手名称不能为空", "Assistant name is required"));
       return;
     }
 
     setSaving(true);
     try {
       if (isNew) {
-        await api.createScenario(
+        await api.createAssistant(
           name.trim(),
           description.trim(),
           systemPrompt,
@@ -91,9 +92,9 @@ export function ScenarioEditor() {
           ttsEnabled,
           autoPlay
         );
-      } else if (editingScenario) {
-        await api.updateScenario(
-          editingScenario.id,
+      } else if (editingAssistant) {
+        await api.updateAssistant(
+          editingAssistant.id,
           name.trim(),
           description.trim(),
           systemPrompt,
@@ -104,8 +105,8 @@ export function ScenarioEditor() {
         );
       }
 
-      await loadScenarios();
-      navigate("/scenarios");
+      await loadAssistants();
+      navigate("/assistants");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -114,7 +115,7 @@ export function ScenarioEditor() {
   };
 
   const handleBack = () => {
-    navigate("/scenarios");
+    navigate("/assistants");
   };
 
   if (isMissing) {
@@ -124,14 +125,14 @@ export function ScenarioEditor() {
           <Button variant="ghost" size="icon-sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-lg font-semibold">{t("场景", "Scenario")}</h1>
+          <h1 className="text-lg font-semibold">{t("助手", "Assistant")}</h1>
         </div>
         <div className="flex flex-1 items-center justify-center p-6">
           <Card className="w-full max-w-xl">
             <CardContent className="flex items-center gap-3 p-6">
               <AlertTriangle className="h-5 w-5 text-destructive" />
               <p className="text-sm text-muted-foreground">
-                {t("未找到所选场景。", "The selected scenario could not be found.")}
+                {t("未找到所选助手。", "The selected assistant could not be found.")}
               </p>
             </CardContent>
           </Card>
@@ -151,10 +152,10 @@ export function ScenarioEditor() {
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold">
               {isPreset
-                ? t("场景预览", "Scenario Preview")
+                ? t("助手预览", "Assistant Preview")
                 : isNew
-                  ? t("新建场景", "New Scenario")
-                  : t("编辑场景", "Edit Scenario")}
+                  ? t("新建助手", "New Assistant")
+                  : t("编辑助手", "Edit Assistant")}
             </h1>
             {isPreset ? <Badge variant="secondary">{t("预设", "Preset")}</Badge> : null}
           </div>
@@ -165,11 +166,11 @@ export function ScenarioEditor() {
         <div className="mx-auto max-w-4xl space-y-4 p-4">
           <Card>
             <CardHeader>
-              <CardTitle>{t("场景资料", "Scenario Profile")}</CardTitle>
+              <CardTitle>{t("助手资料", "Assistant Profile")}</CardTitle>
               <CardDescription>
                 {t(
-                  "定义场景选择器中展示的标题和简介。",
-                  "Define the label and summary shown in the scenario picker."
+                  "定义助手列表中展示的名称和简介。",
+                  "Define the name and summary shown in the assistant list."
                 )}
               </CardDescription>
             </CardHeader>
@@ -181,7 +182,7 @@ export function ScenarioEditor() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     readOnly={isPreset}
-                    placeholder={t("角色扮演、翻译、导师...", "Character roleplay, Translation, Tutor...")}
+                    placeholder={t("翻译、写作、导师、陪练...", "Translator, Writing coach, Tutor...")}
                   />
                 </Field>
 
@@ -198,9 +199,9 @@ export function ScenarioEditor() {
                 <Field>
                   <FieldLabel>{t("图标", "Icon")}</FieldLabel>
                   <FieldDescription>
-                    {t("选择一个图标，在会话列表中标识此场景。", "Pick an icon to identify this scenario in the session list.")}
+                    {t("选择一个图标，在会话列表中标识这个助手。", "Pick an icon to identify this assistant in the chat list.")}
                   </FieldDescription>
-                  <ScenarioIconPicker value={icon} onChange={setIcon} disabled={isPreset} />
+                  <AssistantIconPicker value={icon} onChange={setIcon} disabled={isPreset} />
                 </Field>
               </FieldGroup>
             </CardContent>
@@ -211,8 +212,8 @@ export function ScenarioEditor() {
               <CardTitle>{t("提示词设计", "Prompt Design")}</CardTitle>
               <CardDescription>
                 {t(
-                  "设置所有基于这个场景创建的新会话都会继承的系统指令。",
-                  "Set the system instructions applied to every new session created under this scenario."
+                  "设置所有使用这个助手开始的新会话都会继承的系统指令。",
+                  "Set the instructions every new chat started with this assistant will inherit."
                 )}
               </CardDescription>
             </CardHeader>
@@ -226,8 +227,8 @@ export function ScenarioEditor() {
               <CardTitle>{t("语音行为", "Voice Behavior")}</CardTitle>
               <CardDescription>
                 {t(
-                  "控制场景回复是否可以合成语音，并把特定角色路由到指定声音。",
-                  "Control whether scenario replies can synthesize audio and route specific roles to voices."
+                  "控制这个助手的回复是否可以合成语音，并把特定角色路由到指定声音。",
+                  "Control whether this assistant's replies can be spoken aloud and route specific roles to voices."
                 )}
               </CardDescription>
             </CardHeader>
@@ -243,8 +244,8 @@ export function ScenarioEditor() {
                     />
                     <FieldDescription>
                       {t(
-                        "允许这个场景里的助手回复被合成为语音。",
-                        "Allow assistant replies in this scenario to be synthesized."
+                        "允许这个助手的回复被合成为语音。",
+                        "Allow this assistant's replies to be synthesized."
                       )}
                     </FieldDescription>
                   </div>
@@ -301,9 +302,9 @@ export function ScenarioEditor() {
   );
 }
 
-// ── Scenario Icon Picker ──
+// ── Assistant Icon Picker ──
 
-function ScenarioIconPicker({
+function AssistantIconPicker({
   value,
   onChange,
   disabled,
@@ -314,7 +315,7 @@ function ScenarioIconPicker({
 }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {Object.entries(SCENARIO_ICONS).map(([key, Icon]) => (
+      {Object.entries(ASSISTANT_ICONS).map(([key, Icon]) => (
         <button
           key={key}
           type="button"

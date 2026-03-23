@@ -52,6 +52,8 @@ import {
 } from "@/components/ui/select";
 import {
   AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -114,7 +116,7 @@ export function SettingsPage() {
   const {
     providers,
     voices,
-    scenarios,
+    assistants,
     pinEnabled,
     selectedSttProviderId,
     sttModel,
@@ -122,13 +124,14 @@ export function SettingsPage() {
     setSelectedSttProvider,
     setSttModel,
     checkPinStatus,
-    loadScenarios,
+    loadAssistants,
     loadVoices,
     loadConversations,
     pendingLocalDetections,
     localScanComplete,
     consumePendingDetection,
     dismissAllDetections,
+    loadOpenClawInstances,
   } = useAppStore();
 
   const sectionParam = searchParams.get("section");
@@ -182,6 +185,29 @@ export function SettingsPage() {
   const [connectionString, setConnectionString] = useState("");
   const [connectionStringError, setConnectionStringError] = useState("");
   const [connectionStringSuccess, setConnectionStringSuccess] = useState("");
+
+  // Delete confirmation dialog state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteType, setPendingDeleteType] = useState<"provider" | "openclaw" | null>(null);
+
+  const confirmDelete = (type: "provider" | "openclaw", id: string) => {
+    setPendingDeleteType(type);
+    setPendingDeleteId(id);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!pendingDeleteId || !pendingDeleteType) return;
+    if (pendingDeleteType === "provider") {
+      await handleDeleteProvider(pendingDeleteId);
+    } else {
+      await handleDeleteOpenClaw(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
+    setPendingDeleteType(null);
+  };
 
   // Auto-detection dialog state (results come from appStore, pre-scanned at startup)
   const [showDetectionDialog, setShowDetectionDialog] = useState(false);
@@ -335,11 +361,11 @@ export function SettingsPage() {
         onClick: () => navigate("/voices"),
       },
       {
-        label: t("场景", "Scenarios"),
-        value: scenarios.length.toString(),
+        label: t("助手", "Assistants"),
+        value: assistants.length.toString(),
         status: t("就绪", "Ready"),
         icon: <Brain className="h-4 w-4" />,
-        onClick: () => navigate("/scenarios"),
+        onClick: () => navigate("/assistants"),
       },
       {
         label: t("PIN 锁", "PIN Lock"),
@@ -349,7 +375,7 @@ export function SettingsPage() {
         onClick: () => updateView(setSearchParams, { section: "security" }),
       },
     ],
-    [navigate, pinEnabled, providers.length, scenarios.length, setSearchParams, t, voices.length]
+    [navigate, pinEnabled, providers.length, assistants.length, setSearchParams, t, voices.length]
   );
 
   const updateSettings = (next: Partial<SettingsState>) => {
@@ -566,7 +592,7 @@ export function SettingsPage() {
   const handleReset = async () => {
     await api.resetAllData();
     await checkPinStatus();
-    await Promise.all([loadScenarios(), loadVoices(), loadConversations(), loadProviders()]);
+    await Promise.all([loadAssistants(), loadVoices(), loadConversations(), loadProviders()]);
     setShowReset(false);
   };
 
@@ -579,6 +605,16 @@ export function SettingsPage() {
     }
     try {
       setOpenclawFormError("");
+      // Test connection before adding
+      await api.listOpenClawAgents(gatewayUrl.trim(), token.trim());
+    } catch (e) {
+      setOpenclawFormError(
+        t("连接测试失败，请检查网关地址和 Token 是否正确，以及 Gateway 是否正在运行。", "Connection test failed. Please check the gateway URL, token, and ensure the Gateway is running.") +
+        "\n" + String(e)
+      );
+      return;
+    }
+    try {
       const instance = await api.createOpenClawInstance(
         name.trim(),
         gatewayUrl.trim(),
@@ -589,6 +625,7 @@ export function SettingsPage() {
         ...prev.filter((item) => item.id !== instance.id),
       ]);
       setOpenclawForm({ name: "", gatewayUrl: "", token: "" });
+      void loadOpenClawInstances();
     } catch (e) {
       setOpenclawFormError(String(e));
     }
@@ -597,6 +634,7 @@ export function SettingsPage() {
   const handleDeleteOpenClaw = async (id: string) => {
     await api.deleteOpenClawInstance(id);
     setOpenclawInstances((prev) => prev.filter((item) => item.id !== id));
+    void loadOpenClawInstances();
   };
 
   const handleQuickAddLocalOpenClaw = async () => {
@@ -611,6 +649,7 @@ export function SettingsPage() {
         instance,
         ...prev.filter((item) => item.id !== instance.id),
       ]);
+      void loadOpenClawInstances();
     } catch (e) {
       setOpenclawFormError(String(e));
     }
@@ -639,6 +678,16 @@ export function SettingsPage() {
     try {
       const payload = await api.parseConnectionString(input);
       const name = payload.name || t("远程 OpenClaw", "Remote OpenClaw");
+      // Test connection before adding
+      try {
+        await api.listOpenClawAgents(payload.url, payload.token);
+      } catch (e) {
+        setConnectionStringError(
+          t("连接测试失败，请检查远程 Gateway 是否正在运行，以及 SSH 隧道是否已建立。", "Connection test failed. Please check the remote Gateway is running and the SSH tunnel is established.") +
+          "\n" + String(e)
+        );
+        return;
+      }
       const agentsCache = payload.agents ? JSON.stringify(payload.agents.map(a => ({
         id: a.id, name: a.name, model: a.model, is_default: a.isDefault,
         emoji: null, avatar: null, description: null,
@@ -660,6 +709,7 @@ export function SettingsPage() {
           ? t("已添加: ", "Added: ") + name
           : t("已添加（无 Token）: ", "Added (no token): ") + name
       );
+      void loadOpenClawInstances();
     } catch (e) {
       setConnectionStringError(String(e));
     }
@@ -713,7 +763,9 @@ export function SettingsPage() {
                   providers={providers}
                   onOpenCreate={() => openProviderCreate()}
                   onOpenDetails={openProviderDetail}
-                  onDelete={handleDeleteProvider}
+                  onDelete={async (id) => {
+                    confirmDelete("provider", id);
+                  }}
                   onSetDefault={handleSetDefault}
                 />
 
@@ -756,7 +808,9 @@ export function SettingsPage() {
                   providers={providers}
                   onOpenCreate={() => openProviderCreate()}
                   onOpenDetails={openProviderDetail}
-                  onDelete={handleDeleteProvider}
+                  onDelete={async (id) => {
+                    confirmDelete("provider", id);
+                  }}
                   onSetDefault={handleSetDefault}
                 />
               ) : null}
@@ -1036,7 +1090,7 @@ export function SettingsPage() {
                           {editingProvider ? (
                             <Button
                               variant="destructive"
-                              onClick={() => void handleDeleteProvider(editingProvider.id)}
+                              onClick={() => confirmDelete("provider", editingProvider.id)}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               {t("删除", "Delete")}
@@ -1173,7 +1227,9 @@ export function SettingsPage() {
                       >
                         <div>
                           <p className="font-medium">{instance.name}</p>
-                          <p className="text-xs text-muted-foreground">{instance.gateway_url}</p>
+                          {!/^wss?:\/\/(localhost|127\.0\.0\.1|::1)(:|\/|$)/i.test(instance.gateway_url) ? (
+                            <p className="text-xs text-muted-foreground">{instance.gateway_url}</p>
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                           <Button
@@ -1191,7 +1247,7 @@ export function SettingsPage() {
                             variant="ghost"
                             size="icon-sm"
                             className="text-destructive hover:text-destructive"
-                            onClick={() => void handleDeleteOpenClaw(instance.id)}
+                            onClick={() => confirmDelete("openclaw", instance.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -1352,6 +1408,36 @@ export function SettingsPage() {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDeleteType === "provider"
+                ? t("删除服务商？", "Delete provider?")
+                : t("删除 OpenClaw 连接？", "Delete OpenClaw connection?")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteType === "provider"
+                ? t(
+                    "此操作将永久删除该服务商配置，无法撤销。",
+                    "This will permanently delete this provider configuration. This action cannot be undone."
+                  )
+                : t(
+                    "此操作将永久删除该 OpenClaw 连接配置，无法撤销。",
+                    "This will permanently delete this OpenClaw connection. This action cannot be undone."
+                  )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("取消", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void executeDelete()}>
+              {t("确认删除", "Delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Auto-detection dialog — results pre-scanned at app startup, shown instantly */}
       <AlertDialog open={showDetectionDialog} onOpenChange={setShowDetectionDialog}>
@@ -1604,7 +1690,7 @@ function SpeechToTextCard({
               <div className="flex items-center gap-2">
                 <Badge variant={isSystemDefault ? "secondary" : "outline"}>
                   {isSystemDefault
-                    ? t("系统默认", "System default")
+                    ? t("系统原生", "System native")
                     : selectedProvider?.name ?? t("独立 Provider", "Dedicated provider")}
                 </Badge>
                 {!standalone && onOpenDetails ? (
@@ -1617,8 +1703,8 @@ function SpeechToTextCard({
             <CardTitle className="text-lg">{t("语音转文字", "Speech To Text")}</CardTitle>
             <CardDescription className="mt-1">
               {t(
-                "未配置时优先使用系统识别；配置独立 Provider 后优先走 Provider，失败时回退系统识别。",
-                "Uses system recognition by default. When a dedicated provider is configured, it is preferred and falls back to system recognition on failure."
+                "未配置时优先使用系统原生语音识别；配置独立 Provider 后优先走 Provider，失败时自动回退到系统原生识别，必要时再回退到运行时识别。",
+                "Uses native system speech recognition by default. When a dedicated provider is configured, it is preferred and falls back to native system recognition, then runtime recognition if needed."
               )}
             </CardDescription>
           </div>
@@ -1634,7 +1720,7 @@ function SpeechToTextCard({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="system">
-                  {t("系统默认识别", "System default recognition")}
+                  {t("系统原生识别", "Native system recognition")}
                 </SelectItem>
                 {providers.map((provider) => (
                   <SelectItem key={provider.id} value={provider.id}>
@@ -1661,8 +1747,8 @@ function SpeechToTextCard({
             <p className="text-xs text-muted-foreground">
               {draftProviderId === "system"
                 ? t(
-                    "系统默认识别不需要模型名；该字段会在切换到独立 Provider 时生效。",
-                    "System recognition does not need a model name; this field applies when a dedicated provider is selected."
+                    "系统原生识别不需要模型名；该字段会在切换到独立 Provider 时生效。",
+                    "Native system recognition does not need a model name; this field applies when a dedicated provider is selected."
                   )
                 : t(
                     "用于 OpenAI 兼容 transcription 接口，例如 whisper-1。",
@@ -1675,21 +1761,21 @@ function SpeechToTextCard({
         <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
           {draftProviderId === "system"
             ? t(
-                "当前策略：直接使用系统/运行时语音识别能力。",
-                "Current strategy: use the system/runtime speech recognition capability directly."
+                "当前策略：优先使用系统原生语音识别；如果当前平台额外暴露了运行时识别能力，它只会作为最后兜底。",
+                "Current strategy: prefer native system speech recognition; if the current runtime also exposes speech recognition, it is only used as the last fallback."
               )
             : t(
-                "当前策略：先调用所选 STT Provider；如果调用失败且系统识别可用，则自动回退到系统识别。",
-                "Current strategy: call the selected STT provider first; if it fails and system recognition is available, fall back automatically."
+                "当前策略：先调用所选 STT Provider；如果调用失败则自动回退到系统原生识别，必要时再回退到运行时识别。",
+                "Current strategy: call the selected STT provider first; if it fails, fall back to native system recognition, then runtime recognition if needed."
               )}
         </div>
 
         <div className="flex items-center justify-between border-t border-border pt-3">
           <p className="text-xs text-muted-foreground">
-            {t(
-              "系统回退是否可用取决于当前平台 WebView 是否暴露原生语音识别能力。",
-              "System fallback depends on whether the current platform WebView exposes native speech recognition."
-            )}
+              {t(
+                "macOS / iOS 会使用 Speech.framework，Windows 会使用 Windows.Media.SpeechRecognition，Android 会使用 android.speech.SpeechRecognizer；只有系统原生链路不可用时，才会退回到运行时识别。",
+                "macOS / iOS use Speech.framework, Windows uses Windows.Media.SpeechRecognition, and Android uses android.speech.SpeechRecognizer. Runtime recognition is only used when the native system path is unavailable."
+              )}
           </p>
           <Button
             size="sm"

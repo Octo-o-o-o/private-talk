@@ -30,7 +30,7 @@ interface Props {
   content: string;
   isStreaming?: boolean;
   showTts?: boolean;
-  scenarioId?: string | null;
+  assistantId?: string | null;
   messageId?: string;
   isPinned?: boolean;
   attachments?: Attachment[];
@@ -44,7 +44,7 @@ export function MessageItem({
   content,
   isStreaming,
   showTts,
-  scenarioId,
+  assistantId,
   messageId,
   isPinned,
   attachments,
@@ -62,7 +62,7 @@ export function MessageItem({
 
   const tts = useTts({
     messageContent: content,
-    scenarioId: scenarioId ?? undefined,
+    assistantId: assistantId ?? undefined,
     voiceId: undefined,
   });
 

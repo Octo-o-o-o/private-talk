@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-finishCapture"
+description = "Enables the finishCapture command without any pre-configured scope."
+commands.allow = ["finishCapture"]
+
+[[permission]]
+identifier = "deny-finishCapture"
+description = "Denies the finishCapture command without any pre-configured scope."
+commands.deny = ["finishCapture"]

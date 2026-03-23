@@ -49,7 +49,15 @@ export function VoiceMappingEditor({ mapping, onChange, readOnly }: Props) {
 
   return (
     <div className="space-y-3">
-      <Label>{t("语音路由", "Voice Routing")}</Label>
+      <div className="space-y-1">
+        <Label>{t("语音路由", "Voice Routing")}</Label>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "支持 `（角色）内容`、`[角色]内容`、`角色：内容`。`旁白 / narrator / Narrator` 会自动识别为同一角色族。",
+            "Supports `（Role）line`, `[Role] line`, and `Role: line`. `旁白 / narrator / Narrator` are treated as the same role family."
+          )}
+        </p>
+      </div>
 
       {allRoles.map((role) => (
         <div key={role} className="flex items-center gap-2.5">

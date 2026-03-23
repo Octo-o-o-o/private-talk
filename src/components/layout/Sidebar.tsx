@@ -23,8 +23,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAppStore } from "@/stores/appStore";
 import { useI18n } from "@/lib/i18n";
 import * as api from "@/lib/tauri";
-import type { Conversation, OpenClawAgent, Scenario } from "@/lib/types";
-import { getScenarioIcon } from "@/components/scenario/scenarioIcons";
+import type { Conversation, OpenClawAgent, Assistant } from "@/lib/types";
+import { getAssistantIcon } from "@/components/assistant/assistantIcons";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-type ScenarioFilter = string | "free-chat" | null;
+type AssistantFilter = string | "free-chat" | null;
 
 function parseOpenClawAgentsCache(raw: string): OpenClawAgent[] {
   try {
@@ -72,7 +72,7 @@ export function Sidebar() {
   const {
     sidebarOpen,
     toggleSidebar,
-    scenarios,
+    assistants,
     conversations,
     currentConversationId,
     selectConversation,
@@ -82,7 +82,7 @@ export function Sidebar() {
     deleteConversations,
     loadConversations,
     loadProviders,
-    loadScenarios,
+    loadAssistants,
     loadVoices,
     loadMessages,
     loadOpenClawInstances,
@@ -98,7 +98,7 @@ export function Sidebar() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [scenarioFilter, setScenarioFilter] = useState<ScenarioFilter>(null);
+  const [assistantFilter, setAssistantFilter] = useState<AssistantFilter>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const openclawAgentsCacheRef = useRef<Record<string, OpenClawAgent[]>>({});
@@ -109,9 +109,9 @@ export function Sidebar() {
 
   const currentView = getCurrentView(location.pathname);
   const filteredConversations = conversations.filter((conversation) => {
-    if (scenarioFilter === null) return true;
-    if (scenarioFilter === "free-chat") return conversation.scenario_id === null;
-    return conversation.scenario_id === scenarioFilter;
+    if (assistantFilter === null) return true;
+    if (assistantFilter === "free-chat") return conversation.assistant_id === null;
+    return conversation.assistant_id === assistantFilter;
   });
   const visibleConversationIds = filteredConversations.map((conversation) => conversation.id);
   const allVisibleSelected =
@@ -317,7 +317,7 @@ export function Sidebar() {
       await Promise.all([
         loadConversations(),
         loadProviders(),
-        loadScenarios(),
+        loadAssistants(),
         loadVoices(),
         loadOpenClawInstances(),
       ]);
@@ -334,7 +334,7 @@ export function Sidebar() {
     loadMessages,
     loadOpenClawInstances,
     loadProviders,
-    loadScenarios,
+    loadAssistants,
     loadVoices,
   ]);
 
@@ -497,35 +497,35 @@ export function Sidebar() {
                     size="icon"
                     className={cn(
                       "h-7 w-7",
-                      scenarioFilter && "bg-primary/10 text-primary hover:bg-primary/15"
+                      assistantFilter && "bg-primary/10 text-primary hover:bg-primary/15"
                     )}
-                    disabled={scenarios.length === 0 && !hasFreeChatConversations(conversations)}
+                    disabled={assistants.length === 0 && !hasFreeChatConversations(conversations)}
                   >
                     <Filter className="h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem onClick={() => setScenarioFilter(null)}>
+                  <DropdownMenuItem onClick={() => setAssistantFilter(null)}>
                     <span className="mr-2">{t("全部", "All")}</span>
-                    {scenarioFilter === null && <Check className="ml-auto h-3.5 w-3.5" />}
+                    {assistantFilter === null && <Check className="ml-auto h-3.5 w-3.5" />}
                   </DropdownMenuItem>
                   {hasFreeChatConversations(conversations) && (
-                    <DropdownMenuItem onClick={() => setScenarioFilter("free-chat")}>
+                    <DropdownMenuItem onClick={() => setAssistantFilter("free-chat")}>
                       <MessageSquare className="h-3.5 w-3.5" />
                       <span className="flex-1">{t("自由聊天", "Free Chat")}</span>
-                      {scenarioFilter === "free-chat" && (
+                      {assistantFilter === "free-chat" && (
                         <Check className="ml-auto h-3.5 w-3.5" />
                       )}
                     </DropdownMenuItem>
                   )}
-                  {scenarios.length > 0 && <DropdownMenuSeparator />}
-                  {scenarios.map((scenario) => (
+                  {assistants.length > 0 && <DropdownMenuSeparator />}
+                  {assistants.map((assistant) => (
                     <DropdownMenuItem
-                      key={scenario.id}
-                      onClick={() => setScenarioFilter(scenario.id)}
+                      key={assistant.id}
+                      onClick={() => setAssistantFilter(assistant.id)}
                     >
-                      <span className="flex-1">{tField(scenario.name, scenario.name_en)}</span>
-                      {scenarioFilter === scenario.id && (
+                      <span className="flex-1">{tField(assistant.name, assistant.name_en)}</span>
+                      {assistantFilter === assistant.id && (
                         <Check className="ml-auto h-3.5 w-3.5" />
                       )}
                     </DropdownMenuItem>
@@ -612,16 +612,16 @@ export function Sidebar() {
             </div>
           )}
 
-          {scenarioFilter !== null && (
+          {assistantFilter !== null && (
             <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/10 bg-primary/5 px-2.5 py-1.5">
               <span className="flex-1 text-xs text-primary">
-                {getFilterLabel(scenarioFilter, scenarios, t)}
+                {getFilterLabel(assistantFilter, assistants, t)}
               </span>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                onClick={() => setScenarioFilter(null)}
+                onClick={() => setAssistantFilter(null)}
               >
                 <X className="h-3 w-3" />
               </Button>
@@ -644,7 +644,7 @@ export function Sidebar() {
                   isSelected={selectedIds.has(conversation.id)}
                   isSelectionMode={isSelectionMode}
                   editingTitle={editingTitle}
-                  scenarios={scenarios}
+                  assistants={assistants}
                   openclawAgents={openclawAgents}
                   onSelect={async () => {
                     await selectConversation(conversation.id);
@@ -797,7 +797,7 @@ function SessionItem({
   isSelected,
   isSelectionMode,
   editingTitle,
-  scenarios,
+  assistants,
   openclawAgents,
   onSelect,
   onToggleSelection,
@@ -813,7 +813,7 @@ function SessionItem({
   isSelected: boolean;
   isSelectionMode: boolean;
   editingTitle: string;
-  scenarios: Scenario[];
+  assistants: Assistant[];
   openclawAgents: Record<string, OpenClawAgent[]>;
   onSelect: () => void;
   onToggleSelection: () => void;
@@ -866,7 +866,7 @@ function SessionItem({
         >
           <SessionIcon
             conversation={conversation}
-            scenarios={scenarios}
+            assistants={assistants}
             openclawAgents={openclawAgents}
           />
         </div>
@@ -938,11 +938,11 @@ function SessionItem({
 
 function SessionIcon({
   conversation,
-  scenarios,
+  assistants,
   openclawAgents,
 }: {
   conversation: Conversation;
-  scenarios: Scenario[];
+  assistants: Assistant[];
   openclawAgents: Record<string, OpenClawAgent[]>;
 }) {
   // OpenClaw conversation → agent avatar
@@ -961,11 +961,11 @@ function SessionIcon({
     return <Globe className="h-4 w-4" />;
   }
 
-  // Scenario conversation → scenario icon
-  if (conversation.scenario_id) {
-    const scenario = scenarios.find((s) => s.id === conversation.scenario_id);
-    if (scenario?.icon) {
-      const Icon = getScenarioIcon(scenario.icon);
+  // Assistant conversation -> assistant icon
+  if (conversation.assistant_id) {
+    const assistant = assistants.find((item) => item.id === conversation.assistant_id);
+    if (assistant?.icon) {
+      const Icon = getAssistantIcon(assistant.icon);
       if (Icon) return <Icon className="h-4 w-4" />;
     }
   }
@@ -1027,7 +1027,7 @@ function getCurrentView(pathname: string) {
   if (pathname.startsWith("/usage")) return "usage";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/voices")) return "voices";
-  if (pathname.startsWith("/scenarios")) return "scenarios";
+  if (pathname.startsWith("/assistants")) return "assistants";
   return "chat";
 }
 
@@ -1041,17 +1041,17 @@ function getThemeTooltip(
 }
 
 function hasFreeChatConversations(conversations: Conversation[]) {
-  return conversations.some((conversation) => conversation.scenario_id === null);
+  return conversations.some((conversation) => conversation.assistant_id === null);
 }
 
 function getFilterLabel(
-  filter: ScenarioFilter,
-  scenarios: Scenario[],
+  filter: AssistantFilter,
+  assistants: Assistant[],
   t: (zh: string, en: string) => string
 ) {
   if (filter === "free-chat") return t("自由聊天", "Free Chat");
   return (
-    scenarios.find((scenario) => scenario.id === filter)?.name ??
-    t("场景筛选", "Scenario filter")
+    assistants.find((assistant) => assistant.id === filter)?.name ??
+    t("助手筛选", "Assistant filter")
   );
 }
