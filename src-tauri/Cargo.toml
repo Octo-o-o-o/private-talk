@@ -56,6 +56,5 @@ tauri-plugin-native-stt-mobile = { path = "plugins/native-stt-mobile" }
 windows = { version = "0.61.3", features = ["Devices_Enumeration", "Foundation", "Globalization", "Media_SpeechRecognition", "Win32_System_Com"] }
 
 [profile.release]
-strip = true
-lto = true
-opt-level = "s"
+strip = "debuginfo"
+lto = "thin"
