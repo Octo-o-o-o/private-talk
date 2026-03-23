@@ -372,29 +372,29 @@ export function Sidebar() {
   return (
     <TooltipProvider>
       <div className="relative flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="flex shrink-0 items-center justify-end px-2" style={{ height: 44, paddingTop: 6 }}>
-          <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className="relative z-10 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </Button>
-        </div>
+        <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
 
-        <div className="space-y-2 px-4 pb-4">
-          <Button
-            onClick={() => {
-              navigate("/");
-              void createConversation();
-            }}
-            className="w-full bg-primary shadow-lg shadow-primary/20 hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" />
-            {t("新建会话", "New Session")}
-          </Button>
+        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: 10 }}>
+          <div className="relative z-10 flex items-center gap-2">
+            <Button
+              onClick={() => {
+                navigate("/");
+                void createConversation();
+              }}
+              className="flex-1 bg-primary shadow-lg shadow-primary/20 hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" />
+              {t("新建会话", "New Session")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          </div>
           {openclawInstances.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
