@@ -179,6 +179,9 @@ export const getMicrophonePermissionStatus = () =>
 export const requestNativeMicrophonePermission = () =>
   invoke<MicrophonePermissionInfo>("request_microphone_permission");
 
+export const openMicrophoneSettings = () =>
+  invoke<boolean>("open_microphone_settings");
+
 // PIN commands
 export const isPinEnabled = () => invoke<boolean>("is_pin_enabled");
 

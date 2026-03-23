@@ -10,7 +10,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -277,6 +276,8 @@ export function ChatInput({ onSend, onStop }: Props) {
   const [isResolvingMicrophonePermission, setIsResolvingMicrophonePermission] =
     useState(false);
   const [hasResolvedMicrophonePermission, setHasResolvedMicrophonePermission] =
+    useState(false);
+  const [didAttemptOpenMicrophoneSettings, setDidAttemptOpenMicrophoneSettings] =
     useState(false);
 
   const dragCounterRef = useRef(0);
@@ -684,16 +685,6 @@ export function ChatInput({ onSend, onStop }: Props) {
     });
   };
 
-  const getMicrophoneSettingsUrl = () => {
-    if (platform === "windows") {
-      return "ms-settings:privacy-microphone";
-    }
-    if (platform === "macos") {
-      return "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
-    }
-    return null;
-  };
-
   const getMicrophoneSettingsHint = () => {
     if (platform === "windows") {
       return t(
@@ -713,18 +704,58 @@ export function ChatInput({ onSend, onStop }: Props) {
     );
   };
 
-  const openMicrophoneSettings = async () => {
-    const settingsUrl = getMicrophoneSettingsUrl();
-    if (!settingsUrl) {
-      setComposerError(getMicrophoneSettingsHint());
-      return;
+  const getMicrophoneSettingsSteps = () => {
+    if (platform === "windows") {
+      return t(
+        "手动路径：1. 打开设置 2. 隐私和安全性 3. 麦克风 4. 打开“允许桌面应用访问你的麦克风”，并确认 Private Talk 可访问",
+        "Manual path: 1. Open Settings 2. Privacy & security 3. Microphone 4. Turn on desktop app microphone access and confirm Private Talk is allowed"
+      );
     }
+    if (platform === "macos") {
+      return t(
+        "手动路径：1. 打开系统设置 2. 隐私与安全性 3. 麦克风 4. 打开 Private Talk 的开关",
+        "Manual path: 1. Open System Settings 2. Privacy & Security 3. Microphone 4. Turn on Private Talk"
+      );
+    }
+    return t(
+      "如果系统设置没有自动打开，请到系统隐私设置里的麦克风页面，允许 Private Talk 访问麦克风",
+      "If system settings did not open automatically, go to the microphone privacy page in system settings and allow Private Talk"
+    );
+  };
 
+  const getOpenedMicrophoneSettingsHint = () => {
+    if (platform === "windows") {
+      return t(
+        "如果 Windows 设置已经打开，请进入“隐私和安全性 > 麦克风”，然后打开“允许桌面应用访问你的麦克风”，并确认 Private Talk 可访问。",
+        "If Windows Settings is already open, go to Privacy & security > Microphone, then enable desktop app microphone access and confirm Private Talk is allowed."
+      );
+    }
+    if (platform === "macos") {
+      return t(
+        "如果系统设置已经打开，请在左侧进入“隐私与安全性 > 麦克风”，然后打开 Private Talk。",
+        "If System Settings is already open, use the left sidebar to open Privacy & Security > Microphone, then turn on Private Talk."
+      );
+    }
+    return t(
+      "如果系统设置已经打开，请进入麦克风权限页面并允许 Private Talk 访问。",
+      "If system settings is already open, go to the microphone permissions page and allow Private Talk."
+    );
+  };
+
+  const openMicrophoneSettings = async () => {
+    setDidAttemptOpenMicrophoneSettings(true);
     try {
-      await openUrl(settingsUrl);
+      const opened = await api.openMicrophoneSettings();
+      if (!opened) {
+        setComposerError(
+          `${getMicrophoneSettingsHint()} ${getMicrophoneSettingsSteps()}`
+        );
+      }
     } catch (error) {
       console.error("Failed to open microphone settings:", error);
-      setComposerError(getMicrophoneSettingsHint());
+      setComposerError(
+        `${getMicrophoneSettingsHint()} ${getMicrophoneSettingsSteps()}`
+      );
     }
   };
 
@@ -1527,7 +1558,7 @@ export function ChatInput({ onSend, onStop }: Props) {
                 <div className="min-w-0 flex-1">
                   <p
                     className={cn(
-                      "truncate text-xs",
+                      "text-xs leading-5 break-words",
                       composerError ? "text-destructive" : "text-muted-foreground"
                     )}
                   >
@@ -1588,6 +1619,20 @@ export function ChatInput({ onSend, onStop }: Props) {
                       >
                         {t("重新检测", "Refresh")}
                       </Button>
+                    </div>
+                  ) : null}
+                  {microphoneCapability === "ready" &&
+                  hasResolvedMicrophonePermission &&
+                  microphonePermission === "denied" ? (
+                    <div className="mt-2 space-y-1">
+                      {didAttemptOpenMicrophoneSettings ? (
+                        <p className="text-[11px] leading-5 text-muted-foreground">
+                          {getOpenedMicrophoneSettingsHint()}
+                        </p>
+                      ) : null}
+                      <p className="text-[11px] leading-5 text-muted-foreground">
+                        {getMicrophoneSettingsSteps()}
+                      </p>
                     </div>
                   ) : null}
                 </div>

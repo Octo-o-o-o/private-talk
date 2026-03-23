@@ -25,6 +25,11 @@ pub fn request_microphone_permission() -> Result<MicrophonePermissionInfo, Strin
     platform::request_microphone_permission()
 }
 
+#[tauri::command]
+pub fn open_microphone_settings() -> Result<bool, String> {
+    platform::open_microphone_settings()
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use super::{MicrophonePermissionInfo, MicrophonePermissionStatus};
@@ -33,6 +38,7 @@ mod platform {
     use objc2_av_foundation::{
         AVCaptureDevice, AVAuthorizationStatus, AVMediaType, AVMediaTypeAudio,
     };
+    use std::process::Command;
     use std::sync::mpsc;
 
     fn audio_media_type() -> Result<&'static AVMediaType, String> {
@@ -98,11 +104,50 @@ mod platform {
             source: "native",
         })
     }
+
+    pub fn open_microphone_settings() -> Result<bool, String> {
+        let deep_links = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone",
+        ];
+
+        for url in deep_links {
+            if Command::new("open")
+                .arg(url)
+                .status()
+                .map_err(|error| error.to_string())?
+                .success()
+            {
+                return Ok(true);
+            }
+        }
+
+        if Command::new("open")
+            .args(["-a", "System Settings"])
+            .status()
+            .map_err(|error| error.to_string())?
+            .success()
+        {
+            return Ok(true);
+        }
+
+        if Command::new("open")
+            .args(["-b", "com.apple.systempreferences"])
+            .status()
+            .map_err(|error| error.to_string())?
+            .success()
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
 }
 
 #[cfg(target_os = "windows")]
 mod platform {
     use super::{MicrophonePermissionInfo, MicrophonePermissionStatus};
+    use std::process::Command;
     use windows::core::initialize_mta;
     use windows::Devices::Enumeration::{
         DeviceAccessInformation, DeviceAccessStatus, DeviceClass,
@@ -140,6 +185,28 @@ mod platform {
     pub fn request_microphone_permission() -> Result<MicrophonePermissionInfo, String> {
         get_microphone_permission_status()
     }
+
+    pub fn open_microphone_settings() -> Result<bool, String> {
+        if Command::new("cmd")
+            .args(["/C", "start", "", "ms-settings:privacy-microphone"])
+            .status()
+            .map_err(|error| error.to_string())?
+            .success()
+        {
+            return Ok(true);
+        }
+
+        if Command::new("explorer.exe")
+            .arg("ms-settings:privacy-microphone")
+            .status()
+            .map_err(|error| error.to_string())?
+            .success()
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -155,5 +222,9 @@ mod platform {
 
     pub fn request_microphone_permission() -> Result<MicrophonePermissionInfo, String> {
         get_microphone_permission_status()
+    }
+
+    pub fn open_microphone_settings() -> Result<bool, String> {
+        Ok(false)
     }
 }

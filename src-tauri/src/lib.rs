@@ -213,6 +213,7 @@ pub fn run() {
             // Permission commands
             commands::permissions::get_microphone_permission_status,
             commands::permissions::request_microphone_permission,
+            commands::permissions::open_microphone_settings,
             // Voice commands
             commands::voice::list_voices,
             commands::voice::get_voice,
