@@ -227,9 +227,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             "CREATE INDEX IF NOT EXISTS idx_conversations_scenario ON conversations(scenario_id);",
         )?;
 
-        // Seed preset scenarios
-        seed_presets(conn)?;
-
+        // Presets will be seeded in V14 with bilingual columns
         set_schema_version(conn, 2)?;
     }
 
@@ -268,9 +266,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             )?;
         }
 
-        // Seed preset voices
-        seed_preset_voices(conn)?;
-
+        // Preset voices will be seeded in V14 with bilingual columns
         set_schema_version(conn, 3)?;
     }
 
@@ -338,10 +334,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         set_schema_version(conn, 7)?;
     }
 
-    // V7 → V8: Refresh preset TTS defaults for voices and scenario routing
+    // V7 → V8: Refresh preset TTS defaults (deferred to V14 for bilingual column compat)
     if version < 8 {
-        seed_preset_voices(conn)?;
-        apply_preset_scenario_voice_defaults(conn)?;
         set_schema_version(conn, 8)?;
     }
 
@@ -427,10 +421,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         set_schema_version(conn, 12)?;
     }
 
-    // V12 → V13: Refresh preset voices (3 female + 3 male, bilingual names)
+    // V12 → V13: Refresh preset voices (deferred to V14 for bilingual column compat)
     if version < 13 {
-        seed_preset_voices(conn)?;
-        apply_preset_scenario_voice_defaults(conn)?;
         set_schema_version(conn, 13)?;
     }
 
