@@ -5,7 +5,9 @@ import {
   Brain,
   Check,
   ChevronRight,
+  Download,
   Globe,
+  HardDrive,
   Loader2,
   Mic,
   Plus,
@@ -13,6 +15,7 @@ import {
   Settings,
   Shield,
   Trash2,
+  Upload,
   Volume2,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -27,6 +30,7 @@ import {
 import type { DetectedLocalService, LocalOpenClawDetection, LocalProviderScanResult, OpenClawAgent, OpenClawInstance, Provider } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
+import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,7 +68,7 @@ import {
 // Session-level flag: only show auto-detection dialog once per app session
 const SETTINGS_VISITED_KEY = "private-talk-settings-visited";
 
-type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt";
+type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data";
 
 type SettingsState = {
   hotWindowSize: number;
@@ -140,7 +144,8 @@ export function SettingsPage() {
     sectionParam === "memory" ||
     sectionParam === "security" ||
     sectionParam === "openclaw" ||
-    sectionParam === "stt"
+    sectionParam === "stt" ||
+    sectionParam === "data"
       ? sectionParam
       : null;
   const mode = searchParams.get("mode");
@@ -718,8 +723,9 @@ export function SettingsPage() {
   const pageHeading = getPageHeading(section, isProviderEdit, isProviderCreate, t);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-6">
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden bg-background">
+      <div className="flex h-14 items-center gap-3 border-b border-border px-4 md:px-6">
+        <MobileMenuButton />
         {section ? (
           <Button
             variant="ghost"
@@ -743,7 +749,7 @@ export function SettingsPage() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto flex min-h-full max-w-6xl flex-col p-6">
+        <div className="mx-auto flex min-h-full max-w-6xl flex-col p-4 md:p-6">
           <div className="mb-8">
             <h2 className="mb-2 text-2xl font-semibold text-foreground">{pageHeading.title}</h2>
             <p className="text-sm text-muted-foreground">{pageHeading.description}</p>
@@ -751,7 +757,7 @@ export function SettingsPage() {
 
           {!section ? (
             <>
-              <div className="mb-8 grid grid-cols-4 gap-4">
+              <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
                 {statCards.map((card) => (
                   <StatCard key={card.label} {...card} />
                 ))}
@@ -796,6 +802,11 @@ export function SettingsPage() {
                   onSave={saveContextSettings}
                   onOpenDetails={() => updateView(setSearchParams, { section: "memory" })}
                 />
+
+                <DataManagementCard
+                  t={t}
+                  onOpenDetails={() => updateView(setSearchParams, { section: "data" })}
+                />
               </div>
             </>
           ) : null}
@@ -817,7 +828,7 @@ export function SettingsPage() {
 
               {isProviderCreate || isProviderEdit ? (
                 <Card>
-                  <CardHeader className="flex flex-row items-start justify-between gap-4">
+                  <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
                     <div>
                       <CardTitle>
                         {isProviderEdit
@@ -830,13 +841,13 @@ export function SettingsPage() {
                           : t("选择预设或自行填写。", "Pick a preset or fill manually.")}
                       </CardDescription>
                     </div>
-                    <Button variant="ghost" onClick={openProviderList}>
+                    <Button variant="ghost" size="sm" onClick={openProviderList} className="self-start">
                       {t("返回列表", "Back to list")}
                     </Button>
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <h4 className="font-medium">{t("快速预设", "Quick Presets")}</h4>
                         {selectedPreset ? (
                           <div className="flex items-center gap-2">
@@ -868,8 +879,8 @@ export function SettingsPage() {
                           />
                         ))}
                       </div>
-                      <div className="flex items-center justify-between rounded-lg border border-dashed border-border px-4 py-3">
-                        <div>
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-3">
+                        <div className="min-w-0">
                           <p className="text-sm font-medium">
                             {t("自定义兼容端点", "Custom Compatible Endpoint")}
                           </p>
@@ -880,7 +891,7 @@ export function SettingsPage() {
                             )}
                           </p>
                         </div>
-                        <Button variant="outline" onClick={() => openProviderCreate()}>
+                        <Button variant="outline" size="sm" className="shrink-0" onClick={() => openProviderCreate()}>
                           {t("空白创建", "Start Blank")}
                         </Button>
                       </div>
@@ -888,8 +899,8 @@ export function SettingsPage() {
 
                     {showLocalScanner ? (
                       <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
                             <h4 className="font-medium">{t("扫描本地模型", "Scan Local Models")}</h4>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {t(
@@ -900,6 +911,8 @@ export function SettingsPage() {
                           </div>
                           <Button
                             variant="outline"
+                            size="sm"
+                            className="shrink-0"
                             onClick={() => void handleScanLocalProviders()}
                             disabled={isScanningLocalProviders}
                           >
@@ -960,8 +973,8 @@ export function SettingsPage() {
                       <div className="space-y-4">
                         {selectedPreset ? (
                           <div className="rounded-lg border border-border bg-muted/20 p-4">
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
                                 <h4 className="font-medium">{selectedPreset.name}</h4>
                                 <p className="mt-1 text-sm text-muted-foreground">
                                   {t(selectedPreset.description.zh, selectedPreset.description.en)}
@@ -969,6 +982,8 @@ export function SettingsPage() {
                               </div>
                               <Button
                                 variant="outline"
+                                size="sm"
+                                className="shrink-0"
                                 onClick={() => void handleAutoConfigurePreset()}
                                 disabled={
                                   isAutoConfiguringProvider ||
@@ -1027,7 +1042,7 @@ export function SettingsPage() {
                               }
                             />
                           </div>
-                          <div className="col-span-2">
+                          <div className="md:col-span-2">
                             <Label className="text-sm text-muted-foreground">
                               {t("API Key", "API Key")}
                             </Label>
@@ -1047,7 +1062,7 @@ export function SettingsPage() {
                               }
                             />
                           </div>
-                          <div className="col-span-2">
+                          <div className="md:col-span-2">
                             <Label className="text-sm text-muted-foreground">
                               {t("模型列表", "Models")}
                             </Label>
@@ -1076,33 +1091,36 @@ export function SettingsPage() {
                     ) : null}
 
                     {(isProviderCreate || editingProvider) ? (
-                      <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                        <div className="flex flex-wrap items-center gap-2">
                           {editingProvider && !editingProvider.is_default ? (
                             <Button
                               variant="outline"
+                              size="sm"
                               onClick={() => void handleSetDefault(editingProvider.id)}
                             >
-                              <Check className="mr-2 h-4 w-4" />
+                              <Check className="mr-1.5 h-3.5 w-3.5" />
                               {t("设为默认", "Set default")}
                             </Button>
                           ) : null}
                           {editingProvider ? (
                             <Button
                               variant="destructive"
+                              size="sm"
                               onClick={() => confirmDelete("provider", editingProvider.id)}
                             >
-                              <Trash2 className="mr-2 h-4 w-4" />
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                               {t("删除", "Delete")}
                             </Button>
                           ) : null}
                         </div>
 
-                        <div className="flex items-center gap-3">
-                          <Button variant="ghost" onClick={openProviderList}>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={openProviderList}>
                             {t("取消", "Cancel")}
                           </Button>
                           <Button
+                            size="sm"
                             onClick={() => void handleCreateOrUpdateProvider()}
                             disabled={
                               (Boolean(providerId) && !editingProvider) ||
@@ -1163,6 +1181,16 @@ export function SettingsPage() {
               setShowReset={setShowReset}
               onEnablePin={handleEnablePin}
               onReset={handleReset}
+            />
+          ) : null}
+
+          {section === "data" ? (
+            <DataManagementSection
+              t={t}
+              loadProviders={loadProviders}
+              loadAssistants={loadAssistants}
+              loadVoices={loadVoices}
+              loadOpenClawInstances={loadOpenClawInstances}
             />
           ) : null}
 
@@ -1528,9 +1556,9 @@ function ProviderStackCard({
 }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
         <div className="flex items-start gap-3">
-          <Server className="mt-0.5 h-5 w-5 text-primary" />
+          <Server className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {t("模型路由", "Model Routing")}
@@ -1545,12 +1573,10 @@ function ProviderStackCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={onOpenCreate}>
-            <Plus className="mr-1 h-4 w-4" />
-            {t("新增服务商", "Add Provider")}
-          </Button>
-        </div>
+        <Button size="sm" className="self-start shrink-0" onClick={onOpenCreate}>
+          <Plus className="mr-1 h-4 w-4" />
+          {t("新增服务商", "Add Provider")}
+        </Button>
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -1591,9 +1617,9 @@ function OpenClawSummaryCard({
 }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
         <div className="flex items-start gap-3">
-          <Globe className="mt-0.5 h-5 w-5 text-primary" />
+          <Globe className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               OpenClaw
@@ -1606,12 +1632,10 @@ function OpenClawSummaryCard({
             </CardDescription>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onOpenDetails}>
-            {t("管理", "Manage")}
-            <ChevronRight className="ml-1 h-4 w-4" />
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" className="self-start shrink-0" onClick={onOpenDetails}>
+          {t("管理", "Manage")}
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
       </CardHeader>
       {instances.length > 0 ? (
         <CardContent className="space-y-2">
@@ -1683,7 +1707,7 @@ function SpeechToTextCard({
         <div className="flex items-start gap-3">
           <Mic className="mt-0.5 h-5 w-5 text-primary" />
           <div className="flex-1">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs uppercase tracking-wider text-muted-foreground">
                 {t("语音转写", "Speech To Text")}
               </p>
@@ -1835,7 +1859,7 @@ function MemoryCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid gap-4 md:grid-cols-2 md:gap-6">
           <div className="space-y-2">
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-semibold">{settings.hotWindowSize}</span>
@@ -1871,11 +1895,11 @@ function MemoryCard({
             </p>
           </div>
         </div>
-        <div className="flex items-center justify-between border-t border-border pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
           <p className="text-xs text-muted-foreground">
             {t("压缩只影响旧历史，置顶消息单独保留。", "Only old history is compressed; pinned messages are preserved.")}
           </p>
-          <Button size="sm" onClick={() => void onSave()}>{t("保存更改", "Save changes")}</Button>
+          <Button size="sm" className="shrink-0" onClick={() => void onSave()}>{t("保存更改", "Save changes")}</Button>
         </div>
       </CardContent>
     </Card>
@@ -2040,11 +2064,329 @@ function SecurityCard({
   );
 }
 
+function DataManagementCard({
+  t,
+  onOpenDetails,
+}: {
+  t: (zh: string, en: string) => string;
+  onOpenDetails: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            {t("数据管理", "Data Management")}
+          </p>
+          <Button variant="ghost" size="sm" onClick={onOpenDetails}>
+            {t("详情", "Details")}
+          </Button>
+        </div>
+        <div className="flex items-start gap-3">
+          <HardDrive className="mt-0.5 h-5 w-5 text-primary" />
+          <div>
+            <CardTitle className="text-lg">
+              {t("导出与导入", "Export & Import")}
+            </CardTitle>
+            <CardDescription className="mt-1">
+              {t(
+                "跨设备迁移服务商、声音、助手等配置。导出文件使用密码加密保护。",
+                "Migrate providers, voices, assistants across devices. Export files are password-encrypted."
+              )}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex gap-3">
+          <Button variant="outline" size="sm" onClick={onOpenDetails}>
+            <Download className="mr-2 h-4 w-4" />
+            {t("导出配置", "Export")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onOpenDetails}>
+            <Upload className="mr-2 h-4 w-4" />
+            {t("导入配置", "Import")}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DataManagementSection({
+  t,
+  loadProviders,
+  loadAssistants,
+  loadVoices,
+  loadOpenClawInstances,
+}: {
+  t: (zh: string, en: string) => string;
+  loadProviders: () => Promise<void>;
+  loadAssistants: () => Promise<void>;
+  loadVoices: () => Promise<void>;
+  loadOpenClawInstances: () => Promise<void>;
+}) {
+  const [exportPassword, setExportPassword] = useState("");
+  const [exportConfirmPassword, setExportConfirmPassword] = useState("");
+  const [importPassword, setImportPassword] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [exportResult, setExportResult] = useState("");
+  const [importResult, setImportResult] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [importError, setImportError] = useState("");
+
+  const handleExport = async () => {
+    if (exportPassword.length < 4) {
+      setExportError(t("密码至少需要 4 个字符。", "Password must be at least 4 characters."));
+      return;
+    }
+    if (exportPassword !== exportConfirmPassword) {
+      setExportError(t("两次输入的密码不一致。", "Passwords do not match."));
+      return;
+    }
+    setIsExporting(true);
+    setExportError("");
+    setExportResult("");
+    try {
+      const result = await api.exportConfig(exportPassword);
+      if (result.success) {
+        const summary = [
+          result.providers > 0
+            ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
+            : null,
+          result.voices > 0
+            ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
+            : null,
+          result.assistants > 0
+            ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
+            : null,
+          result.openclaw_instances > 0
+            ? t(
+                `${result.openclaw_instances} 个 OpenClaw`,
+                `${result.openclaw_instances} OpenClaw instance(s)`
+              )
+            : null,
+        ]
+          .filter(Boolean)
+          .join(t("、", ", "));
+        setExportResult(
+          t(`导出成功：${summary}`, `Exported: ${summary}`)
+        );
+        setExportPassword("");
+        setExportConfirmPassword("");
+      } else {
+        setExportResult(t("已取消导出。", "Export cancelled."));
+      }
+    } catch (e) {
+      setExportError(String(e));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importPassword) {
+      setImportError(t("请输入密码。", "Please enter the password."));
+      return;
+    }
+    setIsImporting(true);
+    setImportError("");
+    setImportResult("");
+    try {
+      const result = await api.importConfig(importPassword);
+      if (result.success) {
+        const summary = [
+          result.providers > 0
+            ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
+            : null,
+          result.voices > 0
+            ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
+            : null,
+          result.assistants > 0
+            ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
+            : null,
+          result.openclaw_instances > 0
+            ? t(
+                `${result.openclaw_instances} 个 OpenClaw`,
+                `${result.openclaw_instances} OpenClaw instance(s)`
+              )
+            : null,
+          result.settings > 0
+            ? t(`${result.settings} 项设置`, `${result.settings} setting(s)`)
+            : null,
+        ]
+          .filter(Boolean)
+          .join(t("、", ", "));
+        setImportResult(
+          t(`导入成功：${summary}`, `Imported: ${summary}`)
+        );
+        setImportPassword("");
+        // Refresh all stores
+        await Promise.all([
+          loadProviders(),
+          loadAssistants(),
+          loadVoices(),
+          loadOpenClawInstances(),
+        ]);
+      } else {
+        setImportResult(t("已取消导入。", "Import cancelled."));
+      }
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Export */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <Download className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <CardTitle className="text-lg">
+                {t("导出配置", "Export Configuration")}
+              </CardTitle>
+              <CardDescription className="mt-1">
+                {t(
+                  "将服务商、声音、助手和 OpenClaw 配置导出为加密文件（.ptbackup）。",
+                  "Export providers, voices, assistants, and OpenClaw configuration to an encrypted file (.ptbackup)."
+                )}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="text-xs uppercase text-muted-foreground">
+                {t("加密密码", "Encryption Password")}
+              </Label>
+              <Input
+                type="password"
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                placeholder={t("至少 4 个字符", "At least 4 characters")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs uppercase text-muted-foreground">
+                {t("确认密码", "Confirm Password")}
+              </Label>
+              <Input
+                type="password"
+                value={exportConfirmPassword}
+                onChange={(e) => setExportConfirmPassword(e.target.value)}
+                placeholder={t("再次输入密码", "Re-enter password")}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "请牢记此密码。导入时需要使用相同的密码解密。",
+              "Remember this password. You will need it to decrypt when importing."
+            )}
+          </p>
+          {exportError ? (
+            <p className="text-sm text-destructive">{exportError}</p>
+          ) : null}
+          {exportResult ? (
+            <p className="text-sm text-emerald-600 dark:text-emerald-400">{exportResult}</p>
+          ) : null}
+          <Button
+            onClick={() => void handleExport()}
+            disabled={isExporting || !exportPassword || !exportConfirmPassword}
+          >
+            {isExporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {isExporting
+              ? t("导出中…", "Exporting...")
+              : t("选择位置并导出", "Choose Location & Export")}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Import */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <Upload className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <CardTitle className="text-lg">
+                {t("导入配置", "Import Configuration")}
+              </CardTitle>
+              <CardDescription className="mt-1">
+                {t(
+                  "从 .ptbackup 文件导入配置。导入的数据将追加到现有配置中，不会覆盖已有数据。",
+                  "Import from a .ptbackup file. Imported data is appended to existing configuration, not overwritten."
+                )}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-sm">
+            <Label className="text-xs uppercase text-muted-foreground">
+              {t("解密密码", "Decryption Password")}
+            </Label>
+            <Input
+              type="password"
+              value={importPassword}
+              onChange={(e) => setImportPassword(e.target.value)}
+              placeholder={t("输入导出时设置的密码", "Enter the export password")}
+              className="mt-1"
+            />
+          </div>
+          {importError ? (
+            <p className="text-sm text-destructive">{importError}</p>
+          ) : null}
+          {importResult ? (
+            <p className="text-sm text-emerald-600 dark:text-emerald-400">{importResult}</p>
+          ) : null}
+          <Button
+            variant="outline"
+            onClick={() => void handleImport()}
+            disabled={isImporting || !importPassword}
+          >
+            {isImporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-2 h-4 w-4" />
+            )}
+            {isImporting
+              ? t("导入中…", "Importing...")
+              : t("选择文件并导入", "Choose File & Import")}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Info */}
+      <Card className="border-muted">
+        <CardContent className="py-4">
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "导出内容包括：所有服务商（含 API Key）、自定义声音、自定义助手、OpenClaw 实例、界面偏好设置。不包含：会话记录、聊天消息、PIN 设置。文件使用 AES-256-GCM 加密，密钥由 PBKDF2 从密码派生。",
+              "Exported data includes: all providers (including API keys), custom voices, custom assistants, OpenClaw instances, UI preferences. Excluded: conversations, messages, PIN settings. Files are encrypted with AES-256-GCM, key derived via PBKDF2."
+            )}
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function StatCard({
   label,
   value,
   status,
-  icon,
   onClick,
 }: {
   label: string;
@@ -2053,17 +2395,15 @@ function StatCard({
   icon?: ReactNode;
   onClick?: () => void;
 }) {
+  const isShortValue = value.length <= 3;
   return (
     <button
       type="button"
       onClick={onClick}
       className="rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20"
     >
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
-        {icon}
-      </div>
-      <p className="text-3xl font-semibold">{value}</p>
+      <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={isShortValue ? "text-3xl font-semibold" : "text-lg font-semibold"}>{value}</p>
       <div className="mt-1 flex items-center justify-between">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">{status}</p>
         <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -2257,6 +2597,13 @@ function getPageHeading(
     return {
       title: t("本地安全", "Local Security"),
       description: t("PIN 锁与数据重置。", "PIN lock and data reset."),
+    };
+  }
+
+  if (section === "data") {
+    return {
+      title: t("数据管理", "Data Management"),
+      description: t("导出和导入配置数据，方便跨设备迁移。", "Export and import configuration data for cross-device migration."),
     };
   }
 

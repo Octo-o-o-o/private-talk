@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 
 export function AssistantManager() {
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ export function AssistantManager() {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-14 items-center justify-between border-b border-border px-6">
         <div className="flex items-center gap-3">
+          <MobileMenuButton />
           <Button variant="ghost" size="icon-sm" onClick={() => navigate("/settings")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>

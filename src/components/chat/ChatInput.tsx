@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "../../stores/appStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import * as api from "../../lib/tauri";
 import type { NativeSttInfo, PreparedAttachment } from "../../lib/types";
 import { AttachmentImage } from "./AttachmentImage";
@@ -287,6 +288,7 @@ function extractSpeechRecognitionTranscript(
 }
 
 export function ChatInput({ onSend, onStop }: Props) {
+  const isMobile = useIsMobile();
   const [input, setInput] = useState("");
   const [composerAttachments, setComposerAttachments] = useState<
     ComposerAttachment[]
@@ -340,6 +342,15 @@ export function ChatInput({ onSend, onStop }: Props) {
   const runtimeSpeechRecognitionSupported =
     getSpeechRecognitionConstructor() !== null;
   const nativeSpeechReady = nativeSttInfo?.status === "ready";
+
+  // On mobile, auto-focus the input when a conversation becomes active
+  useEffect(() => {
+    if (isMobile && currentConversationId && textareaRef.current) {
+      // Small delay to let the layout settle after conversation creation
+      const timer = setTimeout(() => textareaRef.current?.focus(), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isMobile, currentConversationId]);
   const nativeSpeechPrompt = nativeSttInfo?.status === "prompt";
   const nativeSpeechDenied = nativeSttInfo?.status === "denied";
   const nativeSpeechUnavailable = nativeSttInfo?.status === "unavailable";
@@ -1762,7 +1773,10 @@ export function ChatInput({ onSend, onStop }: Props) {
 
   return (
     <div
-      className="relative border-t border-border/70 bg-background/95 px-4 py-4 backdrop-blur"
+      className={cn(
+        "relative border-t border-border/70 bg-background/95 backdrop-blur",
+        isMobile ? "px-3 py-2" : "px-4 py-4"
+      )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -1985,7 +1999,10 @@ export function ChatInput({ onSend, onStop }: Props) {
                     }
                     disabled={isOtherStreaming}
                     rows={1}
-                    className="min-h-[48px] resize-none overflow-x-hidden overflow-y-hidden break-words border-0 bg-transparent px-3 py-3 pr-14 leading-6 shadow-none focus-visible:ring-0 [overflow-wrap:break-word] [word-break:break-word]"
+                    className={cn(
+                      "resize-none overflow-x-hidden overflow-y-hidden break-words border-0 bg-transparent px-3 pr-14 leading-6 shadow-none focus-visible:ring-0 [overflow-wrap:break-word] [word-break:break-word]",
+                      isMobile ? "min-h-[40px] py-2" : "min-h-[48px] py-3"
+                    )}
                   />
                   {input.trim().length > 0 && (
                     <span className="pointer-events-none absolute right-2 bottom-1.5 select-none text-[11px] text-muted-foreground/60">

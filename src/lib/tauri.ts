@@ -3,6 +3,8 @@ import type {
   Conversation,
   ConversationUsage,
   DailyUsage,
+  ExportResult,
+  ImportResult,
   LocalOpenClawDetection,
   LocalProviderScanResult,
   Message,
@@ -395,6 +397,13 @@ export const sendOpenClawMessage = (
 
 export const stopOpenClawGeneration = (conversationId: string) =>
   invoke<void>("stop_openclaw_generation", { conversationId });
+
+// Config export/import commands
+export const exportConfig = (password: string, filePath: string) =>
+  invoke<ExportResult>("export_config", { password, filePath });
+
+export const importConfig = (password: string, filePath: string) =>
+  invoke<ImportResult>("import_config", { password, filePath });
 
 export const parseConnectionString = (input: string) =>
   invoke<{

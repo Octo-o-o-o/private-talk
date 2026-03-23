@@ -56,6 +56,14 @@ function App() {
       }
 
       await preferencesTask;
+
+      // Dismiss splash screen
+      const splash = document.getElementById("splash-screen");
+      if (splash) {
+        splash.classList.add("fade-out");
+        setTimeout(() => splash.remove(), 300);
+      }
+
       // Silent background scan — results cached for settings page
       void scanLocalServices();
     };

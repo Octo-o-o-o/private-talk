@@ -178,6 +178,24 @@ export interface VoiceSegmentResult {
   voice_id: string | null;
 }
 
+export interface ExportResult {
+  success: boolean;
+  path: string | null;
+  providers: number;
+  voices: number;
+  assistants: number;
+  openclaw_instances: number;
+}
+
+export interface ImportResult {
+  success: boolean;
+  providers: number;
+  voices: number;
+  assistants: number;
+  openclaw_instances: number;
+  settings: number;
+}
+
 export interface StreamChunkPayload {
   conversation_id: string;
   content: string;

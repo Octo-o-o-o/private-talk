@@ -26,6 +26,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 
 type ViewMode = "session" | "date";
 type PricingMap = Record<string, { prompt: number; completion: number }>;
@@ -202,6 +203,7 @@ export function UsagePage() {
       <div className="shrink-0 border-b border-border">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
+            <MobileMenuButton />
             <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/10 bg-gradient-to-br from-primary/20 to-primary/5">
               <BarChart3 className="h-4 w-4 text-primary" />
             </div>

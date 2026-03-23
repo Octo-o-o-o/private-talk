@@ -27,6 +27,7 @@ import type { Conversation, OpenClawAgent, Assistant } from "@/lib/types";
 import { getAssistantIcon } from "@/components/assistant/assistantIcons";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -69,9 +70,11 @@ function parseOpenClawAgentsCache(raw: string): OpenClawAgent[] {
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobile = useIsMobile();
   const {
     sidebarOpen,
     toggleSidebar,
+    setSidebarOpen,
     assistants,
     conversations,
     currentConversationId,
@@ -342,7 +345,9 @@ export function Sidebar() {
     await setThemeMode(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setThemeMode]);
 
-  if (!sidebarOpen) {
+  // On mobile, sidebar visibility is controlled by the drawer in AppLayout.
+  // On desktop, show the collapsed sidebar strip when closed.
+  if (!sidebarOpen && !isMobile) {
     return (
       <TooltipProvider>
         <div className="flex h-full w-12 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -369,15 +374,25 @@ export function Sidebar() {
     );
   }
 
+  const closeSidebarOnMobile = () => {
+    if (isMobile) setSidebarOpen(false);
+  };
+
   return (
     <TooltipProvider>
-      <div className="relative flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
+      <div className={cn(
+        "relative flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        isMobile ? "w-full" : "w-64"
+      )}>
+        {!isMobile && (
+          <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
+        )}
 
-        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: 10 }}>
+        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: isMobile ? 12 : 10 }}>
           <div className="relative z-10 flex items-center justify-between">
             <Button
               onClick={() => {
+                closeSidebarOnMobile();
                 navigate("/");
                 void createConversation();
               }}
@@ -386,14 +401,16 @@ export function Sidebar() {
               <Plus className="h-4 w-4" />
               {t("新建会话", "New Session")}
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleSidebar}
-              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </Button>
+            {!isMobile && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
+            )}
           </div>
           {openclawInstances.length > 0 ? (
             <DropdownMenu>
@@ -448,6 +465,7 @@ export function Sidebar() {
                           <DropdownMenuItem
                             className="pl-6 gap-2"
                             onClick={() => {
+                              closeSidebarOnMobile();
                               navigate("/");
                               void createOpenClawConversation(instance.id, agent.id, agent.name);
                             }}
@@ -647,6 +665,7 @@ export function Sidebar() {
                   assistants={assistants}
                   openclawAgents={openclawAgents}
                   onSelect={async () => {
+                    closeSidebarOnMobile();
                     await selectConversation(conversation.id);
                     navigate("/");
                   }}
@@ -673,21 +692,21 @@ export function Sidebar() {
             label={t("声音", "Voices")}
             tooltip={t("管理 TTS 配置", "Manage TTS profiles")}
             isActive={currentView === "voices"}
-            onClick={() => navigate("/voices")}
+            onClick={() => { closeSidebarOnMobile(); navigate("/voices"); }}
           />
           <NavButton
             icon={<BarChart3 className="h-4 w-4" />}
             label={t("用量", "Usage")}
             tooltip={t("Token 消耗与费用", "Token usage & costs")}
             isActive={currentView === "usage"}
-            onClick={() => navigate("/usage")}
+            onClick={() => { closeSidebarOnMobile(); navigate("/usage"); }}
           />
           <NavButton
             icon={<Settings className="h-4 w-4" />}
             label={t("设置", "Settings")}
             tooltip={t("服务商、记忆与 PIN", "Providers, memory & PIN")}
             isActive={currentView === "settings"}
-            onClick={() => navigate("/settings")}
+            onClick={() => { closeSidebarOnMobile(); navigate("/settings"); }}
           />
         </div>
 

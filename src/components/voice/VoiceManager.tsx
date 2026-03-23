@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Empty, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,6 +118,7 @@ export function VoiceManager() {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-14 items-center justify-between border-b border-border px-6">
         <div className="flex items-center gap-3">
+          <MobileMenuButton />
           <Volume2 className="h-4 w-4 text-muted-foreground" />
           <h1 className="text-lg font-semibold">{t("声音管理", "Voice Manager")}</h1>
         </div>

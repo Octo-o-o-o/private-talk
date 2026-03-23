@@ -166,7 +166,8 @@ fn handle_menu_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri:
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init());
 
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_native_stt_mobile::init());
@@ -274,6 +275,9 @@ pub fn run() {
             commands::openclaw::send_openclaw_message,
             commands::openclaw::stop_openclaw_generation,
             commands::openclaw::parse_connection_string,
+            // Config import/export commands
+            commands::config_io::export_config,
+            commands::config_io::import_config,
         ]);
 
     #[cfg(desktop)]

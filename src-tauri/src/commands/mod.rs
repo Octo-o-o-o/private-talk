@@ -1,4 +1,5 @@
 pub mod assistant;
+pub mod config_io;
 pub mod chat;
 pub mod conversation;
 pub mod native_stt;

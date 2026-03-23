@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp } from "lucide-react";
+import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal } from "lucide-react";
 import appIconUrl from "@/assets/app-icon.png";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { useAppStore } from "../../stores/appStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import { MessageItem } from "./MessageItem";
 import { ChatInput } from "./ChatInput";
 import * as api from "../../lib/tauri";
@@ -28,6 +30,8 @@ import type {
 export function ChatView() {
   const navigate = useNavigate();
   const { t, tField } = useI18n();
+  const isMobile = useIsMobile();
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const {
     messages,
     conversations,
@@ -74,6 +78,15 @@ export function ChatView() {
     ? voices.length > 0
     : (currentAssistant?.tts_enabled ?? false);
   const canSelectAssistant = !messages.some((message) => message.role !== "system");
+
+  // On mobile: auto-create a new conversation if providers exist but no conversation is active
+  const hasAutoCreatedRef = useRef(false);
+  useEffect(() => {
+    if (isMobile && providers.length > 0 && !currentConversationId && !hasAutoCreatedRef.current) {
+      hasAutoCreatedRef.current = true;
+      void createConversation();
+    }
+  }, [isMobile, providers.length, currentConversationId, createConversation]);
 
   const checkIfNearBottom = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -334,6 +347,7 @@ export function ChatView() {
   };
 
   const handleSend = async (content: string, attachmentJsons?: string[]) => {
+    setMobileSettingsOpen(false);
     let conversationId = currentConversationId;
     let isNewConversation = false;
 
@@ -415,10 +429,12 @@ export function ChatView() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
+      {/* Header bar */}
       <div className="flex h-12 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4">
-        {/* Left: Assistant selector (local) or Agent name (OpenClaw) */}
+        {/* Left: Menu button + Assistant selector */}
         <div className="flex min-w-0 items-center gap-2">
+          <MobileMenuButton />
           {isOpenClawConversation ? (
             <div className="flex h-7 items-center gap-2 rounded-md px-2">
               <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-600 text-[11px]">
@@ -479,8 +495,17 @@ export function ChatView() {
           )}
         </div>
 
-        {/* Right: Model selector + Context slider (local mode only) */}
-        {isOpenClawConversation ? null : (
+        {/* Right: Desktop = inline controls, Mobile = gear toggle */}
+        {isOpenClawConversation ? null : isMobile ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-8 w-8 shrink-0", mobileSettingsOpen && "bg-accent")}
+            onClick={() => setMobileSettingsOpen((prev) => !prev)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+        ) : (
         <div className="flex items-center gap-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -536,6 +561,63 @@ export function ChatView() {
         )}
       </div>
 
+      {/* Mobile collapsible settings panel — overlays content */}
+      {isMobile && mobileSettingsOpen && !isOpenClawConversation && (
+        <div className="absolute left-0 right-0 z-30 flex flex-col gap-3 border-b border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur" style={{ top: 48 }}>
+          <div className="flex items-center gap-3">
+            <span className="shrink-0 text-xs text-muted-foreground">{t("模型", "Model")}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 min-w-0 flex-1 justify-between gap-1.5">
+                  <span className="truncate text-xs">
+                    {currentProvider?.name && selectedModel
+                      ? `${currentProvider.name} / ${selectedModel}`
+                      : t("未选择", "Not selected")}
+                  </span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72">
+                {providers.length === 0 ? (
+                  <DropdownMenuItem disabled>
+                    {t("未配置服务商", "No providers configured")}
+                  </DropdownMenuItem>
+                ) : null}
+                {providers.flatMap((provider) =>
+                  provider.models.map((model) => (
+                    <DropdownMenuItem
+                      key={`${provider.id}-${model}`}
+                      onClick={() => {
+                        setSelectedProvider(provider.id);
+                        setSelectedModel(model);
+                      }}
+                    >
+                      <span className="mr-2 text-xs text-muted-foreground">{provider.name}</span>
+                      <span className="truncate font-mono text-sm">{model}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="shrink-0 text-xs text-muted-foreground">{t("上下文", "Context")}</span>
+            <Slider
+              value={[contextSize]}
+              onValueChange={([value]) => setContextSize(value)}
+              onValueCommit={([value]) => {
+                void api.setSetting("context_hot_size", String(value));
+              }}
+              min={5}
+              max={100}
+              step={1}
+              className="flex-1"
+            />
+            <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{contextSize}</span>
+          </div>
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollContainerRef}
@@ -546,25 +628,35 @@ export function ChatView() {
           <div className="mx-auto max-w-3xl space-y-6 pb-2">
             {!currentConversationId ? (
               <div className="flex min-h-[calc(100vh-220px)] items-center justify-center">
-                <div className="flex max-w-md flex-col items-center text-center">
+                <div className="flex max-w-md flex-col items-center text-center px-6">
                   <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl">
                     <img src={appIconUrl} alt="Private Talk" className="h-16 w-16 rounded-2xl" />
                   </div>
                   <h2 className="text-xl font-semibold tracking-tight">Private Talk</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t(
-                      "选择一个会话，或者新建会话开始聊天。",
-                      "Select a conversation or create a new session to start chatting."
-                    )}
-                  </p>
                   {providers.length === 0 ? (
-                    <div className="mt-5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+                    <>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {t(
+                          "开始之前，需要先配置一个 AI 服务商。",
+                          "To get started, configure an AI provider first."
+                        )}
+                      </p>
+                      <Button
+                        className="mt-5"
+                        onClick={() => navigate("/settings?section=providers")}
+                      >
+                        <Settings className="mr-2 h-4 w-4" />
+                        {t("添加服务商", "Add Provider")}
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">
                       {t(
-                        "还没有配置服务商。打开设置先添加一个。",
-                        "No providers configured. Open Settings to add one."
+                        "选择一个会话，或者新建会话开始聊天。",
+                        "Select a conversation or create a new session to start chatting."
                       )}
-                    </div>
-                  ) : null}
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
