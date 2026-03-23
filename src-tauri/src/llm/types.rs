@@ -26,14 +26,13 @@ impl ChatContent {
     pub fn as_text(&self) -> &str {
         match self {
             ChatContent::Text(s) => s,
-            ChatContent::Multipart(parts) => {
-                for part in parts {
-                    if let ChatContentPart::Text { text } = part {
-                        return text;
-                    }
-                }
-                ""
-            }
+            ChatContent::Multipart(parts) => parts
+                .iter()
+                .find_map(|part| match part {
+                    ChatContentPart::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .unwrap_or(""),
         }
     }
 }

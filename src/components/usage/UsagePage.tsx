@@ -131,14 +131,10 @@ function formatDateFull(value: string, locale: string) {
   });
 }
 
-function getPrimaryModel(usages: ModelUsage[]) {
-  return usages[0]?.model ?? null;
-}
-
 function getCollapsedModelLabel(usages: ModelUsage[]) {
-  const primaryModel = getPrimaryModel(usages);
-  if (!primaryModel) return null;
-  return primaryModel.length > 22 ? `${primaryModel.slice(0, 22)}...` : primaryModel;
+  const model = usages[0]?.model ?? null;
+  if (!model) return null;
+  return model.length > 22 ? `${model.slice(0, 22)}...` : model;
 }
 
 export function UsagePage() {

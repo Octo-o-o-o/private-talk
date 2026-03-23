@@ -4,6 +4,9 @@ import { useAppStore } from "../../stores/appStore";
 import { Lock, Delete } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
+const numpadBase =
+  "h-[68px] w-[68px] rounded-2xl border border-[color:var(--lock-border)] bg-[var(--lock-panel-soft)] transition-all duration-150 hover:bg-[var(--lock-panel-hover)] active:scale-[0.96]";
+
 export function PinLock() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
@@ -88,28 +91,31 @@ export function PinLock() {
 
         {/* Numpad */}
         <div className="grid grid-cols-3 gap-3.5">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-            <button
-              key={digit}
-              onClick={() => handleDigit(digit)}
-              className="h-[68px] w-[68px] rounded-2xl border border-[color:var(--lock-border)] bg-[var(--lock-panel-soft)] text-xl font-light text-[var(--lock-foreground)] transition-all duration-150 hover:bg-[var(--lock-panel-hover)] active:scale-[0.96]"
-            >
-              {digit}
-            </button>
-          ))}
-          <div />
-          <button
-            onClick={() => handleDigit("0")}
-            className="h-[68px] w-[68px] rounded-2xl border border-[color:var(--lock-border)] bg-[var(--lock-panel-soft)] text-xl font-light text-[var(--lock-foreground)] transition-all duration-150 hover:bg-[var(--lock-panel-hover)] active:scale-[0.96]"
-          >
-            0
-          </button>
-          <button
-            onClick={pin.length > 0 ? handleDelete : handleSubmit}
-            className="flex h-[68px] w-[68px] items-center justify-center rounded-2xl border border-[color:var(--lock-border)] bg-[var(--lock-panel-soft)] text-[var(--lock-muted)] transition-all duration-150 hover:bg-[var(--lock-panel-hover)] active:scale-[0.96]"
-          >
-            <Delete size={20} />
-          </button>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"].map(
+            (key) => {
+              if (key === "") return <div key="spacer" />;
+              if (key === "del") {
+                return (
+                  <button
+                    key="del"
+                    onClick={pin.length > 0 ? handleDelete : handleSubmit}
+                    className={`${numpadBase} flex items-center justify-center text-[var(--lock-muted)]`}
+                  >
+                    <Delete size={20} />
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleDigit(key)}
+                  className={`${numpadBase} text-xl font-light text-[var(--lock-foreground)]`}
+                >
+                  {key}
+                </button>
+              );
+            }
+          )}
         </div>
       </div>
     </div>

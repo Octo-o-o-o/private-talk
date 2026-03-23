@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod conversation;
 pub mod openclaw;
+pub mod permissions;
 pub mod pin;
 pub mod provider;
 pub mod scenario;

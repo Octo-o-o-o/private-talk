@@ -74,11 +74,8 @@ pub fn list_providers(db: State<DbState>) -> Result<Vec<Provider>, String> {
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut providers = Vec::new();
-    for row in rows {
-        providers.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(providers)
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -266,69 +263,55 @@ fn build_local_probes(hints: &ProcessHints) -> Vec<LocalProbe<'static>> {
         },
     ];
 
+    // Port 8000: commonly vLLM
+    let (framework_8000, name_8000) = if hints.vllm {
+        ("vLLM", "vLLM Local")
+    } else {
+        ("OpenAI-Compatible Local", "OpenAI-Compatible Local (8000)")
+    };
     probes.push(LocalProbe {
-        framework: if hints.vllm {
-            "vLLM"
-        } else {
-            "OpenAI-Compatible Local"
-        },
-        name: if hints.vllm {
-            "vLLM Local"
-        } else {
-            "OpenAI-Compatible Local (8000)"
-        },
+        framework: framework_8000,
+        name: name_8000,
         base_url: "http://127.0.0.1:8000/v1",
         discovery_mode: "openai-compatible",
         detection: build_detection("default localhost port 8000", hints.vllm, "vllm"),
     });
 
+    // Port 8080: commonly MLX, llama.cpp, or LocalAI
+    let (framework_8080, name_8080, process_8080) = if hints.mlx {
+        ("MLX", "MLX Local", "mlx")
+    } else if hints.llama_cpp {
+        ("llama.cpp", "llama.cpp Local", "llama.cpp")
+    } else if hints.local_ai {
+        ("LocalAI", "LocalAI", "localai")
+    } else {
+        (
+            "OpenAI-Compatible Local",
+            "OpenAI-Compatible Local (8080)",
+            "",
+        )
+    };
     probes.push(LocalProbe {
-        framework: if hints.mlx {
-            "MLX"
-        } else if hints.llama_cpp {
-            "llama.cpp"
-        } else if hints.local_ai {
-            "LocalAI"
-        } else {
-            "OpenAI-Compatible Local"
-        },
-        name: if hints.mlx {
-            "MLX Local"
-        } else if hints.llama_cpp {
-            "llama.cpp Local"
-        } else if hints.local_ai {
-            "LocalAI"
-        } else {
-            "OpenAI-Compatible Local (8080)"
-        },
+        framework: framework_8080,
+        name: name_8080,
         base_url: "http://127.0.0.1:8080/v1",
         discovery_mode: "openai-compatible",
         detection: build_detection(
             "default localhost port 8080",
-            hints.mlx || hints.llama_cpp || hints.local_ai,
-            if hints.mlx {
-                "mlx"
-            } else if hints.llama_cpp {
-                "llama.cpp"
-            } else if hints.local_ai {
-                "localai"
-            } else {
-                ""
-            },
+            !process_8080.is_empty(),
+            process_8080,
         ),
     });
 
+    // Port 8090: commonly MLX
+    let (framework_8090, name_8090) = if hints.mlx {
+        ("MLX", "MLX Local")
+    } else {
+        ("OpenAI-Compatible Local", "OpenAI-Compatible Local (8090)")
+    };
     probes.push(LocalProbe {
-        framework: if hints.mlx {
-            "MLX"
-        } else {
-            "OpenAI-Compatible Local"
-        },
-        name: if hints.mlx {
-            "MLX Local"
-        } else {
-            "OpenAI-Compatible Local (8090)"
-        },
+        framework: framework_8090,
+        name: name_8090,
         base_url: "http://127.0.0.1:8090/v1",
         discovery_mode: "openai-compatible",
         detection: build_detection("default localhost port 8090", hints.mlx, "mlx"),

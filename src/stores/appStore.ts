@@ -53,9 +53,14 @@ interface AppState {
   providers: Provider[];
   selectedProviderId: string | null;
   selectedModel: string | null;
+  selectedSttProviderId: string | null;
+  sttModel: string;
   loadProviders: () => Promise<void>;
+  loadSpeechSettings: () => Promise<void>;
   setSelectedProvider: (id: string) => void;
   setSelectedModel: (model: string) => void;
+  setSelectedSttProvider: (id: string | null) => Promise<void>;
+  setSttModel: (model: string) => Promise<void>;
 
   // Voices
   voices: Voice[];
@@ -110,10 +115,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages.every((message) => message.role === "system");
 
     if (isDraftConversation) {
-      await api.updateConversationScenario(currentConversationId, id ?? undefined);
-      await get().loadConversations();
-      set({ currentScenarioId: id });
-      await get().loadMessages(currentConversationId);
+      const updatedConversation = await api.updateConversationScenario(
+        currentConversationId,
+        id ?? undefined
+      );
+      set((s) => ({
+        currentScenarioId: id,
+        conversations: s.conversations.map((conversation) =>
+          conversation.id === currentConversationId
+            ? {
+                ...conversation,
+                scenario_id: updatedConversation.scenario_id,
+                updated_at: updatedConversation.updated_at,
+              }
+            : conversation
+        ),
+        messages: [],
+      }));
+      void get().loadConversations().catch((error) => {
+        console.error("Failed to refresh conversations after scenario change:", error);
+      });
       return;
     }
 
@@ -149,31 +170,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       undefined,
       currentScenarioId ?? undefined
     );
-    await get().loadConversations();
-    set({ currentConversationId: conv.id });
-    // Load messages (may include system prompt snapshot)
-    await get().loadMessages(conv.id);
+    set((s) => ({
+      conversations: [conv, ...s.conversations.filter((item) => item.id !== conv.id)],
+      currentConversationId: conv.id,
+      currentScenarioId: conv.scenario_id,
+      messages: [],
+    }));
+    void get().loadConversations().catch((error) => {
+      console.error("Failed to refresh conversations after create:", error);
+    });
     return conv.id;
   },
   deleteConversation: async (id) => {
     await api.deleteConversation(id);
-    const { currentConversationId } = get();
-    if (currentConversationId === id) {
-      set({ currentConversationId: null, messages: [] });
-    }
-    await get().loadConversations();
+    set((s) => ({
+      conversations: s.conversations.filter((conversation) => conversation.id !== id),
+      currentConversationId:
+        s.currentConversationId === id ? null : s.currentConversationId,
+      messages: s.currentConversationId === id ? [] : s.messages,
+    }));
+    void get().loadConversations().catch((error) => {
+      console.error("Failed to refresh conversations after delete:", error);
+    });
   },
   deleteConversations: async (ids) => {
     await api.deleteConversations(ids);
-    const { currentConversationId } = get();
-    if (currentConversationId && ids.includes(currentConversationId)) {
-      set({ currentConversationId: null, messages: [] });
-    }
-    await get().loadConversations();
+    set((s) => {
+      const shouldClearCurrent =
+        s.currentConversationId !== null && ids.includes(s.currentConversationId);
+      return {
+        conversations: s.conversations.filter(
+          (conversation) => !ids.includes(conversation.id)
+        ),
+        currentConversationId: shouldClearCurrent ? null : s.currentConversationId,
+        messages: shouldClearCurrent ? [] : s.messages,
+      };
+    });
+    void get().loadConversations().catch((error) => {
+      console.error("Failed to refresh conversations after bulk delete:", error);
+    });
   },
   renameConversation: async (id, title) => {
     await api.renameConversation(id, title);
-    await get().loadConversations();
+    set((s) => ({
+      conversations: s.conversations.map((conversation) =>
+        conversation.id === id ? { ...conversation, title } : conversation
+      ),
+    }));
+    void get().loadConversations().catch((error) => {
+      console.error("Failed to refresh conversations after rename:", error);
+    });
   },
   generateTitle: async (conversationId) => {
     const { selectedProviderId, selectedModel } = get();
@@ -233,11 +279,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   providers: [],
   selectedProviderId: null,
   selectedModel: null,
+  selectedSttProviderId: null,
+  sttModel: "whisper-1",
   loadProviders: async () => {
     const providers = await api.listProviders();
     set({ providers });
     // Only auto-select if current selection is null or no longer valid
-    const { selectedProviderId } = get();
+    const { selectedProviderId, selectedSttProviderId } = get();
     const currentStillExists = selectedProviderId && providers.some((p) => p.id === selectedProviderId);
     if (!currentStillExists) {
       const defaultProvider = providers.find((p) => p.is_default);
@@ -253,6 +301,38 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     }
+
+    const sttProviderStillExists =
+      selectedSttProviderId &&
+      providers.some((provider) => provider.id === selectedSttProviderId);
+    if (selectedSttProviderId && !sttProviderStillExists) {
+      set({ selectedSttProviderId: null });
+      void api.setSetting("stt_provider_id", "").catch((error) => {
+        console.error("Failed to clear missing STT provider setting:", error);
+      });
+    }
+  },
+  loadSpeechSettings: async () => {
+    const [sttProviderId, sttModel] = await Promise.all([
+      api.getSetting("stt_provider_id"),
+      api.getSetting("stt_model"),
+    ]);
+
+    const normalizedProviderId = sttProviderId?.trim() ? sttProviderId : null;
+    const currentProviders = get().providers;
+    const providerIsValid =
+      !normalizedProviderId ||
+      currentProviders.length === 0 ||
+      currentProviders.some((provider) => provider.id === normalizedProviderId);
+
+    set({
+      selectedSttProviderId: providerIsValid ? normalizedProviderId : null,
+      sttModel: sttModel?.trim() || "whisper-1",
+    });
+
+    if (normalizedProviderId && !providerIsValid) {
+      await api.setSetting("stt_provider_id", "");
+    }
   },
   setSelectedProvider: (id) => {
     const provider = get().providers.find((p) => p.id === id);
@@ -262,6 +342,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
   setSelectedModel: (model) => set({ selectedModel: model }),
+  setSelectedSttProvider: async (id) => {
+    set({ selectedSttProviderId: id });
+    await api.setSetting("stt_provider_id", id ?? "");
+  },
+  setSttModel: async (model) => {
+    const normalized = model.trim() || "whisper-1";
+    set({ sttModel: normalized });
+    await api.setSetting("stt_model", normalized);
+  },
 
   // Voices
   voices: [],
@@ -289,9 +378,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       instanceId,
       agentId
     );
-    await get().loadConversations();
-    set({ currentConversationId: conv.id, currentScenarioId: null });
-    await get().loadMessages(conv.id);
+    set((s) => ({
+      conversations: [conv, ...s.conversations.filter((item) => item.id !== conv.id)],
+      currentConversationId: conv.id,
+      currentScenarioId: null,
+      messages: [],
+    }));
+    void get().loadConversations().catch((error) => {
+      console.error("Failed to refresh conversations after OpenClaw create:", error);
+    });
     return conv.id;
   },
 

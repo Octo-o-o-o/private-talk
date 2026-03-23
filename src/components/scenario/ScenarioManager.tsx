@@ -15,10 +15,6 @@ export function ScenarioManager() {
   const { t } = useI18n();
   const { scenarios, currentScenarioId, loadScenarios, selectScenario } = useAppStore();
 
-  const handleNewScenario = () => {
-    navigate("/scenarios/new");
-  };
-
   const handleEdit = (scenario: Scenario) => {
     navigate(`/scenarios/edit/${scenario.id}`);
   };
@@ -45,10 +41,6 @@ export function ScenarioManager() {
     }
   };
 
-  const handleSelectScenario = async (id: string | null) => {
-    await selectScenario(id);
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-14 items-center justify-between border-b border-border px-6">
@@ -58,7 +50,7 @@ export function ScenarioManager() {
           </Button>
           <h1 className="text-lg font-semibold">{t("场景", "Scenarios")}</h1>
         </div>
-        <Button onClick={handleNewScenario}>
+        <Button onClick={() => navigate("/scenarios/new")}>
           <Plus className="mr-2 h-4 w-4" />
           {t("新建场景", "New Scenario")}
         </Button>
@@ -77,14 +69,14 @@ export function ScenarioManager() {
             <ScenarioCard
               scenario={null}
               isSelected={currentScenarioId === null}
-              onSelect={() => void handleSelectScenario(null)}
+              onSelect={() => void selectScenario(null)}
             />
             {scenarios.map((scenario) => (
               <ScenarioCard
                 key={scenario.id}
                 scenario={scenario}
                 isSelected={scenario.id === currentScenarioId}
-                onSelect={() => void handleSelectScenario(scenario.id)}
+                onSelect={() => void selectScenario(scenario.id)}
                 onView={scenario.is_preset ? () => handleView(scenario) : undefined}
                 onEdit={!scenario.is_preset ? () => handleEdit(scenario) : undefined}
                 onDelete={!scenario.is_preset ? () => void handleDelete(scenario.id) : undefined}
@@ -118,7 +110,7 @@ function ScenarioCard({
   onDuplicate,
 }: ScenarioCardProps) {
   const isFreeChat = scenario === null;
-  const { t } = useI18n();
+  const { t, tField } = useI18n();
 
   return (
     <Card
@@ -140,7 +132,7 @@ function ScenarioCard({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-medium">{isFreeChat ? t("自由对话", "Free Chat") : scenario.name}</h3>
+              <h3 className="font-medium">{isFreeChat ? t("自由对话", "Free Chat") : tField(scenario.name, scenario.name_en)}</h3>
               {!isFreeChat && scenario.is_preset ? (
                 <Badge variant="secondary" className="text-xs">
                   {t("预设", "Preset")}
@@ -153,7 +145,7 @@ function ScenarioCard({
                     "启动不带预设提示词和语音路由的新会话。",
                     "Start sessions without a preset system prompt or voice routing."
                   )
-                : scenario.description}
+                : tField(scenario.description, scenario.description_en)}
             </p>
             {!isFreeChat && scenario.system_prompt ? (
               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground/80">

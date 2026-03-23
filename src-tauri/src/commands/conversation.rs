@@ -46,11 +46,8 @@ fn query_conversations(
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut convos = Vec::new();
-    for row in rows {
-        convos.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(convos)
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 fn replace_system_prompt_snapshot(
@@ -140,7 +137,6 @@ pub fn create_conversation(
     let title = title.unwrap_or_else(|| "New Chat".to_string());
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Generate a unique session key for OpenClaw conversations
     let openclaw_session_key = if openclaw_instance_id.is_some() {
         Some(uuid::Uuid::new_v4().to_string())
     } else {
@@ -223,20 +219,21 @@ pub async fn delete_conversation(
     acp_state: State<'_, AcpState>,
     id: String,
 ) -> Result<(), String> {
-    // Kill any running ACP process for this conversation
     crate::commands::openclaw::kill_acp_for_conversation(&acp_state, &id).await;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Load attachments so we can delete files from disk
     let msg_ids: Vec<String> = {
         let mut stmt = conn
             .prepare("SELECT id FROM messages WHERE conversation_id = ?1")
             .map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(rusqlite::params![id], |row| row.get(0))
-            .map_err(|e| e.to_string())?;
-        rows.filter_map(|r| r.ok()).collect()
+        let ids = stmt
+            .query_map(rusqlite::params![id], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        ids
     };
     if !msg_ids.is_empty() {
         let attachments = crate::attachments::get_attachments_for_messages(&conn, &msg_ids)?;
@@ -292,10 +289,9 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut msgs: Vec<Message> = Vec::new();
-    for row in rows {
-        msgs.push(row.map_err(|e| e.to_string())?);
-    }
+    let mut msgs: Vec<Message> = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     // Batch-load attachments for all messages
     let msg_ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();

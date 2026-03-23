@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Globe,
   Loader2,
+  Mic,
   Plus,
   Server,
   Settings,
@@ -43,6 +44,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
@@ -54,7 +62,7 @@ import {
 // Session-level flag: only show auto-detection dialog once per app session
 const SETTINGS_VISITED_KEY = "private-talk-settings-visited";
 
-type SettingsSection = "providers" | "memory" | "security" | "openclaw";
+type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt";
 
 type SettingsState = {
   hotWindowSize: number;
@@ -108,7 +116,11 @@ export function SettingsPage() {
     voices,
     scenarios,
     pinEnabled,
+    selectedSttProviderId,
+    sttModel,
     loadProviders,
+    setSelectedSttProvider,
+    setSttModel,
     checkPinStatus,
     loadScenarios,
     loadVoices,
@@ -124,7 +136,8 @@ export function SettingsPage() {
     sectionParam === "providers" ||
     sectionParam === "memory" ||
     sectionParam === "security" ||
-    sectionParam === "openclaw"
+    sectionParam === "openclaw" ||
+    sectionParam === "stt"
       ? sectionParam
       : null;
   const mode = searchParams.get("mode");
@@ -150,6 +163,9 @@ export function SettingsPage() {
   const [isScanningLocalProviders, setIsScanningLocalProviders] = useState(false);
   const [localScanResults, setLocalScanResults] = useState<LocalProviderScanResult[]>([]);
   const [localScanError, setLocalScanError] = useState("");
+  const [sttProviderDraft, setSttProviderDraft] = useState<string>("system");
+  const [sttModelDraft, setSttModelDraft] = useState("whisper-1");
+  const [isSavingSttSettings, setIsSavingSttSettings] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -175,18 +191,34 @@ export function SettingsPage() {
 
   useEffect(() => {
     const load = async () => {
-      const hotWindow = await api.getSetting("context_hot_size");
-      const maxContext = await api.getSetting("context_max_messages");
+      const [hotWindowResult, maxContextResult, instancesResult] = await Promise.allSettled([
+        api.getSetting("context_hot_size"),
+        api.getSetting("context_max_messages"),
+        api.listOpenClawInstances(),
+      ]);
+
+      const hotWindow =
+        hotWindowResult.status === "fulfilled" ? hotWindowResult.value : null;
+      const maxContext =
+        maxContextResult.status === "fulfilled" ? maxContextResult.value : null;
       setSettings({
         hotWindowSize: hotWindow ? Number(hotWindow) : 20,
         maxContextMessages: maxContext ? Number(maxContext) : 100,
       });
-      // Load OpenClaw instances
-      const instances = await api.listOpenClawInstances();
-      setOpenclawInstances(instances);
+
+      if (instancesResult.status === "fulfilled") {
+        setOpenclawInstances(instancesResult.value);
+      } else {
+        console.error("Failed to load OpenClaw instances:", instancesResult.reason);
+      }
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    setSttProviderDraft(selectedSttProviderId ?? "system");
+    setSttModelDraft(sttModel || "whisper-1");
+  }, [selectedSttProviderId, sttModel]);
 
   // Auto-detect local OpenClaw when entering openclaw section
   useEffect(() => {
@@ -224,13 +256,15 @@ export function SettingsPage() {
         await loadProviders();
       } else if (currentDetection.type === "openclaw" && currentDetection.openclawDetection) {
         const detection = currentDetection.openclawDetection;
-        await api.createOpenClawInstance(
+        const instance = await api.createOpenClawInstance(
           t("本地 OpenClaw", "Local OpenClaw"),
           detection.gateway_url ?? "ws://127.0.0.1:18789",
           detection.gateway_token ?? ""
         );
-        const instances = await api.listOpenClawInstances();
-        setOpenclawInstances(instances);
+        setOpenclawInstances((prev) => [
+          instance,
+          ...prev.filter((item) => item.id !== instance.id),
+        ]);
       }
     } catch {
       // Silently continue to next
@@ -323,8 +357,24 @@ export function SettingsPage() {
   };
 
   const saveContextSettings = async () => {
-    await api.setSetting("context_hot_size", String(settings.hotWindowSize));
-    await api.setSetting("context_max_messages", String(settings.maxContextMessages));
+    await Promise.all([
+      api.setSetting("context_hot_size", String(settings.hotWindowSize)),
+      api.setSetting("context_max_messages", String(settings.maxContextMessages)),
+    ]);
+  };
+
+  const handleSaveSttSettings = async () => {
+    setIsSavingSttSettings(true);
+    try {
+      await Promise.all([
+        setSelectedSttProvider(
+          sttProviderDraft === "system" ? null : sttProviderDraft
+        ),
+        setSttModel(sttModelDraft.trim() || "whisper-1"),
+      ]);
+    } finally {
+      setIsSavingSttSettings(false);
+    }
   };
 
   const openDashboard = () => {
@@ -529,9 +579,15 @@ export function SettingsPage() {
     }
     try {
       setOpenclawFormError("");
-      await api.createOpenClawInstance(name.trim(), gatewayUrl.trim(), token.trim());
-      const instances = await api.listOpenClawInstances();
-      setOpenclawInstances(instances);
+      const instance = await api.createOpenClawInstance(
+        name.trim(),
+        gatewayUrl.trim(),
+        token.trim()
+      );
+      setOpenclawInstances((prev) => [
+        instance,
+        ...prev.filter((item) => item.id !== instance.id),
+      ]);
       setOpenclawForm({ name: "", gatewayUrl: "", token: "" });
     } catch (e) {
       setOpenclawFormError(String(e));
@@ -540,20 +596,21 @@ export function SettingsPage() {
 
   const handleDeleteOpenClaw = async (id: string) => {
     await api.deleteOpenClawInstance(id);
-    const instances = await api.listOpenClawInstances();
-    setOpenclawInstances(instances);
+    setOpenclawInstances((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleQuickAddLocalOpenClaw = async () => {
     if (!openclawDetection) return;
     try {
-      await api.createOpenClawInstance(
+      const instance = await api.createOpenClawInstance(
         t("本地 OpenClaw", "Local OpenClaw"),
         openclawDetection.gateway_url ?? "ws://127.0.0.1:18789",
         openclawDetection.gateway_token ?? ""
       );
-      const instances = await api.listOpenClawInstances();
-      setOpenclawInstances(instances);
+      setOpenclawInstances((prev) => [
+        instance,
+        ...prev.filter((item) => item.id !== instance.id),
+      ]);
     } catch (e) {
       setOpenclawFormError(String(e));
     }
@@ -586,9 +643,17 @@ export function SettingsPage() {
         id: a.id, name: a.name, model: a.model, is_default: a.isDefault,
         emoji: null, avatar: null, description: null,
       }))) : undefined;
-      await api.createOpenClawInstance(name, payload.url, payload.token, true, agentsCache);
-      const instances = await api.listOpenClawInstances();
-      setOpenclawInstances(instances);
+      const instance = await api.createOpenClawInstance(
+        name,
+        payload.url,
+        payload.token,
+        true,
+        agentsCache
+      );
+      setOpenclawInstances((prev) => [
+        instance,
+        ...prev.filter((item) => item.id !== instance.id),
+      ]);
       setConnectionString("");
       setConnectionStringSuccess(
         payload.token
@@ -600,41 +665,7 @@ export function SettingsPage() {
     }
   };
 
-  const pageHeading =
-    section === "providers"
-      ? isProviderEdit
-        ? {
-            title: t("服务商详情", "Provider Details"),
-            description: t("编辑端点、Key 和模型列表。", "Edit endpoint, key, and model list."),
-          }
-        : isProviderCreate
-          ? {
-              title: t("新增服务商", "Add Provider"),
-              description: t("从预设或自定义端点开始。", "Start from a preset or custom endpoint."),
-            }
-          : {
-              title: t("服务商列表", "Provider Stack"),
-              description: t("管理所有模型端点。", "Manage all model endpoints."),
-            }
-      : section === "memory"
-        ? {
-            title: t("上下文压缩", "Context Compression"),
-            description: t("调整压缩窗口和上下文上限。", "Adjust compression window and context limit."),
-          }
-        : section === "security"
-          ? {
-              title: t("本地安全", "Local Security"),
-              description: t("PIN 锁与数据重置。", "PIN lock and data reset."),
-            }
-          : section === "openclaw"
-            ? {
-                title: t("OpenClaw Gateways", "OpenClaw Gateways"),
-                description: t("管理 OpenClaw Gateway 实例。", "Manage OpenClaw Gateway instances."),
-              }
-            : {
-              title: t("工作区设置", "Workspace Settings"),
-              description: t("服务商、上下文与隐私控制。", "Providers, context, and privacy controls."),
-            };
+  const pageHeading = getPageHeading(section, isProviderEdit, isProviderCreate, t);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -680,7 +711,6 @@ export function SettingsPage() {
                 <ProviderStackCard
                   t={t}
                   providers={providers}
-                  onOpenList={openProviderList}
                   onOpenCreate={() => openProviderCreate()}
                   onOpenDetails={openProviderDetail}
                   onDelete={handleDeleteProvider}
@@ -691,6 +721,20 @@ export function SettingsPage() {
                   t={t}
                   instances={openclawInstances}
                   onOpenDetails={() => updateView(setSearchParams, { section: "openclaw" })}
+                />
+
+                <SpeechToTextCard
+                  t={t}
+                  providers={providers}
+                  selectedSttProviderId={selectedSttProviderId}
+                  sttModel={sttModel}
+                  onOpenDetails={() => updateView(setSearchParams, { section: "stt" })}
+                  draftProviderId={sttProviderDraft}
+                  draftModel={sttModelDraft}
+                  setDraftProviderId={setSttProviderDraft}
+                  setDraftModel={setSttModelDraft}
+                  onSave={handleSaveSttSettings}
+                  isSaving={isSavingSttSettings}
                 />
 
                 <MemoryCard
@@ -710,8 +754,6 @@ export function SettingsPage() {
                 <ProviderStackCard
                   t={t}
                   providers={providers}
-                  providersView
-                  onOpenList={openProviderList}
                   onOpenCreate={() => openProviderCreate()}
                   onOpenDetails={openProviderDetail}
                   onDelete={handleDeleteProvider}
@@ -979,7 +1021,7 @@ export function SettingsPage() {
                       <p className="text-sm text-destructive">{providerError}</p>
                     ) : null}
 
-                    {!(!isProviderCreate && !editingProvider) ? (
+                    {(isProviderCreate || editingProvider) ? (
                       <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
                         <div className="flex items-center gap-2">
                           {editingProvider && !editingProvider.is_default ? (
@@ -1009,9 +1051,9 @@ export function SettingsPage() {
                           <Button
                             onClick={() => void handleCreateOrUpdateProvider()}
                             disabled={
-                              !!providerId && !editingProvider
-                                ? true
-                                : !providerForm.name.trim() || !providerForm.baseUrl.trim()
+                              (Boolean(providerId) && !editingProvider) ||
+                              !providerForm.name.trim() ||
+                              !providerForm.baseUrl.trim()
                             }
                           >
                             {isProviderEdit
@@ -1034,6 +1076,22 @@ export function SettingsPage() {
               standalone
               onSettingsChange={updateSettings}
               onSave={saveContextSettings}
+            />
+          ) : null}
+
+          {section === "stt" ? (
+            <SpeechToTextCard
+              t={t}
+              providers={providers}
+              selectedSttProviderId={selectedSttProviderId}
+              sttModel={sttModel}
+              standalone
+              draftProviderId={sttProviderDraft}
+              draftModel={sttModelDraft}
+              setDraftProviderId={setSttProviderDraft}
+              setDraftModel={setSttModelDraft}
+              onSave={handleSaveSttSettings}
+              isSaving={isSavingSttSettings}
             />
           ) : null}
 
@@ -1377,8 +1435,6 @@ function ProviderStackCard({
 }: {
   t: (zh: string, en: string) => string;
   providers: Provider[];
-  providersView?: boolean;
-  onOpenList?: () => void;
   onOpenCreate: () => void;
   onOpenDetails: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
@@ -1496,6 +1552,154 @@ function OpenClawSummaryCard({
           </p>
         </CardContent>
       )}
+    </Card>
+  );
+}
+
+function SpeechToTextCard({
+  t,
+  providers,
+  selectedSttProviderId,
+  sttModel,
+  draftProviderId,
+  draftModel,
+  setDraftProviderId,
+  setDraftModel,
+  onSave,
+  isSaving,
+  standalone,
+  onOpenDetails,
+}: {
+  t: (zh: string, en: string) => string;
+  providers: Provider[];
+  selectedSttProviderId: string | null;
+  sttModel: string;
+  draftProviderId: string;
+  draftModel: string;
+  setDraftProviderId: (value: string) => void;
+  setDraftModel: (value: string) => void;
+  onSave: () => Promise<void>;
+  isSaving: boolean;
+  standalone?: boolean;
+  onOpenDetails?: () => void;
+}) {
+  const selectedProvider = providers.find(
+    (provider) => provider.id === selectedSttProviderId
+  );
+  const isSystemDefault = selectedSttProviderId === null;
+  const isDirty =
+    draftProviderId !== (selectedSttProviderId ?? "system") ||
+    draftModel.trim() !== (sttModel || "whisper-1");
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start gap-3">
+          <Mic className="mt-0.5 h-5 w-5 text-primary" />
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                {t("语音转写", "Speech To Text")}
+              </p>
+              <div className="flex items-center gap-2">
+                <Badge variant={isSystemDefault ? "secondary" : "outline"}>
+                  {isSystemDefault
+                    ? t("系统默认", "System default")
+                    : selectedProvider?.name ?? t("独立 Provider", "Dedicated provider")}
+                </Badge>
+                {!standalone && onOpenDetails ? (
+                  <Button variant="ghost" size="sm" onClick={onOpenDetails}>
+                    {t("详情", "Details")}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <CardTitle className="text-lg">{t("语音转文字", "Speech To Text")}</CardTitle>
+            <CardDescription className="mt-1">
+              {t(
+                "未配置时优先使用系统识别；配置独立 Provider 后优先走 Provider，失败时回退系统识别。",
+                "Uses system recognition by default. When a dedicated provider is configured, it is preferred and falls back to system recognition on failure."
+              )}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{t("STT 路由", "STT Route")}</Label>
+            <Select value={draftProviderId} onValueChange={setDraftProviderId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">
+                  {t("系统默认识别", "System default recognition")}
+                </SelectItem>
+                {providers.map((provider) => (
+                  <SelectItem key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "聊天模型和转写模型已分离，这里只影响录音转文字与语音消息转写。",
+                "Chat routing and transcription routing are separated. This only affects voice-to-text and voice message transcription."
+              )}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("STT 模型", "STT Model")}</Label>
+            <Input
+              value={draftModel}
+              onChange={(event) => setDraftModel(event.target.value)}
+              placeholder="whisper-1"
+              disabled={draftProviderId === "system"}
+            />
+            <p className="text-xs text-muted-foreground">
+              {draftProviderId === "system"
+                ? t(
+                    "系统默认识别不需要模型名；该字段会在切换到独立 Provider 时生效。",
+                    "System recognition does not need a model name; this field applies when a dedicated provider is selected."
+                  )
+                : t(
+                    "用于 OpenAI 兼容 transcription 接口，例如 whisper-1。",
+                    "Used for OpenAI-compatible transcription endpoints, for example whisper-1."
+                  )}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          {draftProviderId === "system"
+            ? t(
+                "当前策略：直接使用系统/运行时语音识别能力。",
+                "Current strategy: use the system/runtime speech recognition capability directly."
+              )
+            : t(
+                "当前策略：先调用所选 STT Provider；如果调用失败且系统识别可用，则自动回退到系统识别。",
+                "Current strategy: call the selected STT provider first; if it fails and system recognition is available, fall back automatically."
+              )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "系统回退是否可用取决于当前平台 WebView 是否暴露原生语音识别能力。",
+              "System fallback depends on whether the current platform WebView exposes native speech recognition."
+            )}
+          </p>
+          <Button
+            size="sm"
+            disabled={!isDirty || isSaving}
+            onClick={() => void onSave()}
+          >
+            {isSaving ? t("保存中…", "Saving...") : t("保存更改", "Save changes")}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -1922,4 +2126,63 @@ function inferProviderGlyph(name: string): ReactNode {
   const normalized = name.toLowerCase();
   if (normalized.includes("anthropic")) return <Brain className="h-4 w-4" />;
   return <Server className="h-4 w-4" />;
+}
+
+function getPageHeading(
+  section: SettingsSection | null,
+  isProviderEdit: boolean,
+  isProviderCreate: boolean,
+  t: (zh: string, en: string) => string
+): { title: string; description: string } {
+  if (section === "providers") {
+    if (isProviderEdit) {
+      return {
+        title: t("服务商详情", "Provider Details"),
+        description: t("编辑端点、Key 和模型列表。", "Edit endpoint, key, and model list."),
+      };
+    }
+    if (isProviderCreate) {
+      return {
+        title: t("新增服务商", "Add Provider"),
+        description: t("从预设或自定义端点开始。", "Start from a preset or custom endpoint."),
+      };
+    }
+    return {
+      title: t("服务商列表", "Provider Stack"),
+      description: t("管理所有模型端点。", "Manage all model endpoints."),
+    };
+  }
+
+  if (section === "memory") {
+    return {
+      title: t("上下文压缩", "Context Compression"),
+      description: t("调整压缩窗口和上下文上限。", "Adjust compression window and context limit."),
+    };
+  }
+
+  if (section === "stt") {
+    return {
+      title: t("语音转文字", "Speech To Text"),
+      description: t("独立配置转写 Provider 与系统回退。", "Configure a dedicated transcription provider and system fallback."),
+    };
+  }
+
+  if (section === "security") {
+    return {
+      title: t("本地安全", "Local Security"),
+      description: t("PIN 锁与数据重置。", "PIN lock and data reset."),
+    };
+  }
+
+  if (section === "openclaw") {
+    return {
+      title: t("OpenClaw Gateways", "OpenClaw Gateways"),
+      description: t("管理 OpenClaw Gateway 实例。", "Manage OpenClaw Gateway instances."),
+    };
+  }
+
+  return {
+    title: t("工作区设置", "Workspace Settings"),
+    description: t("服务商、上下文与隐私控制。", "Providers, context, and privacy controls."),
+  };
 }

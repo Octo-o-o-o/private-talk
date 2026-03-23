@@ -52,6 +52,7 @@ impl AcpClient {
         let session_arg = format!("agent:{}:{}", agent_id, session_key);
 
         let mut cmd = Command::new("openclaw");
+        cmd.env("PATH", crate::commands::openclaw::enriched_path());
         cmd.arg("acp");
         if !gateway_url.is_empty() {
             cmd.arg("--url").arg(gateway_url);
@@ -167,13 +168,16 @@ impl AcpClient {
             .to_string_lossy()
             .to_string();
         let result = self
-            .request("session/new", Some(serde_json::json!({
-                "cwd": cwd,
-                "mcpServers": []
-            })))
+            .request(
+                "session/new",
+                Some(serde_json::json!({
+                    "cwd": cwd,
+                    "mcpServers": []
+                })),
+            )
             .await?;
-        let session: SessionNewResult =
-            serde_json::from_value(result).map_err(|e| format!("Failed to parse session: {}", e))?;
+        let session: SessionNewResult = serde_json::from_value(result)
+            .map_err(|e| format!("Failed to parse session: {}", e))?;
         Ok(session.session_id)
     }
 
@@ -316,25 +320,19 @@ impl Drop for AcpClient {
 
 /// Extract text delta from a session/update notification.
 /// ACP agent_message_chunk format:
-/// { "sessionId": "...", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "delta" } } }
+/// `{ "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "delta" } } }`
 fn extract_text_delta(params: &Value) -> String {
-    let update = match params.get("update") {
-        Some(u) => u,
-        None => return String::new(),
-    };
-    // Only extract from agent_message_chunk updates
-    if update.get("sessionUpdate").and_then(|s| s.as_str()) != Some("agent_message_chunk") {
-        return String::new();
-    }
-    // content is a single block: { type: "text", text: "..." }
-    if let Some(content) = update.get("content") {
-        if content.get("type").and_then(|t| t.as_str()) == Some("text") {
-            if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                return text.to_string();
-            }
-        }
-    }
-    String::new()
+    let update = params
+        .get("update")
+        .filter(|u| u.get("sessionUpdate").and_then(|s| s.as_str()) == Some("agent_message_chunk"));
+
+    update
+        .and_then(|u| u.get("content"))
+        .filter(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 // ── Global ACP state ──
@@ -362,7 +360,7 @@ impl AcpState {
     /// Kill all active ACP processes (called on app exit).
     pub async fn kill_all(&self) {
         let mut clients = self.clients.lock().await;
-        for (_, entry_arc) in clients.iter() {
+        for entry_arc in clients.values() {
             let mut entry = entry_arc.lock().await;
             entry.client.kill().await;
         }

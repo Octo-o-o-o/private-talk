@@ -108,7 +108,9 @@ export interface DetectedLocalService {
 export interface Scenario {
   id: string;
   name: string;
+  name_en: string;
   description: string;
+  description_en: string;
   system_prompt: string;
   icon: string;
   is_preset: boolean;
@@ -122,10 +124,12 @@ export interface Scenario {
 export interface Voice {
   id: string;
   display_name: string;
+  display_name_en: string;
   engine: "qwen3-tts" | "openai-tts" | "custom";
   engine_config: VoiceEngineConfig;
   role_type: "background" | "character";
   tags: string[];
+  tags_en: string[];
   is_preset: boolean;
   created_at: string;
   updated_at: string;
@@ -138,11 +142,20 @@ export interface VoiceEngineConfig {
   speed: number;
   response_format: string;
   api_key?: string;
+  /** Voice Clone: base64-encoded reference audio */
+  ref_audio?: string;
+  /** Voice Clone: transcript of the reference audio */
+  ref_text?: string;
 }
 
 export interface TtsResult {
   audio_base64: string;
   content_type: string;
+}
+
+export interface MicrophonePermissionInfo {
+  status: "unknown" | "prompt" | "granted" | "denied";
+  source: "native" | "unsupported";
 }
 
 export interface VoiceSegmentResult {

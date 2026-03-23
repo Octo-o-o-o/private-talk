@@ -13,6 +13,8 @@
     "windows": [
       {
         "title": "Private Talk",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -20,7 +22,13 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["$APPDATA/attachments/**"]
+        }
+      }
     }
   },
   "bundle": {
@@ -38,7 +46,8 @@
     "macOS": {
       "minimumSystemVersion": "10.15",
       "entitlements": null,
-      "exceptionDomain": null
+      "exceptionDomain": null,
+      "infoPlist": "Info.plist"
     },
     "windows": {
       "certificateThumbprint": null,

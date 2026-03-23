@@ -12,6 +12,12 @@ pub struct VoiceEngineConfig {
     /// Optional API key for authenticated TTS endpoints (OpenAI, etc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Voice Clone: base64-encoded reference audio
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_audio: Option<String>,
+    /// Voice Clone: transcript of the reference audio
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_text: Option<String>,
 }
 
 fn default_speed() -> f64 {
@@ -38,4 +44,13 @@ pub struct TtsSpeechRequest {
     pub speed: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<String>,
+    /// VoiceDesign / CustomVoice instruct parameter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruct: Option<String>,
+    /// Voice Clone: base64-encoded reference audio
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_audio: Option<String>,
+    /// Voice Clone: transcript of the reference audio
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_text: Option<String>,
 }

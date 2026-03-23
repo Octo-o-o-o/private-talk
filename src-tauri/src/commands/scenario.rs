@@ -6,7 +6,9 @@ use tauri::State;
 pub struct Scenario {
     pub id: String,
     pub name: String,
+    pub name_en: String,
     pub description: String,
+    pub description_en: String,
     pub system_prompt: String,
     pub icon: String,
     pub is_preset: bool,
@@ -17,68 +19,72 @@ pub struct Scenario {
     pub updated_at: String,
 }
 
+fn parse_voice_mapping(json_str: &str) -> serde_json::Value {
+    serde_json::from_str(json_str).unwrap_or(serde_json::json!({}))
+}
+
 #[tauri::command]
 pub fn list_scenarios(db: State<DbState>) -> Result<Vec<Scenario>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at
+            "SELECT id, name, name_en, description, description_en, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at
              FROM scenarios ORDER BY is_preset DESC, created_at ASC",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
-            let is_preset: i32 = row.get(5)?;
-            let vm_str: String = row.get(6)?;
-            let tts: i32 = row.get(7)?;
-            let ap: i32 = row.get(8)?;
+            let is_preset: i32 = row.get(7)?;
+            let vm_str: String = row.get(8)?;
+            let tts: i32 = row.get(9)?;
+            let ap: i32 = row.get(10)?;
             Ok(Scenario {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                description: row.get(2)?,
-                system_prompt: row.get(3)?,
-                icon: row.get(4)?,
+                name_en: row.get(2)?,
+                description: row.get(3)?,
+                description_en: row.get(4)?,
+                system_prompt: row.get(5)?,
+                icon: row.get(6)?,
                 is_preset: is_preset != 0,
-                voice_mapping: serde_json::from_str(&vm_str)
-                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                voice_mapping: parse_voice_mapping(&vm_str),
                 tts_enabled: tts != 0,
                 auto_play: ap != 0,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut scenarios = Vec::new();
-    for row in rows {
-        scenarios.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(scenarios)
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_scenario(db: State<DbState>, id: String) -> Result<Scenario, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.query_row(
-        "SELECT id, name, description, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at
+        "SELECT id, name, name_en, description, description_en, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at
          FROM scenarios WHERE id = ?1",
         rusqlite::params![id],
         |row| {
-            let is_preset: i32 = row.get(5)?;
-            let vm_str: String = row.get(6)?;
-            let tts: i32 = row.get(7)?;
-            let ap: i32 = row.get(8)?;
+            let is_preset: i32 = row.get(7)?;
+            let vm_str: String = row.get(8)?;
+            let tts: i32 = row.get(9)?;
+            let ap: i32 = row.get(10)?;
             Ok(Scenario {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                description: row.get(2)?,
-                system_prompt: row.get(3)?,
-                icon: row.get(4)?,
+                name_en: row.get(2)?,
+                description: row.get(3)?,
+                description_en: row.get(4)?,
+                system_prompt: row.get(5)?,
+                icon: row.get(6)?,
                 is_preset: is_preset != 0,
-                voice_mapping: serde_json::from_str(&vm_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                voice_mapping: parse_voice_mapping(&vm_str),
                 tts_enabled: tts != 0,
                 auto_play: ap != 0,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         },
     )
@@ -100,9 +106,7 @@ pub fn create_scenario(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let icon = icon.unwrap_or_default();
-    let vm = voice_mapping
-        .clone()
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+    let vm = voice_mapping.clone().unwrap_or(serde_json::json!({}));
     let vm_str = serde_json::to_string(&vm).map_err(|e| e.to_string())?;
     let te = tts_enabled.unwrap_or(false);
     let ap = auto_play.unwrap_or(false);
@@ -116,7 +120,9 @@ pub fn create_scenario(
     Ok(Scenario {
         id,
         name,
+        name_en: String::new(),
         description,
+        description_en: String::new(),
         system_prompt,
         icon,
         is_preset: false,
@@ -142,7 +148,6 @@ pub fn update_scenario(
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Check if preset — presets cannot be edited
     let is_preset: i32 = conn
         .query_row(
             "SELECT is_preset FROM scenarios WHERE id = ?1",
@@ -214,7 +219,6 @@ pub fn update_scenario(
 pub fn delete_scenario(db: State<DbState>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Check if preset — presets cannot be deleted
     let is_preset: i32 = conn
         .query_row(
             "SELECT is_preset FROM scenarios WHERE id = ?1",
@@ -227,7 +231,6 @@ pub fn delete_scenario(db: State<DbState>, id: String) -> Result<(), String> {
         return Err("Cannot delete preset scenarios".to_string());
     }
 
-    // Delete scenario — conversations.scenario_id will be SET NULL by FK constraint
     conn.execute("DELETE FROM scenarios WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -237,10 +240,9 @@ pub fn delete_scenario(db: State<DbState>, id: String) -> Result<(), String> {
 pub fn duplicate_scenario(db: State<DbState>, id: String) -> Result<Scenario, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Load source scenario
     let source = conn
         .query_row(
-            "SELECT name, description, system_prompt, icon, voice_mapping, tts_enabled, auto_play FROM scenarios WHERE id = ?1",
+            "SELECT name, name_en, description, description_en, system_prompt, icon, voice_mapping, tts_enabled, auto_play FROM scenarios WHERE id = ?1",
             rusqlite::params![id],
             |row| {
                 Ok((
@@ -249,8 +251,10 @@ pub fn duplicate_scenario(db: State<DbState>, id: String) -> Result<Scenario, St
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
-                    row.get::<_, i32>(5)?,
-                    row.get::<_, i32>(6)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i32>(7)?,
+                    row.get::<_, i32>(8)?,
                 ))
             },
         )
@@ -261,23 +265,24 @@ pub fn duplicate_scenario(db: State<DbState>, id: String) -> Result<Scenario, St
     let new_name = format!("{} (Copy)", source.0);
 
     conn.execute(
-        "INSERT INTO scenarios (id, name, description, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10)",
-        rusqlite::params![new_id, new_name, source.1, source.2, source.3, source.4, source.5, source.6, now, now],
+        "INSERT INTO scenarios (id, name, name_en, description, description_en, system_prompt, icon, is_preset, voice_mapping, tts_enabled, auto_play, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, ?12)",
+        rusqlite::params![new_id, new_name, source.1, source.2, source.3, source.4, source.5, source.6, source.7, source.8, now, now],
     )
     .map_err(|e| e.to_string())?;
 
     Ok(Scenario {
         id: new_id,
         name: new_name,
-        description: source.1,
-        system_prompt: source.2,
-        icon: source.3,
+        name_en: String::new(),
+        description: source.2,
+        description_en: source.3,
+        system_prompt: source.4,
+        icon: source.5,
         is_preset: false,
-        voice_mapping: serde_json::from_str(&source.4)
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
-        tts_enabled: source.5 != 0,
-        auto_play: source.6 != 0,
+        voice_mapping: parse_voice_mapping(&source.6),
+        tts_enabled: source.7 != 0,
+        auto_play: source.8 != 0,
         created_at: now.clone(),
         updated_at: now,
     })

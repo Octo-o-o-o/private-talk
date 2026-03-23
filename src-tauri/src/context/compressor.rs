@@ -10,28 +10,22 @@ pub struct ContextStats {
     pub usage_percent: f64,
 }
 
+/// Load a single usize setting from the database, with a fallback default.
+fn get_setting(conn: &Connection, key: &str, default: usize) -> usize {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(default)
+}
+
 /// Load context settings from the database.
 fn get_settings(conn: &Connection) -> (usize, usize) {
-    let hot_size: usize = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'context_hot_size'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(20);
-
-    let max_messages: usize = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'context_max_messages'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(50);
-
+    let hot_size = get_setting(conn, "context_hot_size", 20);
+    let max_messages = get_setting(conn, "context_max_messages", 50);
     (hot_size, max_messages)
 }
 
@@ -138,7 +132,7 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
         .collect();
 
     let total = system_msgs.len()
-        + summary_msg.as_ref().map_or(0, |_| 1)
+        + usize::from(summary_msg.is_some())
         + pinned_msgs.len()
         + regular_msgs.len();
 
@@ -187,7 +181,6 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
 pub struct CompressionInput {
     pub needs_compression: bool,
     pub conversation_text: String,
-    pub conversation_id: String,
     /// ID of the last message included in the compressed text (boundary for next compression).
     pub covered_until_message_id: Option<String>,
 }
@@ -213,7 +206,6 @@ pub fn prepare_compression(
         return Ok(CompressionInput {
             needs_compression: false,
             conversation_text: String::new(),
-            conversation_id: conversation_id.to_string(),
             covered_until_message_id: None,
         });
     }
@@ -249,16 +241,15 @@ pub fn prepare_compression(
         .collect();
 
     // Skip messages already covered by previous summary
-    let uncovered_start = match &covered_until {
-        Some(boundary_id) => {
+    let uncovered_start = covered_until
+        .as_ref()
+        .and_then(|boundary_id| {
             all_msgs
                 .iter()
                 .position(|(id, _, _)| id == boundary_id)
                 .map(|pos| pos + 1)
-                .unwrap_or(0)
-        }
-        None => 0,
-    };
+        })
+        .unwrap_or(0);
 
     let uncovered = &all_msgs[uncovered_start..];
 
@@ -266,7 +257,6 @@ pub fn prepare_compression(
         return Ok(CompressionInput {
             needs_compression: false,
             conversation_text: String::new(),
-            conversation_id: conversation_id.to_string(),
             covered_until_message_id: None,
         });
     }
@@ -274,16 +264,6 @@ pub fn prepare_compression(
     // Cold zone = uncovered messages minus hot_size recent ones
     let cold_end = uncovered.len() - hot_size;
     let to_compress = &uncovered[..cold_end];
-
-    if to_compress.is_empty() {
-        return Ok(CompressionInput {
-            needs_compression: false,
-            conversation_text: String::new(),
-            conversation_id: conversation_id.to_string(),
-            covered_until_message_id: None,
-        });
-    }
-
     let last_compressed_id = to_compress.last().map(|(id, _, _)| id.clone());
 
     let conversation_text = to_compress
@@ -295,7 +275,6 @@ pub fn prepare_compression(
     Ok(CompressionInput {
         needs_compression: true,
         conversation_text,
-        conversation_id: conversation_id.to_string(),
         covered_until_message_id: last_compressed_id,
     })
 }
@@ -518,7 +497,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 1, "Should have exactly one summary row, not accumulate");
+        assert_eq!(
+            count, 1,
+            "Should have exactly one summary row, not accumulate"
+        );
 
         let summary: String = conn
             .query_row(
@@ -567,7 +549,9 @@ mod tests {
 
         // Should include: summary + hot(msg8, msg9) = 3
         assert!(context.len() <= 5);
-        assert!(context.iter().any(|m| m.content.as_text().contains("Test summary")));
+        assert!(context
+            .iter()
+            .any(|m| m.content.as_text().contains("Test summary")));
         assert!(context.iter().any(|m| m.content.as_text() == "Message 9"));
 
         // Should NOT have any old-style summary system messages in the context
@@ -575,7 +559,11 @@ mod tests {
             .iter()
             .filter(|m| m.role == "system" && m.content.as_text().starts_with("[上下文摘要]"))
             .collect();
-        assert_eq!(summary_system_msgs.len(), 1, "Only one summary from the table");
+        assert_eq!(
+            summary_system_msgs.len(),
+            1,
+            "Only one summary from the table"
+        );
     }
 
     #[test]
@@ -623,6 +611,9 @@ mod tests {
         // Now only uncovered messages (msg5,msg6,msg7) exist = 3, which equals hot_size
         // So no compression needed
         let input2 = prepare_compression(&conn, "conv1").unwrap();
-        assert!(!input2.needs_compression, "Should not recompress already-covered messages");
+        assert!(
+            !input2.needs_compression,
+            "Should not recompress already-covered messages"
+        );
     }
 }

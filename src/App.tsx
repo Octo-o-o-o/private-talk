@@ -26,6 +26,7 @@ function App() {
     checkPinStatus,
     loadConversations,
     loadProviders,
+    loadSpeechSettings,
     loadScenarios,
     loadVoices,
     loadOpenClawInstances,
@@ -35,13 +36,26 @@ function App() {
 
   useEffect(() => {
     const init = async () => {
-      await initPreferences();
-      await checkPinStatus();
-      await loadScenarios();
-      await loadVoices();
-      await loadConversations();
-      await loadProviders();
-      await loadOpenClawInstances();
+      const preferencesTask = initPreferences().catch((error) => {
+        console.error("Failed to initialize preferences:", error);
+      });
+      const bootstrapResults = await Promise.allSettled([
+        checkPinStatus(),
+        loadScenarios(),
+        loadVoices(),
+        loadConversations(),
+        loadProviders(),
+        loadSpeechSettings(),
+        loadOpenClawInstances(),
+      ]);
+
+      for (const result of bootstrapResults) {
+        if (result.status === "rejected") {
+          console.error("Bootstrap task failed:", result.reason);
+        }
+      }
+
+      await preferencesTask;
       // Silent background scan — results cached for settings page
       void scanLocalServices();
     };
@@ -52,6 +66,7 @@ function App() {
     loadConversations,
     loadOpenClawInstances,
     loadProviders,
+    loadSpeechSettings,
     loadScenarios,
     loadVoices,
     scanLocalServices,

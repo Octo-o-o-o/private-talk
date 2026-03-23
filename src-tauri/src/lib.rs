@@ -19,15 +19,19 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 const MENU_ID_ZOOM_IN: &str = "view.zoom_in";
 const MENU_ID_ZOOM_OUT: &str = "view.zoom_out";
 const MENU_ID_ZOOM_RESET: &str = "view.zoom_reset";
-const MENU_ID_ZOOM_80: &str = "view.zoom.80";
-const MENU_ID_ZOOM_90: &str = "view.zoom.90";
-const MENU_ID_ZOOM_100: &str = "view.zoom.100";
-const MENU_ID_ZOOM_110: &str = "view.zoom.110";
-const MENU_ID_ZOOM_125: &str = "view.zoom.125";
-const MENU_ID_ZOOM_150: &str = "view.zoom.150";
-const MENU_ID_ZOOM_175: &str = "view.zoom.175";
-const MENU_ID_ZOOM_200: &str = "view.zoom.200";
 const FRONTEND_EVENT_MENU_ZOOM: &str = "app-menu-zoom";
+
+/// Zoom preset menu items: (menu_id, label, zoom_factor)
+const ZOOM_PRESETS: &[(&str, &str, f64)] = &[
+    ("view.zoom.80", "80%", 0.8),
+    ("view.zoom.90", "90%", 0.9),
+    ("view.zoom.100", "100%", 1.0),
+    ("view.zoom.110", "110%", 1.1),
+    ("view.zoom.125", "125%", 1.25),
+    ("view.zoom.150", "150%", 1.5),
+    ("view.zoom.175", "175%", 1.75),
+    ("view.zoom.200", "200%", 2.0),
+];
 
 #[derive(Clone, Serialize)]
 struct MenuZoomPayload {
@@ -40,26 +44,37 @@ fn build_zoom_presets_submenu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> tauri::Result<Submenu<R>> {
     let submenu = Submenu::with_id(app, "view.zoom_levels", "Zoom Level", true)?;
-
-    let zoom_80 = MenuItem::with_id(app, MENU_ID_ZOOM_80, "80%", true, None::<&str>)?;
-    let zoom_90 = MenuItem::with_id(app, MENU_ID_ZOOM_90, "90%", true, None::<&str>)?;
-    let zoom_100 = MenuItem::with_id(app, MENU_ID_ZOOM_100, "100%", true, None::<&str>)?;
-    let zoom_110 = MenuItem::with_id(app, MENU_ID_ZOOM_110, "110%", true, None::<&str>)?;
-    let zoom_125 = MenuItem::with_id(app, MENU_ID_ZOOM_125, "125%", true, None::<&str>)?;
-    let zoom_150 = MenuItem::with_id(app, MENU_ID_ZOOM_150, "150%", true, None::<&str>)?;
-    let zoom_175 = MenuItem::with_id(app, MENU_ID_ZOOM_175, "175%", true, None::<&str>)?;
-    let zoom_200 = MenuItem::with_id(app, MENU_ID_ZOOM_200, "200%", true, None::<&str>)?;
-
-    submenu.append(&zoom_80)?;
-    submenu.append(&zoom_90)?;
-    submenu.append(&zoom_100)?;
-    submenu.append(&zoom_110)?;
-    submenu.append(&zoom_125)?;
-    submenu.append(&zoom_150)?;
-    submenu.append(&zoom_175)?;
-    submenu.append(&zoom_200)?;
-
+    for &(id, label, _) in ZOOM_PRESETS {
+        let item = MenuItem::with_id(app, id, label, true, None::<&str>)?;
+        submenu.append(&item)?;
+    }
     Ok(submenu)
+}
+
+#[cfg(desktop)]
+fn append_zoom_controls<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    view_menu: &Submenu<R>,
+) -> tauri::Result<()> {
+    let zoom_in = MenuItem::with_id(app, MENU_ID_ZOOM_IN, "Zoom In", true, Some("CmdOrCtrl+="))?;
+    let zoom_out = MenuItem::with_id(app, MENU_ID_ZOOM_OUT, "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+    let actual_size = MenuItem::with_id(
+        app,
+        MENU_ID_ZOOM_RESET,
+        "Actual Size",
+        true,
+        Some("CmdOrCtrl+0"),
+    )?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let zoom_presets = build_zoom_presets_submenu(app)?;
+
+    view_menu.append(&zoom_in)?;
+    view_menu.append(&zoom_out)?;
+    view_menu.append(&actual_size)?;
+    view_menu.append(&separator)?;
+    view_menu.append(&zoom_presets)?;
+
+    Ok(())
 }
 
 #[cfg(desktop)]
@@ -91,30 +106,6 @@ fn prepend_zoom_controls_to_view<R: tauri::Runtime>(
 }
 
 #[cfg(desktop)]
-fn build_view_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Submenu<R>> {
-    let view_menu = Submenu::with_id(app, "view", "View", true)?;
-    let zoom_in = MenuItem::with_id(app, MENU_ID_ZOOM_IN, "Zoom In", true, Some("CmdOrCtrl+="))?;
-    let zoom_out = MenuItem::with_id(app, MENU_ID_ZOOM_OUT, "Zoom Out", true, Some("CmdOrCtrl+-"))?;
-    let actual_size = MenuItem::with_id(
-        app,
-        MENU_ID_ZOOM_RESET,
-        "Actual Size",
-        true,
-        Some("CmdOrCtrl+0"),
-    )?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let zoom_presets = build_zoom_presets_submenu(app)?;
-
-    view_menu.append(&zoom_in)?;
-    view_menu.append(&zoom_out)?;
-    view_menu.append(&actual_size)?;
-    view_menu.append(&separator)?;
-    view_menu.append(&zoom_presets)?;
-
-    Ok(view_menu)
-}
-
-#[cfg(desktop)]
 fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
 
@@ -131,7 +122,8 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
     if let Some(view_menu) = existing_view_menu {
         prepend_zoom_controls_to_view(app, &view_menu)?;
     } else {
-        let view_menu = build_view_menu(app)?;
+        let view_menu = Submenu::with_id(app, "view", "View", true)?;
+        append_zoom_controls(app, &view_menu)?;
         menu.append(&view_menu)?;
     }
 
@@ -139,41 +131,32 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
 }
 
 fn zoom_value_from_menu_id(menu_id: &str) -> Option<f64> {
-    match menu_id {
-        MENU_ID_ZOOM_80 => Some(0.8),
-        MENU_ID_ZOOM_90 => Some(0.9),
-        MENU_ID_ZOOM_100 => Some(1.0),
-        MENU_ID_ZOOM_110 => Some(1.1),
-        MENU_ID_ZOOM_125 => Some(1.25),
-        MENU_ID_ZOOM_150 => Some(1.5),
-        MENU_ID_ZOOM_175 => Some(1.75),
-        MENU_ID_ZOOM_200 => Some(2.0),
-        _ => None,
-    }
+    ZOOM_PRESETS
+        .iter()
+        .find(|&&(id, _, _)| id == menu_id)
+        .map(|&(_, _, zoom)| zoom)
 }
 
 #[cfg(desktop)]
 fn handle_menu_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri::menu::MenuEvent) {
-    let payload = if event.id() == MENU_ID_ZOOM_IN {
-        Some(MenuZoomPayload {
+    let id = event.id();
+    let payload = match id.as_ref() {
+        MENU_ID_ZOOM_IN => Some(MenuZoomPayload {
             action: "in",
             zoom: None,
-        })
-    } else if event.id() == MENU_ID_ZOOM_OUT {
-        Some(MenuZoomPayload {
+        }),
+        MENU_ID_ZOOM_OUT => Some(MenuZoomPayload {
             action: "out",
             zoom: None,
-        })
-    } else if event.id() == MENU_ID_ZOOM_RESET {
-        Some(MenuZoomPayload {
+        }),
+        MENU_ID_ZOOM_RESET => Some(MenuZoomPayload {
             action: "reset",
             zoom: None,
-        })
-    } else {
-        zoom_value_from_menu_id(event.id().as_ref()).map(|zoom| MenuZoomPayload {
+        }),
+        other => zoom_value_from_menu_id(other).map(|zoom| MenuZoomPayload {
             action: "set",
             zoom: Some(zoom),
-        })
+        }),
     };
 
     if let Some(payload) = payload {
@@ -186,7 +169,6 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Initialize SQLite database in app data directory
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -228,12 +210,16 @@ pub fn run() {
             // Settings commands
             commands::settings::get_setting,
             commands::settings::set_setting,
+            // Permission commands
+            commands::permissions::get_microphone_permission_status,
+            commands::permissions::request_microphone_permission,
             // Voice commands
             commands::voice::list_voices,
             commands::voice::get_voice,
             commands::voice::create_voice,
             commands::voice::update_voice,
             commands::voice::delete_voice,
+            commands::voice::save_ref_audio,
             // TTS/STT commands
             commands::tts::tts_synthesize,
             commands::tts::parse_voice_segments,
@@ -248,6 +234,8 @@ pub fn run() {
             commands::chat::update_message_content,
             commands::chat::prepare_attachments,
             commands::chat::prepare_image_attachment,
+            commands::chat::prepare_audio_attachment,
+            commands::chat::prepare_text_attachment,
             // PIN commands
             commands::pin::is_pin_enabled,
             commands::pin::verify_pin_cmd,

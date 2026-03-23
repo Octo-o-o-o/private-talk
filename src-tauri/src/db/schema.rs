@@ -1,11 +1,20 @@
 use rusqlite::{Connection, Result};
 
-/// Get current schema version from PRAGMA user_version
+/// Get current schema version from PRAGMA user_version.
 fn get_schema_version(conn: &Connection) -> Result<i32> {
     conn.query_row("PRAGMA user_version", [], |row| row.get(0))
 }
 
-/// Set schema version
+/// Check whether a column already exists in a table (for safe ALTER TABLE migrations).
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let exists = conn
+        .prepare(&format!("PRAGMA table_info({})", table))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|name| name.map(|n| n == column).unwrap_or(false));
+    Ok(exists)
+}
+
+/// Set schema version.
 fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
     conn.execute_batch(&format!("PRAGMA user_version = {}", version))?;
     Ok(())
@@ -15,23 +24,32 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
 pub fn seed_presets(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
-        INSERT OR IGNORE INTO scenarios (id, name, description, system_prompt, icon, is_preset)
+        INSERT INTO scenarios (id, name, name_en, description, description_en, system_prompt, icon, is_preset)
         VALUES
-            ('preset-emotional-bot', '情感机器人', '温暖的情感支持伙伴',
+            ('preset-emotional-bot', '情感机器人', 'Emotional Bot', '温暖的情感支持伙伴', 'A warm emotional support companion',
              '你是一个温暖、善解人意的情感支持机器人。你的目标是倾听用户的心声，给予共情和鼓励。你会用温和的语气回应，不评判、不说教。当用户表达负面情绪时，你首先表示理解和共鸣，然后温柔地提供支持和建议。',
              '', 1),
-            ('preset-text-mud', '文字 MUD', '沉浸式文字冒险游戏',
+            ('preset-text-mud', '文字 MUD', 'Text MUD', '沉浸式文字冒险游戏', 'Immersive text adventure game',
              '你是一个文字冒险游戏的 DM（地下城主）。你负责构建一个引人入胜的奇幻世界，描述场景、NPC 和事件。玩家通过文字输入行动，你根据玩家的选择推进故事。保持叙事的一致性和沉浸感。每次回复包含：场景描述、可能的行动选项、当前状态（生命值、物品等）。',
              '', 1),
-            ('preset-translator', '翻译助手', '专业多语言翻译',
+            ('preset-translator', '翻译助手', 'Translator', '专业多语言翻译', 'Professional multilingual translator',
              '你是一个专业翻译。用户发送任何语言的文本，你自动检测源语言并翻译为目标语言。如果用户发送中文，翻译为英文；如果用户发送英文或其他语言，翻译为中文。翻译要求：准确、自然、符合目标语言的表达习惯。如有专业术语，附加注释说明。',
              '', 1),
-            ('preset-coding-assistant', '编程助手', '高级软件工程师',
+            ('preset-coding-assistant', '编程助手', 'Coding Assistant', '高级软件工程师', 'Senior software engineer',
              '你是一个高级软件工程师和编程助手。你精通多种编程语言和框架。回答编程问题时：1) 先理解问题本质 2) 给出清晰的代码示例 3) 解释关键逻辑 4) 指出潜在的坑和最佳实践。代码用 Markdown 代码块格式化，注释用中文。',
              '', 1),
-            ('preset-writing-assistant', '写作助手', '专业写作顾问',
+            ('preset-writing-assistant', '写作助手', 'Writing Assistant', '专业写作顾问', 'Professional writing consultant',
              '你是一个专业的写作助手。你可以帮助用户：1) 润色和改善文章的表达 2) 纠正语法和用词错误 3) 调整文章结构和逻辑 4) 根据要求撰写不同风格的文案。你会保持用户的原始意图，同时提升文字质量。对修改的地方，简要说明修改原因。',
-             '', 1);
+             '', 1)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            name_en = excluded.name_en,
+            description = excluded.description,
+            description_en = excluded.description_en,
+            system_prompt = excluded.system_prompt,
+            icon = excluded.icon,
+            is_preset = excluded.is_preset,
+            updated_at = datetime('now');
         ",
     )?;
     Ok(())
@@ -41,27 +59,46 @@ pub fn seed_presets(conn: &Connection) -> Result<()> {
 pub fn seed_preset_voices(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
-        INSERT INTO voices (id, display_name, engine, engine_config, role_type, tags, is_preset)
+        INSERT INTO voices (id, display_name, display_name_en, engine, engine_config, role_type, tags, tags_en, is_preset)
         VALUES
-            ('preset-voice-vivian', 'Vivian 中文女声', 'qwen3-tts',
+            -- ── Female voices ──
+            ('preset-voice-vivian', 'Vivian · 知性女声', 'Vivian · Clear Female', 'qwen3-tts',
              '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit","voice":"Vivian","speed":1.16,"response_format":"mp3"}',
-             'character', '["中文","女声","清晰","干练"]', 1),
-            ('preset-voice-serena', 'Serena 中文女声', 'qwen3-tts',
+             'character', '["女声","清晰","干练"]', '["Female","Clear","Professional"]', 1),
+            ('preset-voice-serena', 'Serena · 温柔女声', 'Serena · Gentle Female', 'qwen3-tts',
              '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit","voice":"Serena","speed":1.1,"response_format":"mp3"}',
-             'character', '["中文","女声","温柔","陪伴"]', 1),
-            ('preset-voice-narrator', '温暖叙述者', 'qwen3-tts',
+             'character', '["女声","温柔","治愈"]', '["Female","Gentle","Soothing"]', 1),
+            ('preset-voice-narrator-f', 'Aria · 温暖旁白', 'Aria · Warm Narrator', 'qwen3-tts',
              '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit","voice":"Warm Chinese female narrator with clear articulation, steady energy, and a slightly brisk but still relaxed pace.","speed":1.12,"response_format":"mp3"}',
-             'background', '["中文","女声","旁白","温暖","引导"]', 1)
+             'background', '["女声","旁白","温暖"]', '["Female","Narrator","Warm"]', 1),
+            -- ── Male voices ──
+            ('preset-voice-ethan', 'Ethan · 沉稳男声', 'Ethan · Deep Male', 'qwen3-tts',
+             '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit","voice":"Ethan","speed":1.1,"response_format":"mp3"}',
+             'character', '["男声","沉稳","磁性"]', '["Male","Steady","Deep"]', 1),
+            ('preset-voice-lucas', 'Lucas · 阳光男声', 'Lucas · Friendly Male', 'qwen3-tts',
+             '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit","voice":"Lucas","speed":1.15,"response_format":"mp3"}',
+             'character', '["男声","阳光","活力"]', '["Male","Friendly","Energetic"]', 1),
+            ('preset-voice-narrator-m', 'Marcus · 磁性旁白', 'Marcus · Deep Narrator', 'qwen3-tts',
+             '{"endpoint":"http://127.0.0.1:8012","model":"mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit","voice":"A deep, resonant Chinese male narrator with calm authority, smooth delivery, and a warm baritone that draws listeners in.","speed":1.08,"response_format":"mp3"}',
+             'background', '["男声","旁白","磁性"]', '["Male","Narrator","Deep"]', 1)
         ON CONFLICT(id) DO UPDATE SET
             display_name = excluded.display_name,
+            display_name_en = excluded.display_name_en,
             engine = excluded.engine,
             engine_config = excluded.engine_config,
             role_type = excluded.role_type,
             tags = excluded.tags,
+            tags_en = excluded.tags_en,
             is_preset = excluded.is_preset,
             updated_at = datetime('now');
         "#,
     )?;
+
+    // Clean up old narrator ID that was renamed
+    conn.execute_batch(
+        "DELETE FROM voices WHERE id = 'preset-voice-narrator' AND is_preset = 1;"
+    )?;
+
     Ok(())
 }
 
@@ -77,7 +114,7 @@ pub fn apply_preset_scenario_voice_defaults(conn: &Connection) -> Result<()> {
         WHERE id = 'preset-emotional-bot' AND is_preset = 1;
 
         UPDATE scenarios
-        SET voice_mapping = '{"assistant":"preset-voice-narrator"}',
+        SET voice_mapping = '{"assistant":"preset-voice-narrator-f"}',
             tts_enabled = 1,
             auto_play = 0,
             updated_at = datetime('now')
@@ -91,14 +128,14 @@ pub fn apply_preset_scenario_voice_defaults(conn: &Connection) -> Result<()> {
         WHERE id = 'preset-translator' AND is_preset = 1;
 
         UPDATE scenarios
-        SET voice_mapping = '{"assistant":"preset-voice-vivian"}',
+        SET voice_mapping = '{"assistant":"preset-voice-ethan"}',
             tts_enabled = 1,
             auto_play = 0,
             updated_at = datetime('now')
         WHERE id = 'preset-coding-assistant' AND is_preset = 1;
 
         UPDATE scenarios
-        SET voice_mapping = '{"assistant":"preset-voice-narrator"}',
+        SET voice_mapping = '{"assistant":"preset-voice-narrator-f"}',
             tts_enabled = 1,
             auto_play = 0,
             updated_at = datetime('now')
@@ -181,13 +218,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ",
         )?;
 
-        // Check if scenario_id column already exists (safety)
-        let has_scenario_id: bool = conn
-            .prepare("PRAGMA table_info(conversations)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .any(|name| name.map(|n| n == "scenario_id").unwrap_or(false));
-
-        if !has_scenario_id {
+        if !has_column(conn, "conversations", "scenario_id")? {
             conn.execute_batch(
                 "ALTER TABLE conversations ADD COLUMN scenario_id TEXT REFERENCES scenarios(id) ON DELETE SET NULL;",
             )?;
@@ -223,23 +254,17 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         )?;
 
         // Add voice_mapping, tts_enabled, auto_play to scenarios
-        let scenario_cols: Vec<String> = conn
-            .prepare("PRAGMA table_info(scenarios)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if !scenario_cols.contains(&"voice_mapping".to_string()) {
+        if !has_column(conn, "scenarios", "voice_mapping")? {
             conn.execute_batch(
                 "ALTER TABLE scenarios ADD COLUMN voice_mapping TEXT NOT NULL DEFAULT '{}';",
             )?;
         }
-        if !scenario_cols.contains(&"tts_enabled".to_string()) {
+        if !has_column(conn, "scenarios", "tts_enabled")? {
             conn.execute_batch(
                 "ALTER TABLE scenarios ADD COLUMN tts_enabled INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
-        if !scenario_cols.contains(&"auto_play".to_string()) {
+        if !has_column(conn, "scenarios", "auto_play")? {
             conn.execute_batch(
                 "ALTER TABLE scenarios ADD COLUMN auto_play INTEGER NOT NULL DEFAULT 0;",
             )?;
@@ -253,14 +278,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
 
     // V3 → V4: Context compression — is_pinned + default settings
     if version < 4 {
-        // Add is_pinned column to messages
-        let msg_cols: Vec<String> = conn
-            .prepare("PRAGMA table_info(messages)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if !msg_cols.contains(&"is_pinned".to_string()) {
+        if !has_column(conn, "messages", "is_pinned")? {
             conn.execute_batch(
                 "ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;",
             )?;
@@ -311,13 +329,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
 
     // V6 → V7: Soft-delete conversations to preserve usage history
     if version < 7 {
-        let conversation_cols: Vec<String> = conn
-            .prepare("PRAGMA table_info(conversations)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if !conversation_cols.contains(&"deleted_at".to_string()) {
+        if !has_column(conn, "conversations", "deleted_at")? {
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN deleted_at TEXT;")?;
         }
 
@@ -350,26 +362,16 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ",
         )?;
 
-        let conversation_cols: Vec<String> = conn
-            .prepare("PRAGMA table_info(conversations)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if !conversation_cols.contains(&"openclaw_instance_id".to_string()) {
+        if !has_column(conn, "conversations", "openclaw_instance_id")? {
             conn.execute_batch(
                 "ALTER TABLE conversations ADD COLUMN openclaw_instance_id TEXT REFERENCES openclaw_instances(id) ON DELETE SET NULL;",
             )?;
         }
-        if !conversation_cols.contains(&"openclaw_agent_id".to_string()) {
-            conn.execute_batch(
-                "ALTER TABLE conversations ADD COLUMN openclaw_agent_id TEXT;",
-            )?;
+        if !has_column(conn, "conversations", "openclaw_agent_id")? {
+            conn.execute_batch("ALTER TABLE conversations ADD COLUMN openclaw_agent_id TEXT;")?;
         }
-        if !conversation_cols.contains(&"openclaw_session_key".to_string()) {
-            conn.execute_batch(
-                "ALTER TABLE conversations ADD COLUMN openclaw_session_key TEXT;",
-            )?;
+        if !has_column(conn, "conversations", "openclaw_session_key")? {
+            conn.execute_batch("ALTER TABLE conversations ADD COLUMN openclaw_session_key TEXT;")?;
         }
 
         set_schema_version(conn, 9)?;
@@ -377,13 +379,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
 
     // ── V10: Add agents_cache to openclaw_instances ──
     if version < 10 {
-        let instance_cols: Vec<String> = conn
-            .prepare("PRAGMA table_info(openclaw_instances)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        if !instance_cols.contains(&"agents_cache".to_string()) {
+        if !has_column(conn, "openclaw_instances", "agents_cache")? {
             conn.execute_batch(
                 "ALTER TABLE openclaw_instances ADD COLUMN agents_cache TEXT NOT NULL DEFAULT '[]';",
             )?;
@@ -431,6 +427,43 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ",
         )?;
         set_schema_version(conn, 12)?;
+    }
+
+    // V12 → V13: Refresh preset voices (3 female + 3 male, bilingual names)
+    if version < 13 {
+        seed_preset_voices(conn)?;
+        apply_preset_scenario_voice_defaults(conn)?;
+        set_schema_version(conn, 13)?;
+    }
+
+    // V13 → V14: Bilingual fields for voice and scenario presets
+    if version < 14 {
+        if !has_column(conn, "voices", "display_name_en")? {
+            conn.execute_batch(
+                "ALTER TABLE voices ADD COLUMN display_name_en TEXT NOT NULL DEFAULT '';"
+            )?;
+        }
+        if !has_column(conn, "voices", "tags_en")? {
+            conn.execute_batch(
+                "ALTER TABLE voices ADD COLUMN tags_en TEXT NOT NULL DEFAULT '[]';"
+            )?;
+        }
+        if !has_column(conn, "scenarios", "name_en")? {
+            conn.execute_batch(
+                "ALTER TABLE scenarios ADD COLUMN name_en TEXT NOT NULL DEFAULT '';"
+            )?;
+        }
+        if !has_column(conn, "scenarios", "description_en")? {
+            conn.execute_batch(
+                "ALTER TABLE scenarios ADD COLUMN description_en TEXT NOT NULL DEFAULT '';"
+            )?;
+        }
+
+        // Re-seed presets to populate the new bilingual columns
+        seed_preset_voices(conn)?;
+        seed_presets(conn)?;
+
+        set_schema_version(conn, 14)?;
     }
 
     Ok(())

@@ -24,7 +24,7 @@ const DEFAULT_ROLES = ["narrator", "assistant"];
 export function VoiceMappingEditor({ mapping, onChange, readOnly }: Props) {
   const { voices } = useAppStore();
   const [newRole, setNewRole] = useState("");
-  const { t } = useI18n();
+  const { t, tField } = useI18n();
 
   const roles = Object.keys(mapping);
   const allRoles = [...new Set([...DEFAULT_ROLES, ...roles])];
@@ -68,7 +68,7 @@ export function VoiceMappingEditor({ mapping, onChange, readOnly }: Props) {
               <SelectItem value="__none__">{t("无", "None")}</SelectItem>
               {voices.map((voice) => (
                 <SelectItem key={voice.id} value={voice.id}>
-                  {voice.display_name} ({voice.engine})
+                  {tField(voice.display_name, voice.display_name_en)} ({voice.engine})
                 </SelectItem>
               ))}
             </SelectContent>

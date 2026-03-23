@@ -18,10 +18,12 @@ import { lazy, Suspense, useState, useRef, useEffect, useMemo, useCallback } fro
 const CodeBlock = lazy(() => import("./CodeBlock").then(m => ({ default: m.CodeBlock })));
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { TtsPlayButton } from "../audio/TtsPlayButton";
+import { useTts, TtsPlaybackBar, TtsTriggerButton } from "../audio/TtsPlayButton";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Attachment } from "../../lib/types";
 import * as api from "../../lib/tauri";
+import { AttachmentImage } from "./AttachmentImage";
+import { VoiceBubble } from "./VoiceBubble";
 
 interface Props {
   role: "user" | "assistant" | "system";
@@ -58,12 +60,22 @@ export function MessageItem({
   const editRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useI18n();
 
+  const tts = useTts({
+    messageContent: content,
+    scenarioId: scenarioId ?? undefined,
+    voiceId: undefined,
+  });
+
   const imageAttachments = useMemo(
     () => (attachments ?? []).filter((a) => a.file_type === "image"),
     [attachments]
   );
   const fileAttachments = useMemo(
     () => (attachments ?? []).filter((a) => a.file_type === "text_file"),
+    [attachments]
+  );
+  const audioAttachments = useMemo(
+    () => (attachments ?? []).filter((a) => a.file_type === "audio"),
     [attachments]
   );
 
@@ -224,6 +236,7 @@ export function MessageItem({
             </div>
           </div>
         ) : (
+          <>
           <div className={cn("flex gap-2", isUser && "flex-row-reverse")}>
             <div
               className={cn(
@@ -245,15 +258,29 @@ export function MessageItem({
                         onClick={() => setLightboxSrc(src)}
                         className="overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
                       >
-                        <img
-                          src={src}
+                        <AttachmentImage
+                          filePath={att.file_path}
                           alt={att.file_name}
                           className="max-h-48 max-w-[220px] rounded-lg object-cover transition-opacity hover:opacity-90"
+                          fallbackClassName="flex h-24 w-24"
                           loading="lazy"
                         />
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {/* Audio attachments */}
+              {audioAttachments.length > 0 && (
+                <div className={cn("flex flex-col gap-2", content && "mb-2")}>
+                  {audioAttachments.map((att) => (
+                    <VoiceBubble
+                      key={att.id}
+                      attachment={att}
+                      transcript={content || undefined}
+                      isUser={isUser}
+                    />
+                  ))}
                 </div>
               )}
               {/* File attachments */}
@@ -283,7 +310,11 @@ export function MessageItem({
                 </div>
               )}
               {isUser ? (
-                content ? <p className="whitespace-pre-wrap">{content}</p> : null
+                audioAttachments.length > 0
+                  ? null
+                  : content
+                    ? <p className="whitespace-pre-wrap">{content}</p>
+                    : null
               ) : (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
@@ -296,15 +327,9 @@ export function MessageItem({
                 <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse rounded-full bg-primary align-middle" />
               ) : null}
             </div>
-            {/* Side actions for assistant (TTS, Pin) */}
+            {/* Side actions for assistant (Pin only — TTS is below bubble) */}
             {!isUser && !isStreaming ? (
               <div className="mt-1 flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                {showTts ? (
-                  <TtsPlayButton
-                    messageContent={content}
-                    scenarioId={scenarioId}
-                  />
-                ) : null}
                 {messageId ? (
                   <button
                     onClick={handleTogglePin}
@@ -326,6 +351,7 @@ export function MessageItem({
               </div>
             ) : null}
           </div>
+          </>
         )}
 
         {/* Action bar — shown on hover below the bubble */}
@@ -360,6 +386,9 @@ export function MessageItem({
                 )}
               </button>
             )}
+            {showTts && !isUser ? (
+              <TtsTriggerButton phase={tts.phase} onClick={tts.toggle} />
+            ) : null}
             <button
               onClick={() => messageId && onRetry?.(messageId, role as "user" | "assistant")}
               className={actionBtnClass}
@@ -375,6 +404,16 @@ export function MessageItem({
               <Trash2 size={13} />
             </button>
           </div>
+        ) : null}
+        {/* TTS playback bar — always visible when active */}
+        {showTts && !isUser ? (
+          <TtsPlaybackBar
+            phase={tts.phase}
+            progress={tts.progress}
+            elapsed={tts.elapsed}
+            totalDuration={tts.totalDuration}
+            onStop={tts.toggle}
+          />
         ) : null}
       </div>
 

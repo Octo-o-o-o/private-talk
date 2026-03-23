@@ -8,6 +8,7 @@ import type {
   Message,
   OpenClawAgent,
   OpenClawInstance,
+  MicrophonePermissionInfo,
   Provider,
   ProviderModelDiscovery,
   Scenario,
@@ -157,6 +158,12 @@ export const prepareAttachments = (filePaths: string[]) =>
 export const prepareImageAttachment = (imageBase64: string, mimeType: string) =>
   invoke<string>("prepare_image_attachment", { imageBase64, mimeType });
 
+export const prepareAudioAttachment = (audioBase64: string, mimeType: string) =>
+  invoke<string>("prepare_audio_attachment", { audioBase64, mimeType });
+
+export const prepareTextAttachment = (fileName: string, content: string, mimeType: string) =>
+  invoke<string>("prepare_text_attachment", { fileName, content, mimeType });
+
 export const stopGeneration = () => invoke<void>("stop_generation");
 
 // Settings commands
@@ -165,6 +172,12 @@ export const getSetting = (key: string) =>
 
 export const setSetting = (key: string, value: string) =>
   invoke<void>("set_setting", { key, value });
+
+export const getMicrophonePermissionStatus = () =>
+  invoke<MicrophonePermissionInfo>("get_microphone_permission_status");
+
+export const requestNativeMicrophonePermission = () =>
+  invoke<MicrophonePermissionInfo>("request_microphone_permission");
 
 // PIN commands
 export const isPinEnabled = () => invoke<boolean>("is_pin_enabled");
@@ -220,6 +233,10 @@ export const updateVoice = (
 export const deleteVoice = (id: string) =>
   invoke<void>("delete_voice", { id });
 
+/** Save base64 audio to disk and return the absolute file path (for TTS ref_audio). */
+export const saveRefAudio = (audioBase64: string, fileName: string) =>
+  invoke<string>("save_ref_audio", { audioBase64, fileName });
+
 // TTS commands
 export const ttsSynthesize = (voiceId: string, text: string) =>
   invoke<TtsResult>("tts_synthesize", { voiceId, text });
@@ -234,8 +251,8 @@ export const parseVoiceSegments = (
   });
 
 // STT commands
-export const sttTranscribe = (audioBase64: string, providerId: string) =>
-  invoke<string>("stt_transcribe", { audioBase64, providerId });
+export const sttTranscribe = (audioBase64: string, providerId: string, mimeType?: string) =>
+  invoke<string>("stt_transcribe", { audioBase64, providerId, mimeType });
 
 export const togglePinMessage = (messageId: string) =>
   invoke<boolean>("toggle_pin_message", { messageId });

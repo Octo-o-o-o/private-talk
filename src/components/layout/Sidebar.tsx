@@ -17,7 +17,6 @@ import {
   Trash2,
   Volume2,
   X,
-  Zap,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -25,7 +24,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useI18n } from "@/lib/i18n";
 import * as api from "@/lib/tauri";
 import type { Conversation, OpenClawAgent, Scenario } from "@/lib/types";
-import { getScenarioIcon } from "@/components/scenario/ScenarioEditor";
+import { getScenarioIcon } from "@/components/scenario/scenarioIcons";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Button } from "@/components/ui/button";
@@ -58,6 +57,15 @@ import {
 
 type ScenarioFilter = string | "free-chat" | null;
 
+function parseOpenClawAgentsCache(raw: string): OpenClawAgent[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as OpenClawAgent[] : [];
+  } catch {
+    return [];
+  }
+}
+
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -82,7 +90,7 @@ export function Sidebar() {
     isStreaming,
     streamingConversationId,
   } = useAppStore();
-  const { language, t, setLanguage } = useI18n();
+  const { language, t, tField, setLanguage } = useI18n();
   const resolvedTheme = usePreferencesStore((state) => state.resolvedTheme);
   const setThemeMode = usePreferencesStore((state) => state.setThemeMode);
 
@@ -95,9 +103,9 @@ export function Sidebar() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const openclawAgentsCacheRef = useRef<Record<string, OpenClawAgent[]>>({});
   const [openclawAgents, setOpenclawAgents] = useState<Record<string, OpenClawAgent[]>>({});
-  const [loadingAgentsFor, setLoadingAgentsFor] = useState<string | null>(null);
-  const [openclawError, setOpenclawError] = useState<string | null>(null);
-  const [refreshingAgentsFor, setRefreshingAgentsFor] = useState<string | null>(null);
+  const [loadingAgents, setLoadingAgents] = useState<Record<string, boolean>>({});
+  const [openclawErrors, setOpenclawErrors] = useState<Record<string, string | null>>({});
+  const [refreshingAgents, setRefreshingAgents] = useState<Record<string, boolean>>({});
 
   const currentView = getCurrentView(location.pathname);
   const filteredConversations = conversations.filter((conversation) => {
@@ -130,6 +138,118 @@ export function Sidebar() {
       return next.size === prev.size ? prev : next;
     });
   }, [isSelectionMode, visibleConversationIds]);
+
+  useEffect(() => {
+    const seededAgents: Record<string, OpenClawAgent[]> = {};
+
+    for (const instance of openclawInstances) {
+      const cachedAgents = parseOpenClawAgentsCache(instance.agents_cache);
+      if (cachedAgents.length === 0) continue;
+      seededAgents[instance.id] = cachedAgents;
+      if (!openclawAgentsCacheRef.current[instance.id]?.length) {
+        openclawAgentsCacheRef.current[instance.id] = cachedAgents;
+      }
+    }
+
+    if (Object.keys(seededAgents).length === 0) return;
+
+    setOpenclawAgents((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const [instanceId, agents] of Object.entries(seededAgents)) {
+        if (!next[instanceId]?.length) {
+          next[instanceId] = agents;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [openclawInstances]);
+
+  const fetchOpenClawAgents = useCallback(
+    async (
+      instance: {
+        id: string;
+        name: string;
+        gateway_url: string;
+        token: string;
+      },
+      options?: { force?: boolean; background?: boolean }
+    ) => {
+      const force = options?.force === true;
+      const background = options?.background === true;
+
+      if (!force && openclawAgentsCacheRef.current[instance.id]) {
+        setOpenclawAgents((prev) => {
+          if (prev[instance.id]) return prev;
+          return { ...prev, [instance.id]: openclawAgentsCacheRef.current[instance.id] };
+        });
+        return openclawAgentsCacheRef.current[instance.id];
+      }
+
+      if (loadingAgents[instance.id] || refreshingAgents[instance.id]) {
+        return openclawAgentsCacheRef.current[instance.id] ?? [];
+      }
+
+      if (force) {
+        setRefreshingAgents((prev) => ({ ...prev, [instance.id]: true }));
+      } else {
+        setLoadingAgents((prev) => ({ ...prev, [instance.id]: true }));
+      }
+      if (!background) {
+        setOpenclawErrors((prev) => ({ ...prev, [instance.id]: null }));
+      }
+
+      try {
+        const agents = await api.listOpenClawAgents(
+          instance.gateway_url,
+          instance.token,
+          instance.id
+        );
+        openclawAgentsCacheRef.current[instance.id] = agents;
+        setOpenclawAgents((prev) => ({ ...prev, [instance.id]: agents }));
+
+        if (!background && agents.length === 0) {
+          setOpenclawErrors((prev) => ({
+            ...prev,
+            [instance.id]: t("未找到可用的 Agent", "No agents found"),
+          }));
+        }
+
+        return agents;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Failed to list OpenClaw agents:", message);
+        if (!background) {
+          setOpenclawErrors((prev) => ({ ...prev, [instance.id]: message }));
+        }
+        return [];
+      } finally {
+        if (force) {
+          setRefreshingAgents((prev) => ({ ...prev, [instance.id]: false }));
+        } else {
+          setLoadingAgents((prev) => ({ ...prev, [instance.id]: false }));
+        }
+      }
+    },
+    [loadingAgents, refreshingAgents, t]
+  );
+
+  useEffect(() => {
+    const missingInstances = openclawInstances.filter(
+      (instance) => openclawAgentsCacheRef.current[instance.id] === undefined
+    );
+
+    if (missingInstances.length === 0) return;
+
+    void Promise.allSettled(
+      missingInstances.map((instance) =>
+        fetchOpenClawAgents(instance, { background: true })
+      )
+    );
+  }, [fetchOpenClawAgents, openclawInstances]);
 
   const exitSelectionMode = useCallback(() => {
     setIsSelectionMode(false);
@@ -225,22 +345,25 @@ export function Sidebar() {
   if (!sidebarOpen) {
     return (
       <TooltipProvider>
-        <div className="flex h-full w-12 flex-col items-center gap-4 border-r border-sidebar-border bg-sidebar py-4 text-sidebar-foreground">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSidebar}
-                className="h-8 w-8 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                <PanelLeftClose className="h-4 w-4 rotate-180" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>{t("展开侧边栏", "Expand sidebar")}</p>
-            </TooltipContent>
-          </Tooltip>
+        <div className="flex h-full w-12 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+          <div data-tauri-drag-region className="h-11 w-full shrink-0" />
+          <div className="py-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSidebar}
+                  className="h-8 w-8 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                >
+                  <PanelLeftClose className="h-4 w-4 rotate-180" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>{t("展开侧边栏", "Expand sidebar")}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </TooltipProvider>
     );
@@ -248,38 +371,24 @@ export function Sidebar() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/10 bg-gradient-to-br from-primary/20 to-primary/5">
-                <Zap className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                  {t("工作区", "Workspace")}
-                </p>
-                <h2 className="text-sm font-semibold leading-tight">Private Talk</h2>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleSidebar}
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </Button>
-          </div>
+      <div className="relative flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+        <div className="flex shrink-0 items-center justify-end px-2" style={{ height: 44, paddingTop: 6 }}>
+          <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            className="relative z-10 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
         </div>
 
-        <GradientDivider />
-
-        <div className="space-y-2 p-4">
+        <div className="space-y-2 px-4 pb-4">
           <Button
-            onClick={async () => {
-              await createConversation();
+            onClick={() => {
               navigate("/");
+              void createConversation();
             }}
             className="w-full bg-primary shadow-lg shadow-primary/20 hover:bg-primary/90"
           >
@@ -303,36 +412,13 @@ export function Sidebar() {
                   <div key={instance.id}>
                     <DropdownMenuItem
                       className="font-medium text-xs text-muted-foreground"
-                      disabled={loadingAgentsFor === instance.id}
-                      onSelect={async (e) => {
+                      disabled={!!loadingAgents[instance.id]}
+                      onSelect={(e) => {
                         e.preventDefault();
-                        // Use cache if available
-                        if (openclawAgentsCacheRef.current[instance.id]) {
-                          setOpenclawAgents((prev) => ({ ...prev, [instance.id]: openclawAgentsCacheRef.current[instance.id] }));
-                          return;
-                        }
-                        setOpenclawError(null);
-                        setLoadingAgentsFor(instance.id);
-                        try {
-                          const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token, instance.id);
-                          openclawAgentsCacheRef.current[instance.id] = agents;
-                          setOpenclawAgents((prev) => ({ ...prev, [instance.id]: agents }));
-                          if (agents.length === 0) {
-                            setOpenclawError(t("未找到可用的 Agent", "No agents found"));
-                          }
-                        } catch (err) {
-                          const msg = err instanceof Error ? err.message : String(err);
-                          console.error("Failed to list OpenClaw agents:", msg);
-                          setOpenclawError(
-                            msg.includes("openclaw")
-                              ? t("无法连接 OpenClaw，请确认 openclaw CLI 已安装且 gateway 正在运行", "Cannot connect to OpenClaw. Ensure the openclaw CLI is installed and the gateway is running.")
-                              : t("获取 Agent 列表失败", "Failed to fetch agent list") + ": " + msg
-                          );
-                        }
-                        setLoadingAgentsFor(null);
+                        void fetchOpenClawAgents(instance);
                       }}
                     >
-                      {loadingAgentsFor === instance.id ? (
+                      {loadingAgents[instance.id] ? (
                         <Loader2 className="mr-2 h-3 w-3 animate-spin" />
                       ) : null}
                       {instance.name}
@@ -341,29 +427,19 @@ export function Sidebar() {
                           variant="ghost"
                           size="icon"
                           className="ml-auto h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
-                          disabled={refreshingAgentsFor === instance.id}
-                          onClick={async (e) => {
+                          disabled={!!refreshingAgents[instance.id]}
+                          onClick={(e) => {
                             e.stopPropagation();
-                            setRefreshingAgentsFor(instance.id);
-                            setOpenclawError(null);
-                            try {
-                              const agents = await api.listOpenClawAgents(instance.gateway_url, instance.token, instance.id);
-                              openclawAgentsCacheRef.current[instance.id] = agents;
-                              setOpenclawAgents((prev) => ({ ...prev, [instance.id]: agents }));
-                            } catch (err) {
-                              const msg = err instanceof Error ? err.message : String(err);
-                              setOpenclawError(t("刷新失败", "Refresh failed") + ": " + msg);
-                            }
-                            setRefreshingAgentsFor(null);
+                            void fetchOpenClawAgents(instance, { force: true });
                           }}
                         >
-                          <RotateCcw className={cn("h-3 w-3", refreshingAgentsFor === instance.id && "animate-spin")} />
+                          <RotateCcw className={cn("h-3 w-3", refreshingAgents[instance.id] && "animate-spin")} />
                         </Button>
                       ) : null}
                     </DropdownMenuItem>
-                    {openclawError && !openclawAgents[instance.id] && loadingAgentsFor !== instance.id ? (
+                    {openclawErrors[instance.id] && !openclawAgents[instance.id] && !loadingAgents[instance.id] ? (
                       <div className="px-3 py-2 text-xs text-destructive">
-                        {openclawError}
+                        {openclawErrors[instance.id]}
                       </div>
                     ) : null}
                     {openclawAgents[instance.id]?.map((agent) => (
@@ -371,9 +447,9 @@ export function Sidebar() {
                         <TooltipTrigger asChild>
                           <DropdownMenuItem
                             className="pl-6 gap-2"
-                            onClick={async () => {
-                              await createOpenClawConversation(instance.id, agent.id, agent.name);
+                            onClick={() => {
                               navigate("/");
+                              void createOpenClawConversation(instance.id, agent.id, agent.name);
                             }}
                           >
                             {agent.avatar ? (
@@ -448,7 +524,7 @@ export function Sidebar() {
                       key={scenario.id}
                       onClick={() => setScenarioFilter(scenario.id)}
                     >
-                      <span className="flex-1">{scenario.name}</span>
+                      <span className="flex-1">{tField(scenario.name, scenario.name_en)}</span>
                       {scenarioFilter === scenario.id && (
                         <Check className="ml-auto h-3.5 w-3.5" />
                       )}

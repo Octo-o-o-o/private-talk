@@ -33,3 +33,6 @@ ACCEPTANCE-REPORT.md
 
 # Local build / release scratch
 release-notes-private.md
+
+# Database
+data.db

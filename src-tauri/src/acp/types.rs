@@ -24,13 +24,6 @@ impl JsonRpcRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct JsonRpcResponse {
-    pub id: Option<u64>,
-    pub result: Option<Value>,
-    pub error: Option<JsonRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct JsonRpcError {
     pub code: i64,
     pub message: String,
@@ -76,10 +69,6 @@ pub struct ClientInfo {
 #[derive(Debug, Serialize)]
 pub struct ClientCapabilities {}
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionNewParams {}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionNewResult {
@@ -114,9 +103,7 @@ pub enum ContentBlock {
     },
 
     #[serde(rename = "resource")]
-    Resource {
-        resource: EmbeddedResource,
-    },
+    Resource { resource: EmbeddedResource },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,36 +115,4 @@ pub struct EmbeddedResource {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob: Option<String>,
-}
-
-/// Notification params for session/update
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionUpdateParams {
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub messages: Vec<AgentMessage>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessage {
-    pub role: Option<String>,
-    #[serde(default)]
-    pub content: Vec<AgentContentBlock>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentContentBlock {
-    #[serde(rename = "type")]
-    pub block_type: Option<String>,
-    pub text: Option<String>,
-}
-
-/// The final response to a session/prompt request
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionPromptResult {
-    pub stop_reason: Option<String>,
 }

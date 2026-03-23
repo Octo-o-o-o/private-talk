@@ -2,26 +2,8 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
-  Book,
-  BookOpen,
-  Bot,
-  Brain,
-  BriefcaseMedical,
-  Code,
-  Gamepad2,
-  GraduationCap,
-  Heart,
-  Languages,
-  Lightbulb,
-  MessageCircle,
-  Mic,
-  Music,
-  Pen,
   Save,
-  Search,
-  Shield,
   Sparkles,
-  type LucideIcon,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import * as api from "../../lib/tauri";
@@ -43,12 +25,13 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
+import { SCENARIO_ICONS } from "./scenarioIcons";
 
 export function ScenarioEditor() {
   const navigate = useNavigate();
   const location = useLocation();
   const { scenarioId } = useParams();
-  const { t } = useI18n();
+  const { t, tField } = useI18n();
   const scenarios = useAppStore((s) => s.scenarios);
   const loadScenarios = useAppStore((s) => s.loadScenarios);
   const editingScenario = scenarioId
@@ -70,8 +53,8 @@ export function ScenarioEditor() {
 
   useEffect(() => {
     if (editingScenario) {
-      setName(editingScenario.name);
-      setDescription(editingScenario.description);
+      setName(tField(editingScenario.name, editingScenario.name_en));
+      setDescription(tField(editingScenario.description, editingScenario.description_en));
       setIcon(editingScenario.icon || "");
       setSystemPrompt(editingScenario.system_prompt);
       setVoiceMapping(editingScenario.voice_mapping || {});
@@ -87,7 +70,7 @@ export function ScenarioEditor() {
     setVoiceMapping({});
     setTtsEnabled(false);
     setAutoPlay(false);
-  }, [editingScenario]);
+  }, [editingScenario, tField]);
 
   const handleSave = async () => {
     setError("");
@@ -320,27 +303,6 @@ export function ScenarioEditor() {
 
 // ── Scenario Icon Picker ──
 
-const SCENARIO_ICONS: Record<string, LucideIcon> = {
-  "message-circle": MessageCircle,
-  "heart": Heart,
-  "gamepad-2": Gamepad2,
-  "languages": Languages,
-  "code": Code,
-  "pen": Pen,
-  "graduation-cap": GraduationCap,
-  "brain": Brain,
-  "lightbulb": Lightbulb,
-  "search": Search,
-  "bot": Bot,
-  "mic": Mic,
-  "music": Music,
-  "book": Book,
-  "book-open": BookOpen,
-  "briefcase-medical": BriefcaseMedical,
-  "shield": Shield,
-  "sparkles": Sparkles,
-};
-
 function ScenarioIconPicker({
   value,
   onChange,
@@ -371,9 +333,4 @@ function ScenarioIconPicker({
       ))}
     </div>
   );
-}
-
-/** Resolve a Lucide icon name to its component. */
-export function getScenarioIcon(name: string): LucideIcon | null {
-  return SCENARIO_ICONS[name] ?? null;
 }

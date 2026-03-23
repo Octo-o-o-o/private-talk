@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, Sparkles, ArrowDown, AlertCircle } from "lucide-react";
+import { ChevronDown, Settings, Sparkles, ArrowDown, AlertCircle, ChevronUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,7 @@ import type {
 
 export function ChatView() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, tField } = useI18n();
   const {
     messages,
     conversations,
@@ -51,6 +51,7 @@ export function ChatView() {
     deleteMessagesFrom,
     streamingError,
     setStreamingError,
+    voices,
   } = useAppStore();
 
   const currentConversation = conversations.find((c) => c.id === currentConversationId);
@@ -67,7 +68,9 @@ export function ChatView() {
 
   const currentScenario = scenarios.find((scenario) => scenario.id === currentScenarioId);
   const currentProvider = providers.find((provider) => provider.id === selectedProviderId);
-  const ttsEnabled = currentScenario?.tts_enabled ?? false;
+  const ttsEnabled = isOpenClawConversation
+    ? voices.length > 0
+    : (currentScenario?.tts_enabled ?? false);
   const canSelectScenario = !messages.some((message) => message.role !== "system");
 
   const checkIfNearBottom = useCallback(() => {
@@ -414,7 +417,7 @@ export function ChatView() {
                   className="h-7 gap-2 bg-background/50 hover:bg-background"
                 >
                   <span className="truncate text-sm">
-                    {currentScenario?.name ?? t("自由对话", "Free Chat")}
+                    {currentScenario ? tField(currentScenario.name, currentScenario.name_en) : t("自由对话", "Free Chat")}
                   </span>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 </Button>
@@ -433,7 +436,7 @@ export function ChatView() {
                     className={cn(scenario.id === currentScenarioId && "bg-accent")}
                   >
                     <div className="flex-1">
-                      <span className="text-sm">{scenario.name}</span>
+                      <span className="text-sm">{tField(scenario.name, scenario.name_en)}</span>
                       {scenario.is_preset ? (
                         <span className="ml-2 text-xs text-primary">{t("预设", "Preset")}</span>
                       ) : null}
@@ -450,7 +453,7 @@ export function ChatView() {
           ) : (
             <div className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground">
               <span className="truncate text-sm">
-                {currentScenario?.name ?? t("自由对话", "Free Chat")}
+                {currentScenario ? tField(currentScenario.name, currentScenario.name_en) : t("自由对话", "Free Chat")}
               </span>
             </div>
           )}
@@ -546,6 +549,13 @@ export function ChatView() {
               </div>
             ) : (
               <>
+                {currentScenario?.system_prompt ? (
+                  <SystemPromptPreview
+                    scenarioName={tField(currentScenario.name, currentScenario.name_en)}
+                    systemPrompt={currentScenario.system_prompt}
+                    isPreset={currentScenario.is_preset}
+                  />
+                ) : null}
                 {messages
                   .filter((message) => message.role !== "system")
                   .map((message) => (
@@ -623,6 +633,60 @@ export function ChatView() {
       </div>
 
       <ChatInput onSend={handleSend} onStop={handleStop} />
+    </div>
+  );
+}
+
+function SystemPromptPreview({
+  scenarioName,
+  systemPrompt,
+  isPreset,
+}: {
+  scenarioName: string;
+  systemPrompt: string;
+  isPreset: boolean;
+}) {
+  const { t } = useI18n();
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="flex gap-3">
+      {/* Same avatar as assistant messages */}
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <Settings className="h-4 w-4" />
+      </div>
+      <div className="flex max-w-[80%] flex-col">
+        <div className="rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3 text-sm leading-relaxed shadow-xs">
+          {/* Header: clickable to collapse/expand */}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left"
+            onClick={() => setCollapsed((v) => !v)}
+          >
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("系统提示词", "System Prompt")}
+            </span>
+            <span className="text-xs font-medium text-foreground">{scenarioName}</span>
+            {isPreset ? (
+              <span className="text-[10px] text-primary">{t("预设", "Preset")}</span>
+            ) : null}
+            <ChevronUp
+              className={cn(
+                "ml-auto h-3 w-3 text-muted-foreground transition-transform",
+                collapsed && "rotate-180"
+              )}
+            />
+          </button>
+          {/* Body */}
+          {!collapsed ? (
+            <div className="mt-2 max-h-60 overflow-y-auto border-t border-border/50 pt-2">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                {systemPrompt}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

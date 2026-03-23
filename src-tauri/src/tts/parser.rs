@@ -21,22 +21,17 @@ pub fn parse_voice_segments(
     for line in text.lines() {
         let trimmed = line.trim();
 
-        // Try to extract role from line start
-        if let Some(role) = extract_role_chinese(trimmed) {
-            // Flush previous segment
+        // Try to extract role from line start (Chinese parentheses or square brackets)
+        let extracted = extract_role_chinese(trimmed).or_else(|| extract_role_bracket(trimmed));
+
+        if let Some((role, rest)) = extracted {
             flush_segment(&mut segments, &current_role, &current_text, voice_mapping);
-            current_role = role.0;
-            current_text = role.1;
-            current_text.push('\n');
-        } else if let Some(role) = extract_role_bracket(trimmed) {
-            flush_segment(&mut segments, &current_role, &current_text, voice_mapping);
-            current_role = role.0;
-            current_text = role.1;
-            current_text.push('\n');
+            current_role = role;
+            current_text = rest;
         } else {
             current_text.push_str(trimmed);
-            current_text.push('\n');
         }
+        current_text.push('\n');
     }
 
     // Flush last segment

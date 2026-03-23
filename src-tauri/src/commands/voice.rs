@@ -1,18 +1,26 @@
 use crate::db::DbState;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use std::path::PathBuf;
+use tauri::{Manager, State};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Voice {
     pub id: String,
     pub display_name: String,
+    pub display_name_en: String,
     pub engine: String,
     pub engine_config: serde_json::Value,
     pub role_type: String,
     pub tags: Vec<String>,
+    pub tags_en: Vec<String>,
     pub is_preset: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn parse_json_object(json_str: &str) -> serde_json::Value {
+    serde_json::from_str(json_str).unwrap_or(serde_json::json!({}))
 }
 
 #[tauri::command]
@@ -20,57 +28,59 @@ pub fn list_voices(db: State<DbState>) -> Result<Vec<Voice>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, display_name, engine, engine_config, role_type, tags, is_preset, created_at, updated_at
+            "SELECT id, display_name, display_name_en, engine, engine_config, role_type, tags, tags_en, is_preset, created_at, updated_at
              FROM voices ORDER BY is_preset DESC, created_at ASC",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
-            let config_str: String = row.get(3)?;
-            let tags_str: String = row.get(5)?;
-            let is_preset: i32 = row.get(6)?;
+            let config_str: String = row.get(4)?;
+            let tags_str: String = row.get(6)?;
+            let tags_en_str: String = row.get(7)?;
+            let is_preset: i32 = row.get(8)?;
             Ok(Voice {
                 id: row.get(0)?,
                 display_name: row.get(1)?,
-                engine: row.get(2)?,
-                engine_config: serde_json::from_str(&config_str)
-                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
-                role_type: row.get(4)?,
+                display_name_en: row.get(2)?,
+                engine: row.get(3)?,
+                engine_config: parse_json_object(&config_str),
+                role_type: row.get(5)?,
                 tags: serde_json::from_str(&tags_str).unwrap_or_default(),
+                tags_en: serde_json::from_str(&tags_en_str).unwrap_or_default(),
                 is_preset: is_preset != 0,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         })
         .map_err(|e| e.to_string())?;
-    let mut voices = Vec::new();
-    for row in rows {
-        voices.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(voices)
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_voice(db: State<DbState>, id: String) -> Result<Voice, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.query_row(
-        "SELECT id, display_name, engine, engine_config, role_type, tags, is_preset, created_at, updated_at
+        "SELECT id, display_name, display_name_en, engine, engine_config, role_type, tags, tags_en, is_preset, created_at, updated_at
          FROM voices WHERE id = ?1",
         rusqlite::params![id],
         |row| {
-            let config_str: String = row.get(3)?;
-            let tags_str: String = row.get(5)?;
-            let is_preset: i32 = row.get(6)?;
+            let config_str: String = row.get(4)?;
+            let tags_str: String = row.get(6)?;
+            let tags_en_str: String = row.get(7)?;
+            let is_preset: i32 = row.get(8)?;
             Ok(Voice {
                 id: row.get(0)?,
                 display_name: row.get(1)?,
-                engine: row.get(2)?,
-                engine_config: serde_json::from_str(&config_str).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
-                role_type: row.get(4)?,
+                display_name_en: row.get(2)?,
+                engine: row.get(3)?,
+                engine_config: parse_json_object(&config_str),
+                role_type: row.get(5)?,
                 tags: serde_json::from_str(&tags_str).unwrap_or_default(),
+                tags_en: serde_json::from_str(&tags_en_str).unwrap_or_default(),
                 is_preset: is_preset != 0,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         },
     )
@@ -102,10 +112,12 @@ pub fn create_voice(
     Ok(Voice {
         id,
         display_name,
+        display_name_en: String::new(),
         engine,
         engine_config,
         role_type,
         tags,
+        tags_en: Vec::new(),
         is_preset: false,
         created_at: now.clone(),
         updated_at: now,
@@ -125,7 +137,6 @@ pub fn update_voice(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Build dynamic UPDATE with transaction protection
     let mut sets: Vec<String> = Vec::new();
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -193,4 +204,38 @@ pub fn delete_voice(db: State<DbState>, id: String) -> Result<(), String> {
     conn.execute("DELETE FROM voices WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Save base64-encoded reference audio to disk and return the absolute file path.
+/// The TTS server (mlx-audio) requires a local file path for `ref_audio`.
+#[tauri::command]
+pub fn save_ref_audio(
+    app: tauri::AppHandle,
+    audio_base64: String,
+    file_name: String,
+) -> Result<String, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let ref_dir = app_dir.join("ref_audio");
+    std::fs::create_dir_all(&ref_dir)
+        .map_err(|e| format!("Failed to create ref_audio dir: {}", e))?;
+
+    // Generate a unique filename to avoid collisions
+    let ext = PathBuf::from(&file_name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_else(|| "wav".to_string());
+    let unique_name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let dest_path = ref_dir.join(&unique_name);
+
+    let audio_bytes = BASE64
+        .decode(&audio_base64)
+        .map_err(|e| format!("Invalid base64 audio: {}", e))?;
+
+    std::fs::write(&dest_path, &audio_bytes)
+        .map_err(|e| format!("Failed to write ref audio file: {}", e))?;
+
+    Ok(dest_path.to_string_lossy().to_string())
 }

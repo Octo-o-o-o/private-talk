@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, State};
 
-// Global stop flag
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
@@ -113,7 +112,6 @@ pub async fn send_message(
             compressor::CompressionInput {
                 needs_compression: false,
                 conversation_text: String::new(),
-                conversation_id: conversation_id.clone(),
                 covered_until_message_id: None,
             },
         )
@@ -133,7 +131,9 @@ pub async fn send_message(
                 // Step 3: Save summary back to DB (sync, brief lock)
                 if let Some(ref boundary_id) = compression_input.covered_until_message_id {
                     let conn = db.0.lock().map_err(|e| e.to_string())?;
-                    if let Err(e) = compressor::save_summary(&conn, &conversation_id, &summary, boundary_id) {
+                    if let Err(e) =
+                        compressor::save_summary(&conn, &conversation_id, &summary, boundary_id)
+                    {
                         eprintln!("Failed to save summary: {}", e);
                     }
                 }
@@ -419,7 +419,7 @@ pub async fn generate_title(
 /// Prepare file attachments: copy/compress to app data, return metadata.
 /// Called from frontend before sending a message.
 #[tauri::command]
-pub fn prepare_attachments(
+pub async fn prepare_attachments(
     app: tauri::AppHandle,
     file_paths: Vec<String>,
 ) -> Result<Vec<String>, String> {
@@ -428,19 +428,23 @@ pub fn prepare_attachments(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let mut results = Vec::new();
-    for path_str in &file_paths {
-        let path = Path::new(path_str);
-        let prepared = attachments::prepare_attachment(&app_data_dir, path)?;
-        let json = serde_json::to_string(&prepared).map_err(|e| e.to_string())?;
-        results.push(json);
-    }
-    Ok(results)
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut results = Vec::new();
+        for path_str in &file_paths {
+            let path = Path::new(path_str);
+            let prepared = attachments::prepare_attachment(&app_data_dir, path)?;
+            let json = serde_json::to_string(&prepared).map_err(|e| e.to_string())?;
+            results.push(json);
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("Attachment preparation task failed: {}", e))?
 }
 
 /// Prepare an image from base64 data (e.g., clipboard paste).
 #[tauri::command]
-pub fn prepare_image_attachment(
+pub async fn prepare_image_attachment(
     app: tauri::AppHandle,
     image_base64: String,
     mime_type: String,
@@ -450,12 +454,79 @@ pub fn prepare_image_attachment(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    let data = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &image_base64,
-    )
-    .map_err(|e| format!("Invalid base64: {}", e))?;
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &image_base64)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
 
-    let prepared = attachments::prepare_image_from_bytes(&app_data_dir, &data, &mime_type)?;
-    serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = attachments::prepare_image_from_bytes(&app_data_dir, &data, &mime_type)?;
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Image preparation task failed: {}", e))?
+}
+
+/// Prepare an audio attachment from base64 data (e.g., recorded voice message).
+#[tauri::command]
+pub async fn prepare_audio_attachment(
+    app: tauri::AppHandle,
+    audio_base64: String,
+    mime_type: String,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &audio_base64)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = attachments::prepare_audio_from_bytes(&app_data_dir, &data, &mime_type)?;
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Audio preparation task failed: {}", e))?
+}
+
+/// Prepare a text file attachment from raw content (uploaded via FileReader).
+#[tauri::command]
+pub async fn prepare_text_attachment(
+    app: tauri::AppHandle,
+    file_name: String,
+    content: String,
+    mime_type: String,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let now = chrono::Utc::now();
+        let month_dir = app_data_dir
+            .join("attachments")
+            .join(now.format("%Y-%m").to_string());
+        std::fs::create_dir_all(&month_dir)
+            .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
+
+        let ext = std::path::Path::new(&file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("txt");
+        let dest = month_dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+        std::fs::write(&dest, &content)
+            .map_err(|e| format!("Failed to write text file: {}", e))?;
+
+        let prepared = attachments::PreparedAttachment {
+            id: uuid::Uuid::new_v4().to_string(),
+            file_type: "text_file".to_string(),
+            file_name,
+            file_path: dest.to_string_lossy().to_string(),
+            mime_type,
+            file_size: content.len() as i64,
+        };
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Text attachment preparation task failed: {}", e))?
 }

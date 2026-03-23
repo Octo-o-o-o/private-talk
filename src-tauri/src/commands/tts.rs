@@ -96,6 +96,7 @@ pub async fn stt_transcribe(
     db: State<'_, DbState>,
     audio_base64: String,
     provider_id: String,
+    mime_type: Option<String>,
 ) -> Result<String, String> {
     let (base_url, api_key, stt_model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -123,5 +124,5 @@ pub async fn stt_transcribe(
         .decode(&audio_base64)
         .map_err(|e| format!("Invalid base64 audio: {}", e))?;
 
-    engine::transcribe(&base_url, &api_key, audio_data, &stt_model).await
+    engine::transcribe(&base_url, &api_key, audio_data, &stt_model, mime_type.as_deref()).await
 }
