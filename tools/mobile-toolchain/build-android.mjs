@@ -13,7 +13,7 @@ const tauriArgs =
     : [
         "android",
         "build",
-        ...(rawArgs.length > 0 ? rawArgs : ["--debug", "--target", "aarch64"]),
+        ...(rawArgs.length > 0 ? rawArgs : ["--target", "aarch64"]),
       ];
 const androidProjectDir = path.join(rootDir, "src-tauri", "gen", "android");
 const androidAppDir = path.join(androidProjectDir, "app");
