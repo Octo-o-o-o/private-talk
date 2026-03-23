@@ -648,9 +648,11 @@ mod platform {
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionResultGeneratedEventArgs,
                 >::new(move |_, args| {
-                    let result = (*args).Result()?;
-                    if result.Status()? == SpeechRecognitionResultStatus::Success {
-                        append_transcript(&transcript_for_results, &result.Text()?.to_string());
+                    if let Some(args) = &*args {
+                        let result = args.Result()?;
+                        if result.Status()? == SpeechRecognitionResultStatus::Success {
+                            append_transcript(&transcript_for_results, &result.Text()?.to_string());
+                        }
                     }
                     Ok(())
                 }))
@@ -661,7 +663,8 @@ mod platform {
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionCompletedEventArgs,
                 >::new(move |_, args| {
-                    let status = (*args).Status()
+                    let status = (*args).as_ref()
+                        .and_then(|a| a.Status().ok())
                         .unwrap_or(SpeechRecognitionResultStatus::Unknown);
                     let _ = completed_tx.send(status);
                     Ok(())
