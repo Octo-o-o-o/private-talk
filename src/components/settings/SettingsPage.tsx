@@ -2149,35 +2149,41 @@ function DataManagementSection({
     setExportError("");
     setExportResult("");
     try {
-      const result = await api.exportConfig(exportPassword);
-      if (result.success) {
-        const summary = [
-          result.providers > 0
-            ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
-            : null,
-          result.voices > 0
-            ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
-            : null,
-          result.assistants > 0
-            ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
-            : null,
-          result.openclaw_instances > 0
-            ? t(
-                `${result.openclaw_instances} 个 OpenClaw`,
-                `${result.openclaw_instances} OpenClaw instance(s)`
-              )
-            : null,
-        ]
-          .filter(Boolean)
-          .join(t("、", ", "));
-        setExportResult(
-          t(`导出成功：${summary}`, `Exported: ${summary}`)
-        );
-        setExportPassword("");
-        setExportConfirmPassword("");
-      } else {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const defaultName = `private-talk-backup-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.ptbackup`;
+      const filePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "Private Talk Backup", extensions: ["ptbackup"] }],
+      });
+      if (!filePath) {
         setExportResult(t("已取消导出。", "Export cancelled."));
+        return;
       }
+      const result = await api.exportConfig(exportPassword, filePath);
+      const summary = [
+        result.providers > 0
+          ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
+          : null,
+        result.voices > 0
+          ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
+          : null,
+        result.assistants > 0
+          ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
+          : null,
+        result.openclaw_instances > 0
+          ? t(
+              `${result.openclaw_instances} 个 OpenClaw`,
+              `${result.openclaw_instances} OpenClaw instance(s)`
+            )
+          : null,
+      ]
+        .filter(Boolean)
+        .join(t("、", ", "));
+      setExportResult(
+        t(`导出成功：${summary}`, `Exported: ${summary}`)
+      );
+      setExportPassword("");
+      setExportConfirmPassword("");
     } catch (e) {
       setExportError(String(e));
     } finally {
@@ -2194,44 +2200,52 @@ function DataManagementSection({
     setImportError("");
     setImportResult("");
     try {
-      const result = await api.importConfig(importPassword);
-      if (result.success) {
-        const summary = [
-          result.providers > 0
-            ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
-            : null,
-          result.voices > 0
-            ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
-            : null,
-          result.assistants > 0
-            ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
-            : null,
-          result.openclaw_instances > 0
-            ? t(
-                `${result.openclaw_instances} 个 OpenClaw`,
-                `${result.openclaw_instances} OpenClaw instance(s)`
-              )
-            : null,
-          result.settings > 0
-            ? t(`${result.settings} 项设置`, `${result.settings} setting(s)`)
-            : null,
-        ]
-          .filter(Boolean)
-          .join(t("、", ", "));
-        setImportResult(
-          t(`导入成功：${summary}`, `Imported: ${summary}`)
-        );
-        setImportPassword("");
-        // Refresh all stores
-        await Promise.all([
-          loadProviders(),
-          loadAssistants(),
-          loadVoices(),
-          loadOpenClawInstances(),
-        ]);
-      } else {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      // On mobile (iOS/Android), extension-based filters may not work,
+      // so we allow all files as a fallback. The file is validated by
+      // magic bytes on the Rust side regardless.
+      const filePath = await open({
+        multiple: false,
+        filters: [{ name: "Private Talk Backup", extensions: ["ptbackup"] }],
+      });
+      if (!filePath) {
         setImportResult(t("已取消导入。", "Import cancelled."));
+        return;
       }
+      const result = await api.importConfig(importPassword, filePath);
+      const summary = [
+        result.providers > 0
+          ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
+          : null,
+        result.voices > 0
+          ? t(`${result.voices} 个声音`, `${result.voices} voice(s)`)
+          : null,
+        result.assistants > 0
+          ? t(`${result.assistants} 个助手`, `${result.assistants} assistant(s)`)
+          : null,
+        result.openclaw_instances > 0
+          ? t(
+              `${result.openclaw_instances} 个 OpenClaw`,
+              `${result.openclaw_instances} OpenClaw instance(s)`
+            )
+          : null,
+        result.settings > 0
+          ? t(`${result.settings} 项设置`, `${result.settings} setting(s)`)
+          : null,
+      ]
+        .filter(Boolean)
+        .join(t("、", ", "));
+      setImportResult(
+        t(`导入成功：${summary}`, `Imported: ${summary}`)
+      );
+      setImportPassword("");
+      // Refresh all stores
+      await Promise.all([
+        loadProviders(),
+        loadAssistants(),
+        loadVoices(),
+        loadOpenClawInstances(),
+      ]);
     } catch (e) {
       setImportError(String(e));
     } finally {

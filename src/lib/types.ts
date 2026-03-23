@@ -179,8 +179,6 @@ export interface VoiceSegmentResult {
 }
 
 export interface ExportResult {
-  success: boolean;
-  path: string | null;
   providers: number;
   voices: number;
   assistants: number;
@@ -188,7 +186,6 @@ export interface ExportResult {
 }
 
 export interface ImportResult {
-  success: boolean;
   providers: number;
   voices: number;
   assistants: number;
