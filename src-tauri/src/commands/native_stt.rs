@@ -644,31 +644,25 @@ mod platform {
 
             let transcript_for_results = Arc::clone(&transcript);
             let result_token = session
-                .ResultGenerated(TypedEventHandler::<
+                .ResultGenerated(&TypedEventHandler::<
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionResultGeneratedEventArgs,
                 >::new(move |_, args| {
-                    if let Some(args) = args {
-                        let result = args.Result()?;
-                        if result.Status()? == SpeechRecognitionResultStatus::Success {
-                            append_transcript(&transcript_for_results, &result.Text()?.to_string());
-                        }
+                    let result = args.Result()?;
+                    if result.Status()? == SpeechRecognitionResultStatus::Success {
+                        append_transcript(&transcript_for_results, &result.Text()?.to_string());
                     }
                     Ok(())
                 }))
                 .map_err(|error| map_windows_error(&error))?;
 
             let completed_token = session
-                .Completed(TypedEventHandler::<
+                .Completed(&TypedEventHandler::<
                     windows::Media::SpeechRecognition::SpeechContinuousRecognitionSession,
                     SpeechContinuousRecognitionCompletedEventArgs,
                 >::new(move |_, args| {
-                    let status = if let Some(args) = args {
-                        args.Status()
-                            .unwrap_or(SpeechRecognitionResultStatus::Unknown)
-                    } else {
-                        SpeechRecognitionResultStatus::Unknown
-                    };
+                    let status = args.Status()
+                        .unwrap_or(SpeechRecognitionResultStatus::Unknown);
                     let _ = completed_tx.send(status);
                     Ok(())
                 }))
@@ -741,7 +735,10 @@ mod platform {
         _app: &tauri::AppHandle,
         _state: &Mutex<PlatformState>,
     ) -> Result<NativeSttInfo, String> {
-        let _guard = initialize_mta().map_err(|error| error.to_string())?;
+        {
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+            unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok().ok();
+        }
         let (_, language_tag) = create_recognizer()?;
         Ok(info(language_tag.map(|tag| {
             format!("Uses Windows.Media.SpeechRecognition continuous dictation ({tag}).")
