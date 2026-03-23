@@ -104,6 +104,50 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     recommendedModels: ["deepseek-chat", "deepseek-reasoner"],
   },
   {
+    id: "grok",
+    name: "Grok",
+    baseUrl: "https://api.x.ai/v1",
+    description: {
+      zh: "xAI Grok 官方端点。",
+      en: "Official xAI Grok endpoint.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "xai-...",
+    defaultModels: ["grok-4", "grok-3", "grok-3-mini", "grok-3-fast"],
+    recommendedModels: ["grok-4", "grok-3", "grok-3-mini", "grok-3-fast"],
+  },
+  {
+    id: "volcengine",
+    name: "火山引擎",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    description: {
+      zh: "字节跳动火山引擎（豆包）大模型平台。",
+      en: "ByteDance Volcengine (Doubao) LLM platform.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "your-ark-api-key",
+    defaultModels: [
+      "doubao-seed-1.6",
+      "doubao-1.5-pro-256k",
+      "doubao-1.5-pro-32k",
+      "doubao-1.5-lite-32k",
+      "deepseek-r1-250120",
+      "deepseek-v3-250324",
+    ],
+    recommendedModels: [
+      "doubao-seed-1.6",
+      "doubao-1.5-pro-256k",
+      "doubao-1.5-pro-32k",
+      "doubao-1.5-lite-32k",
+      "deepseek-r1-250120",
+      "deepseek-v3-250324",
+    ],
+  },
+  {
     id: "zhipu",
     name: "智谱 GLM",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
@@ -156,6 +200,12 @@ function filterModelsByPreset(preset: ProviderPresetConfig, discovered: string[]
       return chatLike.filter((model) => model.startsWith("gemini-"));
     case "deepseek":
       return chatLike.filter((model) => model.startsWith("deepseek-"));
+    case "grok":
+      return chatLike.filter((model) => model.startsWith("grok-"));
+    case "volcengine":
+      return chatLike.filter(
+        (model) => model.startsWith("doubao-") || model.startsWith("deepseek-")
+      );
     case "zhipu":
       return chatLike.filter((model) => model.toLowerCase().startsWith("glm-"));
     default:
