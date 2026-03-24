@@ -73,6 +73,7 @@ export function ChatView() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [contextSize, setContextSize] = useState(20);
   const [imageGenPhase, setImageGenPhase] = useState<string | null>(null);
+  const [imageGenStartTime, setImageGenStartTime] = useState<number | null>(null);
   const [mobileInputHeight, setMobileInputHeight] = useState(0);
   const mobileInputRef = useRef<HTMLDivElement>(null);
   const { keyboardInset: mobileKeyboardInset } = useMobileKeyboardInset(isMobile);
@@ -228,6 +229,7 @@ export function ChatView() {
         setStreaming(false);
         clearStreamingContent();
         setImageGenPhase(null);
+        setImageGenStartTime(null);
       }
     }
   }, [currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -304,15 +306,20 @@ export function ChatView() {
       const phase = event.payload.phase;
       if (phase === "done") {
         setImageGenPhase(null);
+        setImageGenStartTime(null);
         setStreaming(false);
         // Reload messages to get assistant message with image attachments
         if (currentConversationId) void loadMessages(currentConversationId);
       } else if (phase === "failed") {
         setImageGenPhase(null);
+        setImageGenStartTime(null);
         setStreaming(false);
         setStreamingError(event.payload.message ?? "图片生成失败。\nImage generation failed.");
       } else {
         setImageGenPhase(phase);
+        if (phase === "generating") {
+          setImageGenStartTime(Date.now());
+        }
       }
     });
 
@@ -814,9 +821,11 @@ export function ChatView() {
                     <div className="rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        {imageGenPhase === "generating"
-                          ? t("正在生成图片...", "Generating image...")
-                          : t("正在保存...", "Saving...")}
+                        {imageGenPhase === "generating" ? (
+                          <ImageGenProgressLabel startTime={imageGenStartTime} t={t} />
+                        ) : (
+                          t("正在保存...", "Saving...")
+                        )}
                       </div>
                     </div>
                   </div>
@@ -932,5 +941,56 @@ function SystemPromptPreview({
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Image generation progress with easing ──────────────────────────────
+
+const ESTIMATED_DURATION_MS = 120_000; // 2 minutes default estimate
+
+/**
+ * Easing curve: fast start → slow middle → caps at ~92%.
+ * Uses 1 - 1/(1 + k*t) where t is progress ratio (0..1+).
+ * Reaches ~85% at t=1 (estimated time), then slowly crawls toward 92%.
+ */
+function easedProgress(elapsedMs: number): number {
+  const t = elapsedMs / ESTIMATED_DURATION_MS;
+  // k controls curve steepness; higher = faster start
+  const k = 5;
+  const raw = 1 - 1 / (1 + k * t);
+  // Cap at 92% so the jump to 100% is visible
+  return Math.min(raw * 100, 92);
+}
+
+function ImageGenProgressLabel({
+  startTime,
+  t,
+}: {
+  startTime: number | null;
+  t: (zh: string, en: string) => string;
+}) {
+  const [percent, setPercent] = useState(0);
+
+  useEffect(() => {
+    if (!startTime) {
+      setPercent(0);
+      return;
+    }
+    let raf: number;
+    const tick = () => {
+      const elapsed = Date.now() - startTime;
+      setPercent(Math.round(easedProgress(elapsed)));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [startTime]);
+
+  return (
+    <span>
+      {t("正在生成图片", "Generating image")}
+      {" "}
+      <span className="tabular-nums">{percent}%</span>
+    </span>
   );
 }

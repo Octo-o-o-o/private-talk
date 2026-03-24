@@ -1989,11 +1989,20 @@ function ImageGenCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1:1">1:1</SelectItem>
-                <SelectItem value="16:9">16:9</SelectItem>
-                <SelectItem value="9:16">9:16</SelectItem>
-                <SelectItem value="4:3">4:3</SelectItem>
-                <SelectItem value="3:4">3:4</SelectItem>
+                {([
+                  ["1:1",  "h-3.5 w-3.5"],
+                  ["16:9", "h-2.5 w-4"],
+                  ["9:16", "h-4 w-2.5"],
+                  ["4:3",  "h-3 w-4"],
+                  ["3:4",  "h-4 w-3"],
+                ] as const).map(([ratio, sizeClass]) => (
+                  <SelectItem key={ratio} value={ratio}>
+                    <span className="flex items-center gap-2">
+                      <span className={cn("inline-block rounded-[2px] border border-current opacity-50", sizeClass)} />
+                      {ratio}
+                    </span>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
