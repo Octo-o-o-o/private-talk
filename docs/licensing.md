@@ -6,7 +6,7 @@ This document explains the licensing choice for Private Talk.
 
 - Code license: Apache License 2.0
 - Attribution file: `NOTICE`
-- Brand guidance: `TRADEMARKS.md`
+- Brand guidance: `docs/TRADEMARKS.md`
 
 ## Why Apache-2.0 Fits This Project
 
@@ -51,7 +51,7 @@ With Apache-2.0 plus `NOTICE`, you can reasonably require downstream redistribut
 - copyright notices
 - attribution notices included in `NOTICE`
 
-With Apache-2.0 plus `TRADEMARKS.md`, you can also keep clearer control over:
+With Apache-2.0 plus `docs/TRADEMARKS.md`, you can also keep clearer control over:
 
 - the `Private Talk` name
 - the `ClawButler` name

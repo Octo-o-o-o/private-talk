@@ -8,7 +8,7 @@ This repository was prepared for a public open-source release from a previously 
 - `README.zh-CN.md`
 - `LICENSE`
 - `NOTICE`
-- `TRADEMARKS.md`
+- `docs/TRADEMARKS.md`
 - `CONTRIBUTING.md`
 - `SECURITY.md`
 - `docs/` — design docs, packaging guides, review recommendations

@@ -108,4 +108,4 @@ See [`SECURITY.md`](./SECURITY.md).
 
 ## License
 
-[Apache License 2.0](./LICENSE). See [`NOTICE`](./NOTICE) and [`TRADEMARKS.md`](./TRADEMARKS.md).
+[Apache License 2.0](./LICENSE). See [`NOTICE`](./NOTICE) and [`TRADEMARKS.md`](./docs/TRADEMARKS.md).

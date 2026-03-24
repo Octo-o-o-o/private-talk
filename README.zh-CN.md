@@ -108,4 +108,4 @@ pnpm package:all        # 全平台
 
 ## 许可证
 
-[Apache License 2.0](./LICENSE)。另见 [`NOTICE`](./NOTICE) 和 [`TRADEMARKS.md`](./TRADEMARKS.md)。
+[Apache License 2.0](./LICENSE)。另见 [`NOTICE`](./NOTICE) 和 [`TRADEMARKS.md`](./docs/TRADEMARKS.md)。
