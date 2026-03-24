@@ -385,11 +385,11 @@ export function Sidebar() {
         isMobile ? "w-full" : "w-64"
       )}>
         {!isMobile && (
-          <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-11" />
+          <div data-tauri-drag-region className="h-11 w-full shrink-0" />
         )}
 
-        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: isMobile ? 12 : 10 }}>
-          <div className="relative z-10 flex items-center justify-between">
+        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: isMobile ? 12 : 6 }}>
+          <div className="flex items-center justify-between">
             <Button
               onClick={() => {
                 closeSidebarOnMobile();

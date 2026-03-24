@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal, Bot } from "lucide-react";
 import appIconUrl from "@/assets/app-icon.png";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
@@ -694,8 +694,8 @@ export function ChatView() {
                 ) : null}
                 {isCurrentStreaming && !streamingContent ? (
                   <div className="flex gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full">
-                      <img src={appIconUrl} alt="" className="h-8 w-8 rounded-full" />
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      <Bot className="h-4 w-4" />
                     </div>
                     <div className="rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
                       <div className="flex items-center gap-1.5">
