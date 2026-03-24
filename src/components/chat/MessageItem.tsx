@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Trash2,
   FileText,
+  Download,
   X,
 } from "lucide-react";
 import { lazy, Suspense, useState, useRef, useEffect, useMemo, useCallback } from "react";
@@ -57,6 +58,7 @@ export function MessageItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxFilePath, setLightboxFilePath] = useState<string | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useI18n();
 
@@ -79,7 +81,14 @@ export function MessageItem({
     [attachments]
   );
 
-  const closeLightbox = useCallback(() => setLightboxSrc(null), []);
+  const openLightbox = useCallback((src: string, filePath: string) => {
+    setLightboxSrc(src);
+    setLightboxFilePath(filePath);
+  }, []);
+  const closeLightbox = useCallback(() => {
+    setLightboxSrc(null);
+    setLightboxFilePath(null);
+  }, []);
 
   useEffect(() => {
     if (isEditing && editRef.current) {
@@ -127,6 +136,9 @@ export function MessageItem({
 
   const isUser = role === "user";
   const hasActions = messageId && !isStreaming;
+  // Detect generated-image assistant messages (no bubble needed)
+  const isGeneratedImageMessage = !isUser && imageAttachments.length > 0 &&
+    imageAttachments.every((a) => (a.metadata as Record<string, unknown> | undefined)?.source === "generated");
 
   const actionBtnClass =
     "rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
@@ -235,6 +247,59 @@ export function MessageItem({
               </button>
             </div>
           </div>
+        ) : isGeneratedImageMessage ? (
+          <>
+          {/* Generated image — frameless layout */}
+          <div className="flex gap-2">
+            <div>
+              {(() => {
+                const useGrid = imageAttachments.length >= 2;
+                return (
+                  <div className={useGrid ? "grid grid-cols-2 gap-1.5" : "flex flex-wrap gap-1.5"}>
+                    {imageAttachments.map((att) => {
+                      const src = convertFileSrc(att.file_path);
+                      return (
+                        <button
+                          key={att.id}
+                          onClick={() => openLightbox(src, att.file_path)}
+                          className="relative overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        >
+                          <AttachmentImage
+                            filePath={att.file_path}
+                            alt={att.file_name}
+                            className="max-h-72 max-w-[320px] rounded-xl object-cover transition-opacity hover:opacity-90"
+                            fallbackClassName="flex h-24 w-24"
+                            loading="lazy"
+                          />
+                          <span className="absolute top-1.5 right-1.5 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                            AI
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+            {/* Side pin action */}
+            {!isStreaming && messageId ? (
+              <div className="mt-1 flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  onClick={handleTogglePin}
+                  className={cn(
+                    "rounded-md p-1 transition-colors",
+                    pinned
+                      ? "text-primary hover:text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                  title={pinned ? t("取消置顶", "Unpin") : t("置顶消息", "Pin message")}
+                >
+                  {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          </>
         ) : (
           <>
           <div className={cn("flex gap-2", isUser && "flex-row-reverse")}>
@@ -249,10 +314,7 @@ export function MessageItem({
             >
               {/* Image attachments */}
               {imageAttachments.length > 0 && (() => {
-                const generatedImages = imageAttachments.filter(
-                  (a) => (a.metadata as Record<string, unknown> | undefined)?.source === "generated"
-                );
-                const useGrid = generatedImages.length >= 2;
+                const useGrid = imageAttachments.length >= 2;
                 return (
                   <div className={cn(
                     useGrid ? "grid grid-cols-2 gap-1.5" : "flex flex-wrap gap-1.5",
@@ -260,11 +322,10 @@ export function MessageItem({
                   )}>
                     {imageAttachments.map((att) => {
                       const src = convertFileSrc(att.file_path);
-                      const isGenerated = (att.metadata as Record<string, unknown> | undefined)?.source === "generated";
                       return (
                         <button
                           key={att.id}
-                          onClick={() => setLightboxSrc(src)}
+                          onClick={() => openLightbox(src, att.file_path)}
                           className="relative overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
                         >
                           <AttachmentImage
@@ -274,11 +335,6 @@ export function MessageItem({
                             fallbackClassName="flex h-24 w-24"
                             loading="lazy"
                           />
-                          {isGenerated && (
-                            <span className="absolute top-1 right-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                              AI
-                            </span>
-                          )}
                         </button>
                       );
                     })}
@@ -438,12 +494,56 @@ export function MessageItem({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={closeLightbox}
         >
-          <button
-            onClick={closeLightbox}
-            className="absolute right-4 top-4 rounded-full bg-foreground/20 p-2 text-white transition-colors hover:bg-foreground/40"
-          >
-            <X size={20} />
-          </button>
+          <div className="absolute right-4 top-4 flex items-center gap-2">
+            {lightboxFilePath && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Copy image to clipboard via canvas
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => {
+                      const canvas = document.createElement("canvas");
+                      canvas.width = img.naturalWidth;
+                      canvas.height = img.naturalHeight;
+                      canvas.getContext("2d")?.drawImage(img, 0, 0);
+                      canvas.toBlob((blob) => {
+                        if (blob) {
+                          navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]).catch(() => {});
+                        }
+                      });
+                    };
+                    img.src = lightboxSrc!;
+                  }}
+                  className="rounded-full bg-foreground/20 p-2 text-white transition-colors hover:bg-foreground/40"
+                  title={t("复制图片", "Copy image")}
+                >
+                  <Copy size={20} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Download via anchor
+                    const a = document.createElement("a");
+                    a.href = lightboxSrc!;
+                    a.download = lightboxFilePath!.split("/").pop() || "image.png";
+                    a.click();
+                  }}
+                  className="rounded-full bg-foreground/20 p-2 text-white transition-colors hover:bg-foreground/40"
+                  title={t("下载图片", "Download image")}
+                >
+                  <Download size={20} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={closeLightbox}
+              className="rounded-full bg-foreground/20 p-2 text-white transition-colors hover:bg-foreground/40"
+            >
+              <X size={20} />
+            </button>
+          </div>
           <img
             src={lightboxSrc}
             alt=""
