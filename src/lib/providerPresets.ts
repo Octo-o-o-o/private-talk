@@ -197,6 +197,22 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     recommendedModels: [],
     imageGenModel: "stablediffusion",
   },
+  {
+    id: "sd-cpp",
+    name: "stable-diffusion.cpp",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    description: {
+      zh: "stable-diffusion.cpp 本地服务，支持 Z-Image-Turbo 等 GGUF 模型。",
+      en: "Local stable-diffusion.cpp server for GGUF models like Z-Image-Turbo.",
+    },
+    category: "local",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: false,
+    apiKeyPlaceholder: "",
+    defaultModels: [],
+    recommendedModels: [],
+    imageGenModel: "z-image-turbo",
+  },
 ];
 
 /** Given a provider's base_url, find the matching preset's image gen model. */

@@ -36,25 +36,45 @@ pub struct ImageGenerationResult {
 
 // ── Parameter mapping ──────────────────────────────────────────────────
 
-/// Map aspect_ratio to OpenAI size string.
+/// Map aspect_ratio to size string based on model.
 fn map_size(aspect_ratio: &str, model: &str) -> String {
     let is_dalle3 = model.contains("dall-e-3");
+    let is_openai = is_dalle3 || model.starts_with("gpt-image");
+
     match aspect_ratio {
         "16:9" => {
             if is_dalle3 {
                 "1792x1024"
-            } else {
+            } else if is_openai {
                 "1536x1024"
+            } else {
+                "1024x576" // SD / local models
             }
         }
         "9:16" => {
             if is_dalle3 {
                 "1024x1792"
-            } else {
+            } else if is_openai {
                 "1024x1536"
+            } else {
+                "576x1024"
             }
         }
-        _ => "1024x1024", // 1:1, 4:3, 3:4 fallback
+        "4:3" => {
+            if is_openai {
+                "1024x1024" // OpenAI doesn't support 4:3, fallback
+            } else {
+                "1024x768"
+            }
+        }
+        "3:4" => {
+            if is_openai {
+                "1024x1024"
+            } else {
+                "768x1024"
+            }
+        }
+        _ => "1024x1024", // 1:1
     }
     .to_string()
 }
@@ -100,32 +120,41 @@ pub async fn generate_images(
     let n = request.count.unwrap_or(1).max(1).min(4);
 
     let is_dalle3 = model.contains("dall-e-3");
+    let is_openai = is_dalle3 || model.starts_with("gpt-image");
 
     let mut body = serde_json::json!({
-        "model": model,
         "prompt": request.prompt,
-        "n": n,
         "size": map_size(ratio, model),
-        "quality": map_quality(quality, model),
     });
 
-    // DALL-E 3 uses response_format; gpt-image-1 uses output_format
-    if is_dalle3 {
-        body["response_format"] = serde_json::json!("b64_json");
-    } else {
-        body["output_format"] = serde_json::json!("png");
-    }
+    // Only send model/quality/format fields for services that understand them
+    if is_openai {
+        body["model"] = serde_json::json!(model);
+        body["n"] = serde_json::json!(n);
+        body["quality"] = serde_json::json!(map_quality(quality, model));
 
-    if let Some(bg) = &request.background {
-        if !is_dalle3 {
+        if is_dalle3 {
+            body["response_format"] = serde_json::json!("b64_json");
+        } else {
+            body["output_format"] = serde_json::json!("png");
+        }
+
+        if let Some(bg) = &request.background {
             body["background"] = serde_json::json!(bg);
         }
+    } else {
+        // Local models (sd.cpp, LocalAI, etc.) — minimal body
+        body["model"] = serde_json::json!(model);
+        body["n"] = serde_json::json!(n);
     }
+
+    // Local models can be slow (e.g. Z-Image ~130s per image)
+    let timeout_secs = if is_openai { 120 } else { 600 };
 
     let client = reqwest::Client::new();
     let resp = client
         .post(&url)
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&body)
         .send()
@@ -139,6 +168,36 @@ pub async fn generate_images(
             "Image generation API error ({}): {}",
             status, text
         ));
+    }
+
+    // Some local servers (e.g. sd.cpp) return raw image bytes instead of JSON
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if content_type.starts_with("image/") {
+        let mime = if content_type.contains("png") {
+            "image/png"
+        } else if content_type.contains("jpeg") || content_type.contains("jpg") {
+            "image/jpeg"
+        } else {
+            "image/png"
+        };
+        let data = resp
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read image bytes: {}", e))?
+            .to_vec();
+        return Ok(ImageGenerationResult {
+            images: vec![GeneratedImage {
+                data,
+                mime_type: mime.to_string(),
+            }],
+            revised_prompt: None,
+        });
     }
 
     let json: serde_json::Value = resp
@@ -417,11 +476,18 @@ mod tests {
 
     #[test]
     fn test_map_size() {
+        // OpenAI models
         assert_eq!(map_size("1:1", "gpt-image-1"), "1024x1024");
         assert_eq!(map_size("16:9", "gpt-image-1"), "1536x1024");
         assert_eq!(map_size("16:9", "dall-e-3"), "1792x1024");
         assert_eq!(map_size("9:16", "gpt-image-1"), "1024x1536");
         assert_eq!(map_size("4:3", "gpt-image-1"), "1024x1024");
+        // Local / SD models
+        assert_eq!(map_size("1:1", "stablediffusion"), "1024x1024");
+        assert_eq!(map_size("16:9", "z-image-turbo"), "1024x576");
+        assert_eq!(map_size("9:16", "z-image-turbo"), "576x1024");
+        assert_eq!(map_size("4:3", "z-image-turbo"), "1024x768");
+        assert_eq!(map_size("3:4", "z-image-turbo"), "768x1024");
     }
 
     #[test]
