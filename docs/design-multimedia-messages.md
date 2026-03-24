@@ -780,7 +780,6 @@ Tauri command: stt_transcribe(audio_base64, provider_id)  // 已有
 - `src-tauri/src/llm/provider.rs` — 构建多模态 request
 - `src-tauri/src/acp/types.rs` — ContentBlock 扩展
 - `src-tauri/src/acp/client.rs` — prompt 方法支持多内容块
-- `src-tauri/src/acp/ws_client.rs` — 同上
 - `src-tauri/src/commands/chat.rs` — send_message 接收附件
 - `src-tauri/src/commands/openclaw.rs` — send_openclaw_message 接收附件
 - 新增 `src-tauri/src/attachments.rs` — 附件存储/管理模块
@@ -818,24 +817,19 @@ Tauri command: stt_transcribe(audio_base64, provider_id)  // 已有
 - `src/components/chat/ChatInput.tsx` — 扩展文件选择器
 - 新增 `src/components/chat/FileCard.tsx` — 文件卡片组件
 
-### Phase 3：语音输入（双模式）
+### Phase 3：语音输入（双模式）— 部分实现
 
-**范围**：
-- 前端录音 UI（MediaRecorder API）
-- 模式 A：语音消息 — 录完直接发送，后端异步 STT，前端语音气泡
-- 模式 B：语音转文字 — 录完 STT 后填入输入框
-- 新增 Tauri command：`send_voice_message`（模式 A）、`transcribe_audio`（模式 B）
-- STT provider 配置（设置页）
-- 音频保存到 attachments 目录
-- 前端：语音气泡渲染（波形 + 播放 + 展开转写文本）
-**改动文件**：
-- 重构 `src/components/audio/AudioRecorder.tsx` → 拆为录音逻辑 hook + UI 按钮
-- 新增 `src/hooks/useAudioRecorder.ts` — 录音 hook（MediaRecorder 封装，支持 mode 参数）
-- 新增 `src/components/chat/RecordingBar.tsx` — 录音态输入条（波形 + 计时 + 停止，根据 mode 切换主题）
-- 新增 `src/components/chat/VoiceBubble.tsx` — 语音气泡（播放 + 展开转写）
-- `src-tauri/src/commands/chat.rs` — 新增 `send_voice_message` command
-- `src/components/chat/ChatInput.tsx` — 左右两个录音按钮 + RecordingBar 集成
-- `src/components/settings/SettingsPage.tsx` — STT provider 配置
+> **实现状态**：STT（语音转文字）已通过平台原生 API 实现（macOS/iOS AVFoundation、Windows Media.SpeechRecognition、Android 自定义插件），不依赖云端 STT。语音消息气泡（`VoiceBubble.tsx`）已实现。录音态 UI（`RecordingBar`、`useAudioRecorder`）尚未实现。
+
+**已完成**：
+- 平台原生 STT 输入（`src-tauri/src/commands/native_stt.rs`）
+- 语音气泡渲染（`src/components/chat/VoiceBubble.tsx`）
+- TTS 语音播放与角色映射
+
+**尚未实现**：
+- `RecordingBar` 录音态输入条
+- `useAudioRecorder` 录音 hook
+- 语音消息录制与发送（模式 A）
 
 ---
 

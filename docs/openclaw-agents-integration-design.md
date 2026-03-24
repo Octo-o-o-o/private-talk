@@ -1,5 +1,14 @@
 # OpenClaw Agents 集成设计
 
+> **实现状态说明**：本文档是设计阶段的方案推导。实际实现与本文档存在以下差异：
+>
+> - **模块路径**：实际代码位于 `src-tauri/src/acp/`（`client.rs`、`types.rs`、`mod.rs`），而非文档中提议的 `src-tauri/src/openclaw/`。
+> - **命令模块**：OpenClaw 命令实现在 `src-tauri/src/commands/openclaw.rs`，助手命令在 `src-tauri/src/commands/assistant.rs`，而非文档中提议的 `openclaw_instance.rs` 和 `agent.rs`。
+> - **数据模型**：`scenarios` 表未重命名为 `agents`，未增加 `kind` 字段。`conversations` 表未增加 `route_kind`、`acp_session_id` 等字段。`openclaw_instances` 表已创建并增加了 `agents_cache`、`is_remote` 列。
+> - **UI 命名**：内部数据表保留 `scenarios`，UI 上展示为"Assistant"。
+>
+> 文档主体保留用于理解设计思路和方案比较。
+
 ## 1. 目标
 
 用户在 Private Talk 中：

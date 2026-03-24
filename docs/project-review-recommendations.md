@@ -1,7 +1,10 @@
 # Private Talk 项目实现 Review 建议（V2）
 
-> 本版本已根据 `docs/project-review-report.md` 的审查意见修订。  
-> 修订重点：收紧排序字段方案、拆分 OpenClaw 问题层次、补充执行验收标准。
+> **状态更新（2026-03）**：
+> - P0 3.2（上下文压缩累积）：**已修复**。`conversation_summaries` 表已创建，`save_summary()` 使用 `INSERT ... ON CONFLICT DO UPDATE`，不再重复累积摘要。
+> - P0 3.4（Rust 编译失败）：**已修复**。OpenClaw 路径已可编译运行。
+> - P1 4.2（超大组件）：组件行数有增长（SettingsPage ~2900 行，Sidebar ~1080 行，ChatView ~1010 行），拆分尚未执行。
+> - 其他 P0/P1 项目状态未变。
 
 ## 1. 总体结论
 

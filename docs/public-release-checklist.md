@@ -11,19 +11,16 @@ This repository was prepared for a public open-source release from a previously 
 - `TRADEMARKS.md`
 - `CONTRIBUTING.md`
 - `SECURITY.md`
-- `docs/openclaw-agents-integration-design.md`
+- `docs/` — design docs, packaging guides, review recommendations
 - Source code under `src/`, `src-tauri/`, and `tools/`
 
-## Files That Should Stay Private
+## Files Excluded Via .gitignore
 
-- `.workflow/**`
-- `.openclaw/**`
+- `.workflow/`
+- `.openclaw/`
+- `.claude/`
 - `CLAUDE.md`
-- `ACCEPTANCE-REPORT.md`
-- `docs/UI_standard.md`
-- Local signing and notarization notes
-- Apple account identifiers, signing identities, and private environment variable setup
-- Machine-specific paths, internal review notes, acceptance notes, and planning artifacts
+- `data.db`
 
 ## OpenClaw Workflow Guidance
 
@@ -38,7 +35,6 @@ The following should not be published:
 
 - internal agent workflow notes
 - intake plans and implementation journals
-- review artifacts
 - private operational notes
 - anything that exposes local tokens, hostnames, or machine-specific environment setup
 

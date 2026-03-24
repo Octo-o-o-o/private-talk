@@ -28,6 +28,7 @@ dist-ssr
 # Internal workflow / agent notes
 .workflow/
 .openclaw/
+.claude/
 CLAUDE.md
 ACCEPTANCE-REPORT.md
 
