@@ -1775,7 +1775,7 @@ export function ChatInput({ onSend, onStop }: Props) {
     <div
       className={cn(
         "relative border-t border-border/70 bg-background/95 backdrop-blur",
-        isMobile ? "px-3 py-2" : "px-4 py-4"
+        isMobile ? "px-2 py-1" : "px-4 py-4"
       )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -1948,7 +1948,7 @@ export function ChatInput({ onSend, onStop }: Props) {
             </div>
           ) : (
             <>
-              <div className="flex items-end gap-2 p-2">
+              <div className={cn("flex items-end gap-2", isMobile ? "p-1.5" : "p-2")}>
                 <div className="flex items-center gap-1 self-end pb-0.5">
                   <button
                     type="button"
