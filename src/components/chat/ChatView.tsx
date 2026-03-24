@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal, Bot, Upload } from "lucide-react";
+import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal, Bot, Upload, Loader2 } from "lucide-react";
 import appIconUrl from "@/assets/app-icon.png";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
@@ -17,6 +17,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useAppStore } from "../../stores/appStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileKeyboardInset } from "@/hooks/useMobileKeyboardInset";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import { MessageItem } from "./MessageItem";
 import { ChatInput } from "./ChatInput";
@@ -57,6 +58,7 @@ export function ChatView() {
     streamingError,
     setStreamingError,
     voices,
+    loadMessages,
   } = useAppStore();
 
   const currentConversation = conversations.find((c) => c.id === currentConversationId);
@@ -70,6 +72,10 @@ export function ChatView() {
   const isNearBottomRef = useRef(true);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [contextSize, setContextSize] = useState(20);
+  const [imageGenPhase, setImageGenPhase] = useState<string | null>(null);
+  const [mobileInputHeight, setMobileInputHeight] = useState(0);
+  const mobileInputRef = useRef<HTMLDivElement>(null);
+  const { keyboardInset: mobileKeyboardInset } = useMobileKeyboardInset(isMobile);
 
   const currentAssistant = assistants.find((assistant) => assistant.id === currentAssistantId);
   const currentProvider = providers.find((provider) => provider.id === selectedProviderId);
@@ -134,6 +140,31 @@ export function ChatView() {
   }, []);
 
   useEffect(() => {
+    if (!isMobile) {
+      setMobileInputHeight(0);
+      return;
+    }
+
+    const inputElement = mobileInputRef.current;
+    if (!inputElement || typeof ResizeObserver === "undefined") return;
+
+    const updateMobileInputHeight = () => {
+      setMobileInputHeight(inputElement.getBoundingClientRect().height);
+    };
+
+    updateMobileInputHeight();
+
+    const observer = new ResizeObserver(() => {
+      updateMobileInputHeight();
+    });
+    observer.observe(inputElement);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isMobile]);
+
+  useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
 
@@ -196,6 +227,7 @@ export function ChatView() {
       if (lastMsg && lastMsg.role === "assistant") {
         setStreaming(false);
         clearStreamingContent();
+        setImageGenPhase(null);
       }
     }
   }, [currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -263,6 +295,27 @@ export function ChatView() {
       console.error("Stream error:", event.payload.error);
     });
 
+    const unlistenImageGen = listen<{
+      conversation_id: string;
+      phase: string;
+      message?: string;
+    }>("image-gen-status", (event) => {
+      if (event.payload.conversation_id !== currentConversationId) return;
+      const phase = event.payload.phase;
+      if (phase === "done") {
+        setImageGenPhase(null);
+        setStreaming(false);
+        // Reload messages to get assistant message with image attachments
+        if (currentConversationId) void loadMessages(currentConversationId);
+      } else if (phase === "failed") {
+        setImageGenPhase(null);
+        setStreaming(false);
+        setStreamingError(event.payload.message ?? "图片生成失败。\nImage generation failed.");
+      } else {
+        setImageGenPhase(phase);
+      }
+    });
+
     return () => {
       if (rafIdRef.current) {
         cancelAnimationFrame(rafIdRef.current);
@@ -272,6 +325,7 @@ export function ChatView() {
       unlistenChunk.then((fn) => fn());
       unlistenDone.then((fn) => fn());
       unlistenError.then((fn) => fn());
+      unlistenImageGen.then((fn) => fn());
     };
   }, [
     currentConversationId,
@@ -280,6 +334,7 @@ export function ChatView() {
     addMessage,
     clearStreamingContent,
     setStreamingError,
+    loadMessages,
   ]);
 
   const handleDelete = async (messageId: string) => {
@@ -649,11 +704,14 @@ export function ChatView() {
           ref={scrollContainerRef}
           onScroll={checkIfNearBottom}
           className="h-full overflow-y-auto p-4"
-          style={{ willChange: "scroll-position" }}
+          style={{
+            willChange: "scroll-position",
+            paddingBottom: isMobile ? `${mobileInputHeight + 16}px` : undefined,
+          }}
         >
           <div className="mx-auto max-w-3xl space-y-6 pb-2">
             {!currentConversationId ? (
-              <div className="flex min-h-[calc(var(--app-viewport-height,100vh)-220px)] items-center justify-center">
+              <div className="flex min-h-[calc(100dvh-220px)] items-center justify-center">
                 <div className="flex max-w-md flex-col items-center text-center px-6">
                   <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl">
                     <img src={appIconUrl} alt="Private Talk" className="h-16 w-16 rounded-2xl" />
@@ -728,7 +786,7 @@ export function ChatView() {
                 {isCurrentStreaming && streamingContent ? (
                   <MessageItem role="assistant" content={streamingContent} isStreaming />
                 ) : null}
-                {isCurrentStreaming && !streamingContent ? (
+                {isCurrentStreaming && !streamingContent && !imageGenPhase ? (
                   <div className="flex gap-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <Bot className="h-4 w-4" />
@@ -744,6 +802,21 @@ export function ChatView() {
                             }}
                           />
                         ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {imageGenPhase ? (
+                  <div className="flex gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div className="rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {imageGenPhase === "generating"
+                          ? t("正在生成图片...", "Generating image...")
+                          : t("正在保存...", "Saving...")}
                       </div>
                     </div>
                   </div>
@@ -773,6 +846,11 @@ export function ChatView() {
             variant="secondary"
             size="icon"
             className="absolute bottom-4 right-4 h-8 w-8 rounded-full shadow-md"
+            style={
+              isMobile
+                ? { bottom: `${mobileInputHeight + mobileKeyboardInset + 16}px` }
+                : undefined
+            }
             onClick={() => {
               isNearBottomRef.current = true;
               setShowScrollDown(false);
@@ -784,7 +862,21 @@ export function ChatView() {
         ) : null}
       </div>
 
-      <ChatInput onSend={handleSend} onStop={handleStop} />
+      {isMobile ? (
+        <div
+          ref={mobileInputRef}
+          className="fixed inset-x-0 z-20 bg-background"
+          style={{
+            bottom: `${mobileKeyboardInset}px`,
+            paddingLeft: "env(safe-area-inset-left, 0px)",
+            paddingRight: "env(safe-area-inset-right, 0px)",
+          }}
+        >
+          <ChatInput onSend={handleSend} onStop={handleStop} />
+        </div>
+      ) : (
+        <ChatInput onSend={handleSend} onStop={handleStop} />
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ mod attachments;
 mod commands;
 mod context;
 mod db;
+mod image_gen;
 mod llm;
 mod pin;
 mod tts;

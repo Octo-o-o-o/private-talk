@@ -93,6 +93,19 @@ pub async fn send_message(
         .map_err(|e| e.to_string())?;
     }
 
+    // Check for /img command — intercept before normal chat flow
+    if content.starts_with("/img ") || content.starts_with("/img\n") || content == "/img" {
+        return super::image_gen::handle_image_generation(
+            app,
+            &db,
+            &conversation_id,
+            &content,
+            &user_msg_id,
+            &prepared_attachments,
+        )
+        .await;
+    }
+
     // Load provider info
     let (base_url, api_key) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;

@@ -422,3 +422,26 @@ export const parseConnectionString = (input: string) =>
     name: string | null;
     agents: { id: string; name: string; model: string; isDefault: boolean }[] | null;
   }>("parse_connection_string", { input });
+
+// Image generation config
+export interface ImageGenConfig {
+  enabled: boolean;
+  provider_id: string;
+  model: string;
+  api_mode: string;
+  allow_auto_tool_call: boolean;
+  max_images_per_request: number;
+  default_aspect_ratio: string;
+  default_quality: string;
+}
+
+export const getImageGenConfig = async (): Promise<ImageGenConfig | null> => {
+  const raw = await invoke<string | null>("get_setting", { key: "image_gen_config" });
+  return raw ? JSON.parse(raw) : null;
+};
+
+export const setImageGenConfig = (config: ImageGenConfig) =>
+  invoke<void>("set_setting", {
+    key: "image_gen_config",
+    value: JSON.stringify(config),
+  });

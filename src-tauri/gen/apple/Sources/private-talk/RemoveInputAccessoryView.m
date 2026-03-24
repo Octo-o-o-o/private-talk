@@ -4,7 +4,8 @@
 
 // Fix two iOS WKWebView issues:
 // 1. Remove the keyboard input accessory bar (∧ ∨ ✓)
-// 2. Set the WKWebView background to prevent blue splash color bleeding through
+// 2. Give the native host / WKWebView a system background fallback so rounded
+//    keyboard corners never expose a black or splash-colored backing view.
 
 @implementation UIView (PrivateTalkWebViewFixes)
 
@@ -32,8 +33,8 @@
                 }
             }
 
-            // 2. Find the WKWebView and clear its background color
-            // so the web page CSS background shows instead of the native bg
+            // 2. Find the WKWebView and give the native host a theme-aware
+            // background fallback behind the web content.
             UIWindow *keyWindow = nil;
             for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
                 if ([scene isKindOfClass:[UIWindowScene class]]) {
@@ -44,6 +45,8 @@
                 if (keyWindow) break;
             }
             if (keyWindow) {
+                keyWindow.backgroundColor = UIColor.systemBackgroundColor;
+                keyWindow.rootViewController.view.backgroundColor = UIColor.systemBackgroundColor;
                 [self clearWebViewBackground:keyWindow];
             }
 
@@ -54,8 +57,8 @@
 + (void)clearWebViewBackground:(UIView *)view {
     if ([view isKindOfClass:[WKWebView class]]) {
         WKWebView *webView = (WKWebView *)view;
-        webView.backgroundColor = UIColor.clearColor;
-        webView.scrollView.backgroundColor = UIColor.clearColor;
+        webView.backgroundColor = UIColor.systemBackgroundColor;
+        webView.scrollView.backgroundColor = UIColor.systemBackgroundColor;
         webView.opaque = NO;
         return;
     }

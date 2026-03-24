@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   AudioLines,
+  ImageIcon,
   Loader2,
   Mic,
   Paperclip,
@@ -17,6 +18,7 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "../../stores/appStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileKeyboardInset } from "@/hooks/useMobileKeyboardInset";
 import * as api from "../../lib/tauri";
 import type { NativeSttInfo, PreparedAttachment } from "../../lib/types";
 import { AttachmentImage } from "./AttachmentImage";
@@ -312,13 +314,11 @@ export function ChatInput({ onSend, onStop }: Props) {
     useState(false);
   const [nativeSttInfo, setNativeSttInfo] = useState<NativeSttInfo | null>(null);
   const [isResolvingNativeStt, setIsResolvingNativeStt] = useState(false);
+  const [imageGenEnabled, setImageGenEnabled] = useState(false);
 
   const dragCounterRef = useRef(0);
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const keyboardViewportBaselineRef = useRef(0);
-  const keyboardViewportWidthRef = useRef(0);
-  const keyboardAnimationFrameRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -342,11 +342,20 @@ export function ChatInput({ onSend, onStop }: Props) {
   const { t, locale } = useI18n();
   const platform = detectPlatform();
   const microphoneCapability = detectMicrophoneCapability();
+  const { keyboardVisible } = useMobileKeyboardInset(isMobile);
   const runtimeSpeechRecognitionSupported =
     getSpeechRecognitionConstructor() !== null;
   const nativeSpeechReady = nativeSttInfo?.status === "ready";
 
   // On mobile, auto-focus the input when a conversation becomes active
+  // Reload image gen config when component mounts or conversation changes
+  // (covers the case where user enables it in Settings then returns to chat)
+  useEffect(() => {
+    api.getImageGenConfig().then((cfg) => {
+      setImageGenEnabled(cfg?.enabled ?? false);
+    }).catch(() => {});
+  }, [currentConversationId]);
+
   useEffect(() => {
     if (isMobile && currentConversationId && textareaRef.current) {
       // Small delay to let the layout settle after conversation creation
@@ -411,87 +420,6 @@ export function ChatInput({ onSend, onStop }: Props) {
   const canUseAttachmentPicker = !isStreaming && !isOtherStreaming && !isRecording && !isTranscribing;
   const shouldUseRuntimeSpeechFallback =
     runtimeSpeechRecognitionSupported && !nativeSpeechReady;
-
-  // iOS/WKWebView can shrink both visualViewport and innerHeight when the keyboard
-  // opens, so we track the largest baseline height we have seen without the keyboard.
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  useEffect(() => {
-    if (!isMobile) {
-      setKeyboardVisible(false);
-      keyboardViewportBaselineRef.current = 0;
-      keyboardViewportWidthRef.current = 0;
-      if (keyboardAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(keyboardAnimationFrameRef.current);
-        keyboardAnimationFrameRef.current = null;
-      }
-      return;
-    }
-
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const threshold = 100;
-
-    const hasEditableFocus = () => {
-      const activeElement = document.activeElement;
-      if (!activeElement) return false;
-      if (
-        activeElement instanceof HTMLTextAreaElement ||
-        activeElement instanceof HTMLInputElement
-      ) {
-        return true;
-      }
-      return activeElement instanceof HTMLElement && activeElement.isContentEditable;
-    };
-
-    const updateKeyboardState = () => {
-      keyboardAnimationFrameRef.current = null;
-
-      const layoutWidth = window.innerWidth;
-      const currentHeight = vv.height;
-      const baselineHeight = Math.max(currentHeight, window.innerHeight);
-
-      if (
-        keyboardViewportWidthRef.current > 0 &&
-        Math.abs(layoutWidth - keyboardViewportWidthRef.current) > 100
-      ) {
-        keyboardViewportBaselineRef.current = baselineHeight;
-      }
-
-      keyboardViewportWidthRef.current = layoutWidth;
-      keyboardViewportBaselineRef.current = Math.max(
-        keyboardViewportBaselineRef.current,
-        baselineHeight
-      );
-
-      const keyboardInset = keyboardViewportBaselineRef.current - currentHeight;
-      setKeyboardVisible(hasEditableFocus() && keyboardInset > threshold);
-    };
-
-    const scheduleKeyboardState = () => {
-      if (keyboardAnimationFrameRef.current !== null) return;
-      keyboardAnimationFrameRef.current = window.requestAnimationFrame(updateKeyboardState);
-    };
-
-    scheduleKeyboardState();
-    vv.addEventListener("resize", scheduleKeyboardState);
-    vv.addEventListener("scroll", scheduleKeyboardState);
-    window.addEventListener("resize", scheduleKeyboardState);
-    document.addEventListener("focusin", scheduleKeyboardState);
-    document.addEventListener("focusout", scheduleKeyboardState);
-
-    return () => {
-      vv.removeEventListener("resize", scheduleKeyboardState);
-      vv.removeEventListener("scroll", scheduleKeyboardState);
-      window.removeEventListener("resize", scheduleKeyboardState);
-      document.removeEventListener("focusin", scheduleKeyboardState);
-      document.removeEventListener("focusout", scheduleKeyboardState);
-      if (keyboardAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(keyboardAnimationFrameRef.current);
-        keyboardAnimationFrameRef.current = null;
-      }
-    };
-  }, [isMobile]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -2054,6 +1982,22 @@ export function ChatInput({ onSend, onStop }: Props) {
                   >
                     <Paperclip className="h-4 w-4" />
                   </button>
+                  {imageGenEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = input.trim();
+                        if (!current.startsWith("/img ")) {
+                          setInput(`/img ${current}`);
+                        }
+                        textareaRef.current?.focus();
+                      }}
+                      className={utilityButtonClass}
+                      title={t("生成图片", "Generate image")}
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </button>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"

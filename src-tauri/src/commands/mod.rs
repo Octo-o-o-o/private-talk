@@ -2,6 +2,7 @@ pub mod assistant;
 pub mod config_io;
 pub mod chat;
 pub mod conversation;
+pub mod image_gen;
 pub mod native_stt;
 pub mod openclaw;
 pub mod permissions;

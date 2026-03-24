@@ -450,6 +450,54 @@ pub fn read_text_file_content(file_path: &str) -> Result<String, String> {
     }
 }
 
+/// Save an AI-generated image as an attachment with metadata.
+/// Writes raw bytes to disk and inserts a DB record including the metadata column.
+pub fn save_generated_image(
+    app_data_dir: &Path,
+    image_data: &[u8],
+    mime_type: &str,
+    message_id: &str,
+    metadata: serde_json::Value,
+    conn: &Connection,
+) -> Result<Attachment, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let dest_dir = attachments_dir(app_data_dir)?;
+
+    let ext = match mime_type {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    };
+    let file_name = format!("{}.{}", id, ext);
+    let dest_path = dest_dir.join(&file_name);
+
+    std::fs::write(&dest_path, image_data)
+        .map_err(|e| format!("Failed to write generated image: {}", e))?;
+
+    let file_path = dest_path.to_string_lossy().to_string();
+    let file_size = image_data.len() as i64;
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let metadata_str = serde_json::to_string(&metadata).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO attachments (id, message_id, file_type, file_name, file_path, mime_type, file_size, metadata, created_at) VALUES (?1, ?2, 'image', ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![id, message_id, file_name, file_path, mime_type, file_size, metadata_str, now],
+    )
+    .map_err(|e| format!("Failed to save generated attachment: {}", e))?;
+
+    Ok(Attachment {
+        id,
+        message_id: message_id.to_string(),
+        file_type: "image".to_string(),
+        file_name,
+        file_path,
+        mime_type: mime_type.to_string(),
+        file_size,
+        metadata: Some(metadata),
+        created_at: now,
+    })
+}
+
 /// Delete attachment files from disk for a list of attachment records.
 pub fn delete_attachment_files(attachments: &[Attachment]) {
     for att in attachments {

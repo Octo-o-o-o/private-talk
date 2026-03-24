@@ -8,6 +8,7 @@ import {
   Download,
   Globe,
   HardDrive,
+  ImageIcon,
   Loader2,
   Mic,
   Plus,
@@ -68,7 +69,7 @@ import {
 // Session-level flag: only show auto-detection dialog once per app session
 const SETTINGS_VISITED_KEY = "private-talk-settings-visited";
 
-type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data";
+type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data" | "image_gen";
 
 type SettingsState = {
   hotWindowSize: number;
@@ -145,7 +146,8 @@ export function SettingsPage() {
     sectionParam === "security" ||
     sectionParam === "openclaw" ||
     sectionParam === "stt" ||
-    sectionParam === "data"
+    sectionParam === "data" ||
+    sectionParam === "image_gen"
       ? sectionParam
       : null;
   const mode = searchParams.get("mode");
@@ -178,6 +180,18 @@ export function SettingsPage() {
   const [confirmPin, setConfirmPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [showReset, setShowReset] = useState(false);
+
+  // Image generation state
+  const [imageGenConfig, setImageGenConfig] = useState<api.ImageGenConfig>({
+    enabled: false,
+    provider_id: "",
+    model: "",
+    api_mode: "openai-images",
+    allow_auto_tool_call: false,
+    max_images_per_request: 4,
+    default_aspect_ratio: "1:1",
+    default_quality: "standard",
+  });
 
   // OpenClaw state
   const [openclawInstances, setOpenclawInstances] = useState<OpenClawInstance[]>([]);
@@ -222,10 +236,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     const load = async () => {
-      const [hotWindowResult, maxContextResult, instancesResult] = await Promise.allSettled([
+      const [hotWindowResult, maxContextResult, instancesResult, imageGenResult] = await Promise.allSettled([
         api.getSetting("context_hot_size"),
         api.getSetting("context_max_messages"),
         api.listOpenClawInstances(),
+        api.getImageGenConfig(),
       ]);
 
       const hotWindow =
@@ -241,6 +256,10 @@ export function SettingsPage() {
         setOpenclawInstances(instancesResult.value);
       } else {
         console.error("Failed to load OpenClaw instances:", instancesResult.reason);
+      }
+
+      if (imageGenResult.status === "fulfilled" && imageGenResult.value) {
+        setImageGenConfig(imageGenResult.value);
       }
     };
     void load();
@@ -808,6 +827,18 @@ export function SettingsPage() {
                   onOpenDetails={() => updateView(setSearchParams, { section: "memory" })}
                 />
 
+                <ImageGenCard
+                  t={t}
+                  providers={providers}
+                  config={imageGenConfig}
+                  onConfigChange={(next) => {
+                    const updated = { ...imageGenConfig, ...next };
+                    setImageGenConfig(updated);
+                    void api.setImageGenConfig(updated);
+                  }}
+                  onOpenDetails={() => updateView(setSearchParams, { section: "image_gen" })}
+                />
+
                 <DataManagementCard
                   t={t}
                   onOpenDetails={() => updateView(setSearchParams, { section: "data" })}
@@ -1186,6 +1217,20 @@ export function SettingsPage() {
               setShowReset={setShowReset}
               onEnablePin={handleEnablePin}
               onReset={handleReset}
+            />
+          ) : null}
+
+          {section === "image_gen" ? (
+            <ImageGenCard
+              t={t}
+              providers={providers}
+              config={imageGenConfig}
+              standalone
+              onConfigChange={(next) => {
+                const updated = { ...imageGenConfig, ...next };
+                setImageGenConfig(updated);
+                void api.setImageGenConfig(updated);
+              }}
             />
           ) : null}
 
@@ -1813,6 +1858,146 @@ function SpeechToTextCard({
           >
             {isSaving ? t("保存中…", "Saving...") : t("保存更改", "Save changes")}
           </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ImageGenCard({
+  t,
+  providers,
+  config,
+  standalone,
+  onConfigChange,
+  onOpenDetails,
+}: {
+  t: (zh: string, en: string) => string;
+  providers: Provider[];
+  config: api.ImageGenConfig;
+  standalone?: boolean;
+  onConfigChange: (next: Partial<api.ImageGenConfig>) => void;
+  onOpenDetails?: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start gap-3">
+          <ImageIcon className="mt-0.5 h-5 w-5 text-primary" />
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                {t("图片生成", "Image Generation")}
+              </p>
+              <div className="flex items-center gap-2">
+                <Badge variant={config.enabled ? "default" : "secondary"}>
+                  {config.enabled ? t("已启用", "Enabled") : t("已关闭", "Disabled")}
+                </Badge>
+                {!standalone && onOpenDetails ? (
+                  <Button variant="ghost" size="sm" onClick={onOpenDetails}>
+                    {t("详情", "Details")}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <CardTitle className="text-lg">{t("图片生成", "Image Generation")}</CardTitle>
+            <CardDescription className="mt-1">
+              {t(
+                "在聊天中使用 /img 命令生成图片，复用现有服务商的 API。",
+                "Generate images in chat with /img command, using existing provider APIs."
+              )}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label>{t("启用图片生成", "Enable Image Generation")}</Label>
+          <Switch
+            checked={config.enabled}
+            onCheckedChange={(checked) => onConfigChange({ enabled: checked })}
+          />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{t("生图服务商", "Image Provider")}</Label>
+            <Select
+              value={config.provider_id || "__none__"}
+              onValueChange={(value) => onConfigChange({ provider_id: value === "__none__" ? "" : value })}
+              disabled={!config.enabled}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("选择服务商", "Select provider")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t("未选择", "Not selected")}</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("复用已有服务商的 base URL 和 API key。", "Reuses base URL and API key from an existing provider.")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("生图模型", "Image Model")}</Label>
+            <Input
+              value={config.model}
+              onChange={(e) => onConfigChange({ model: e.target.value })}
+              placeholder="gpt-image-1"
+              disabled={!config.enabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("支持 OpenAI Images 兼容接口，如 gpt-image-1、dall-e-3。", "OpenAI Images compatible, e.g. gpt-image-1, dall-e-3.")}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{t("默认比例", "Default Aspect Ratio")}</Label>
+            <Select
+              value={config.default_aspect_ratio}
+              onValueChange={(value) => onConfigChange({ default_aspect_ratio: value })}
+              disabled={!config.enabled}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1:1">1:1</SelectItem>
+                <SelectItem value="16:9">16:9</SelectItem>
+                <SelectItem value="9:16">9:16</SelectItem>
+                <SelectItem value="4:3">4:3</SelectItem>
+                <SelectItem value="3:4">3:4</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("默认质量", "Default Quality")}</Label>
+            <Select
+              value={config.default_quality}
+              onValueChange={(value) => onConfigChange({ default_quality: value })}
+              disabled={!config.enabled}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standard">{t("标准", "Standard")}</SelectItem>
+                <SelectItem value="hd">{t("高清", "HD")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          {t(
+            "用法：在聊天中输入 /img 描述 即可生成图片，支持 --ratio、--quality、--count、--bg 参数。",
+            "Usage: type /img description in chat to generate images. Supports --ratio, --quality, --count, --bg flags."
+          )}
         </div>
       </CardContent>
     </Card>
@@ -2757,6 +2942,13 @@ function getPageHeading(
     return {
       title: t("数据管理", "Data Management"),
       description: t("导出和导入配置数据，方便跨设备迁移。", "Export and import configuration data for cross-device migration."),
+    };
+  }
+
+  if (section === "image_gen") {
+    return {
+      title: t("图片生成", "Image Generation"),
+      description: t("配置生图模型与默认参数。", "Configure image generation model and default parameters."),
     };
   }
 

@@ -35,42 +35,6 @@ function App() {
   const initPreferences = usePreferencesStore((state) => state.initPreferences);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const root = document.documentElement;
-    const viewport = window.visualViewport;
-    let rafId = 0;
-
-    const syncViewportHeight = () => {
-      rafId = 0;
-      const viewportHeight = viewport?.height ?? window.innerHeight;
-      root.style.setProperty("--app-viewport-height", `${viewportHeight}px`);
-    };
-
-    const scheduleViewportSync = () => {
-      if (rafId !== 0) return;
-      rafId = window.requestAnimationFrame(syncViewportHeight);
-    };
-
-    scheduleViewportSync();
-    viewport?.addEventListener("resize", scheduleViewportSync);
-    viewport?.addEventListener("scroll", scheduleViewportSync);
-    window.addEventListener("resize", scheduleViewportSync);
-    window.addEventListener("orientationchange", scheduleViewportSync);
-
-    return () => {
-      viewport?.removeEventListener("resize", scheduleViewportSync);
-      viewport?.removeEventListener("scroll", scheduleViewportSync);
-      window.removeEventListener("resize", scheduleViewportSync);
-      window.removeEventListener("orientationchange", scheduleViewportSync);
-      if (rafId !== 0) {
-        cancelAnimationFrame(rafId);
-      }
-      root.style.removeProperty("--app-viewport-height");
-    };
-  }, []);
-
-  useEffect(() => {
     const init = async () => {
       const preferencesTask = initPreferences().catch((error) => {
         console.error("Failed to initialize preferences:", error);
@@ -192,27 +156,11 @@ function App() {
   }, []);
 
   if (pinEnabled && isLocked) {
-    return (
-      <div
-        className="w-full bg-background text-foreground"
-        style={{
-          height: "var(--app-viewport-height, 100%)",
-          minHeight: "var(--app-viewport-height, 100%)",
-        }}
-      >
-        <PinLock />
-      </div>
-    );
+    return <div className="h-full w-full bg-background text-foreground"><PinLock /></div>;
   }
 
   return (
-    <div
-      className="w-full bg-background text-foreground"
-      style={{
-        height: "var(--app-viewport-height, 100%)",
-        minHeight: "var(--app-viewport-height, 100%)",
-      }}
-    >
+    <div className="h-full w-full bg-background text-foreground">
       <Suspense>
         <Routes>
           <Route element={<AppLayout />}>

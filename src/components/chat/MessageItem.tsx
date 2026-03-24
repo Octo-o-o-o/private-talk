@@ -248,28 +248,43 @@ export function MessageItem({
               )}
             >
               {/* Image attachments */}
-              {imageAttachments.length > 0 && (
-                <div className={cn("flex flex-wrap gap-1.5", content && "mb-2")}>
-                  {imageAttachments.map((att) => {
-                    const src = convertFileSrc(att.file_path);
-                    return (
-                      <button
-                        key={att.id}
-                        onClick={() => setLightboxSrc(src)}
-                        className="overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <AttachmentImage
-                          filePath={att.file_path}
-                          alt={att.file_name}
-                          className="max-h-48 max-w-[220px] rounded-lg object-cover transition-opacity hover:opacity-90"
-                          fallbackClassName="flex h-24 w-24"
-                          loading="lazy"
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              {imageAttachments.length > 0 && (() => {
+                const generatedImages = imageAttachments.filter(
+                  (a) => (a.metadata as Record<string, unknown> | undefined)?.source === "generated"
+                );
+                const useGrid = generatedImages.length >= 2;
+                return (
+                  <div className={cn(
+                    useGrid ? "grid grid-cols-2 gap-1.5" : "flex flex-wrap gap-1.5",
+                    content && "mb-2"
+                  )}>
+                    {imageAttachments.map((att) => {
+                      const src = convertFileSrc(att.file_path);
+                      const isGenerated = (att.metadata as Record<string, unknown> | undefined)?.source === "generated";
+                      return (
+                        <button
+                          key={att.id}
+                          onClick={() => setLightboxSrc(src)}
+                          className="relative overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        >
+                          <AttachmentImage
+                            filePath={att.file_path}
+                            alt={att.file_name}
+                            className="max-h-48 max-w-[220px] rounded-lg object-cover transition-opacity hover:opacity-90"
+                            fallbackClassName="flex h-24 w-24"
+                            loading="lazy"
+                          />
+                          {isGenerated && (
+                            <span className="absolute top-1 right-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                              AI
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               {/* Audio attachments */}
               {audioAttachments.length > 0 && (
                 <div className={cn("flex flex-col gap-2", content && "mb-2")}>
