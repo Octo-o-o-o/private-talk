@@ -2,121 +2,110 @@
 
 [English](./README.md)
 
-Private Talk 是一个本地优先、非常轻量的桌面工具包，用来选择本地助手、连接 OpenClaw Agents，并调试大模型对话、TTS 和 STT 流程。
+极轻量、完全本地的 AI 对话客户端。基于 Tauri 2.0 构建 — macOS DMG 仅约 6 MB。
 
-它适合想要一个小而直接、可自己配置、可自己接模型和语音服务的本地桌面客户端，而不是一整套托管平台的人。
+> 你的密钥、你的模型、你的数据。除非你主动选择，没有任何数据离开你的设备。
 
-## 项目特点
+## 下载
 
-- 全本地化、无自建云端依赖。对话、Provider、助手配置、Voice、OpenClaw 连接信息都保存在本机 SQLite。
-- 自己配置模型。支持接入你自己的 OpenAI-compatible 接口、本地模型网关或云端模型服务。
-- 同时支持本地 voice 和云端 voice。
-- 支持 OpenClaw Agents，包括本地 OpenClaw Gateway、远程 OpenClaw Gateway、本地 OpenClaw Agents 和原生 OpenClaw Agents。
-- 非常轻量。当前从本仓库构建出的 macOS arm64 DMG 大约只有 6.1 MB。
-- 内置中英文双语界面。
+| 平台 | 下载 |
+|------|------|
+| macOS (Apple Silicon) | [Private-Talk_0.1.0_macOS_aarch64.dmg](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/Private-Talk_0.1.0_macOS_aarch64.dmg) |
+| Windows (x64) | [PrivateTalk_0.1.0_x64-setup.exe](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/PrivateTalk_0.1.0_x64-setup.exe) / [.msi](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/PrivateTalk_0.1.0_x64_en-US.msi) |
+| iOS | [PrivateTalk_0.1.0_iOS_arm64.ipa](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/PrivateTalk_0.1.0_iOS_arm64.ipa) |
+| Android | [PrivateTalk_0.1.0_android.apk](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/PrivateTalk_0.1.0_android.apk) / [.aab](https://github.com/Octo-o-o-o/private-talk/releases/download/v0.1.0/PrivateTalk_0.1.0_android.aab) |
 
-## 适合做什么
+[所有版本](https://github.com/Octo-o-o-o/private-talk/releases)
 
-- 快速切换 Agent 和 Prompt
-- 调试不同模型服务的对话效果
-- 调试 TTS / STT 流程
-- 用一个轻量本地客户端连接 OpenClaw
-- 做演示、实验和日常开发时保持简洁工具链
+## 为什么选择 Private Talk
 
-## 核心能力
+- **极致轻量。** macOS DMG 仅约 6 MB。原生性能，不依赖 Electron。
+- **完全本地。** 所有数据存储在本地 SQLite。无需账号、无遥测、无云端依赖。
+- **自由接入模型。** 连接任何 OpenAI 兼容端点 — 云端或自建均可。
+- **中英双语界面。** 内置中文和英文 UI。
 
-- 本地聊天与自定义 Provider 配置
-- 基于助手的提示词管理与可复用系统提示词
-- 本地与云端 TTS 配置
-- 按角色映射不同 voice
-- STT 语音输入
+## 功能
+
+### 对话 & LLM
+
+- 多服务商对话，支持流式响应
+- 预制服务商：OpenAI、Gemini、DeepSeek、Grok、OpenRouter、火山引擎、智谱 GLM、SiliconFlow，以及本地引擎
+- 场景（系统提示词）预设，可复用指令
+- 上下文窗口控制、消息置顶、会话管理
 - Token / 费用统计
-- 上下文窗口控制与消息置顶
-- OpenClaw 实例管理
-- 原生 OpenClaw Agent 对话
-- 远程 OpenClaw 配对辅助工具
 
-## 隐私模型
+### 图片生成
 
-Private Talk 是“本地优先”，不是“服务优先”。
+- `/img` 命令，支持文生图和图生图
+- 支持 8+ 服务商：OpenAI (gpt-image-1)、Gemini、Grok、SiliconFlow (FLUX)、智谱 (CogView)、OpenRouter、LocalAI、stable-diffusion.cpp
+- 可配置宽高比、质量、数量、背景等参数
+- 自动生成缩略图，浏览时节省内存
+- 大图灯箱预览
 
-- 项目本身不要求你接入官方托管后端。
-- 应用状态和本地数据保存在你的设备上。
-- 你自己决定它连接哪些模型或语音端点。
-- 如果你配置的是云端 API，请求会发往你选择的服务商，而不是发往 Private Talk 的服务端。
+### 语音
 
-## OpenClaw 支持
+- **TTS（文字转语音）：** 本地和云端语音引擎，支持按角色映射不同声音
+- **STT（语音转文字）：** 原生平台语音识别（macOS/iOS 使用 AVFoundation，Windows 使用 Media.SpeechRecognition，Android 使用自定义插件）
+- 多声音配置文件，支持段落级角色映射
 
-Private Talk 目前支持两类 OpenClaw 工作流：
+### 附件
 
-- 自动发现并连接本机 OpenClaw Gateway
-- 连接远程 OpenClaw Gateway，并直接使用原生 OpenClaw Agents
+- 对话中发送图片和文件附件
+- 自动图片压缩和缩略图生成
+- 灯箱预览，保持原始画质
 
-仓库中还带了一个远程配对小工具：[`tools/private-talk-pair`](./tools/private-talk-pair)，可以为另一台 Private Talk 客户端生成连接串。
+### OpenClaw Agents
 
-OpenClaw 集成设计说明见 [`docs/openclaw-agents-integration-design.md`](./docs/openclaw-agents-integration-design.md)。
+Private Talk 可作为 [OpenClaw](https://github.com/user/openclaw) Agents 的轻量调试客户端：
 
-## 开发方式
+- 连接本地或远程 OpenClaw Gateway
+- 原生 OpenClaw Agent 对话流程
+- 远程配对辅助工具（[`tools/private-talk-pair`](./tools/private-talk-pair)）
+- 实例管理和连接信息本地存储
+
+如需更完整的 OpenClaw 服务平台，请参阅 [ClawButler](https://clawbutler.cc)（[仓库](https://github.com/Octo-o-o-o/agent-planet)）。
+
+## 隐私
+
+- 无需托管后端。应用状态保存在你的设备上。
+- 你自己决定连接哪些模型和语音端点。
+- 云端流量发往你配置的服务商，而非 Private Talk 的服务端。
+
+## 开发
 
 ### 依赖
 
-- Node.js 18+
-- `pnpm`
-- Rust stable toolchain
-- 当前系统对应的 Tauri 构建依赖
-- 可选：如果你要使用 OpenClaw 功能，需要安装 `openclaw` CLI
+- Node.js 18+、`pnpm`、Rust stable 工具链
+- 当前系统对应的 [Tauri 构建依赖](https://tauri.app/start/prerequisites/)
+- 可选：使用 OpenClaw 功能需安装 `openclaw` CLI
 
-### 本地运行
+### 运行 & 构建
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev          # 开发服务器 + Tauri 窗口热重载
+pnpm tauri build        # 完整原生应用构建
 ```
 
-### 构建
+### 打包
 
 ```bash
-pnpm build
-pnpm tauri build
+pnpm mac:build          # macOS app + DMG
+pnpm ios:build:device   # iOS 设备 IPA
+pnpm android:build      # Android APK + AAB
+pnpm package:all        # 全平台
 ```
 
-### 已验证打包流程
-
-已经验证过的 macOS、iOS、Android 打包流程见 [`docs/packaging.zh-CN.md`](./docs/packaging.zh-CN.md)。
-
-常用命令：
-
-```bash
-pnpm mac:build
-pnpm ios:build
-pnpm ios:build:device
-pnpm android:build
-pnpm package:all
-```
-
-## 如果你需要更多 OpenClaw 服务能力
-
-Private Talk 的定位是一个轻量本地客户端。
-
-如果你需要更完整的 OpenClaw 服务能力、托管工作流或更偏服务化的使用方式，可以看：
-
-- [ClawButler 官网](https://clawbutler.cc)
-- [ClawButler 仓库](https://github.com/Octo-o-o-o/agent-planet)
+详见 [`docs/packaging.zh-CN.md`](./docs/packaging.zh-CN.md)。
 
 ## 贡献
 
-欢迎提 Issue 和 PR。
-
-提交前请先看 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+欢迎提 Issue 和 PR。提交前请先阅读 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
 
 ## 安全
 
-安全问题请先阅读 [`SECURITY.md`](./SECURITY.md)。
+请参阅 [`SECURITY.md`](./SECURITY.md)。
 
 ## 许可证
 
-本项目采用 [Apache License 2.0](./LICENSE)。
-
-附加归属说明见 [`NOTICE`](./NOTICE)，品牌与商标说明见 [`TRADEMARKS.md`](./TRADEMARKS.md)。
-
-如果你想看这套方案背后的判断，见 [`docs/licensing.md`](./docs/licensing.md)。
+[Apache License 2.0](./LICENSE)。另见 [`NOTICE`](./NOTICE) 和 [`TRADEMARKS.md`](./TRADEMARKS.md)。
