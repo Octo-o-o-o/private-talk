@@ -165,6 +165,16 @@ pub struct ImportResult {
     pub settings: usize,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ValidateBackupResult {
+    pub providers: usize,
+    pub voices: usize,
+    pub assistants: usize,
+    pub openclaw_instances: usize,
+    pub settings: usize,
+    pub has_local_config: bool,
+}
+
 // ── Commands ────────────────────────────────────────────────────────────
 
 /// Export config to a file. The frontend is responsible for showing the
@@ -213,13 +223,48 @@ pub fn export_config(
     Ok(result)
 }
 
+/// Validate a backup file: decrypt with password and return summary + whether local config exists.
+#[tauri::command]
+pub fn validate_backup(
+    db: State<'_, DbState>,
+    password: String,
+    file_path: String,
+) -> Result<ValidateBackupResult, String> {
+    if password.is_empty() {
+        return Err("Password cannot be empty".into());
+    }
+
+    let data = std::fs::read(&file_path).map_err(|e| e.to_string())?;
+    let plaintext = decrypt(&data, &password)?;
+    let payload: ConfigPayload =
+        serde_json::from_slice(&plaintext).map_err(|e| format!("Invalid backup data: {e}"))?;
+
+    if payload.app != "private-talk" {
+        return Err("This backup file is not from Private Talk".into());
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let has_local_config = has_any_config(&conn)?;
+
+    Ok(ValidateBackupResult {
+        providers: payload.providers.len(),
+        voices: payload.voices.len(),
+        assistants: payload.assistants.len(),
+        openclaw_instances: payload.openclaw_instances.len(),
+        settings: payload.settings.len(),
+        has_local_config,
+    })
+}
+
 /// Import config from a file. The frontend is responsible for showing the
 /// file-open dialog and passing the chosen path here.
+/// `mode` can be "merge" (append) or "replace" (delete existing then import).
 #[tauri::command]
 pub fn import_config(
     db: State<'_, DbState>,
     password: String,
     file_path: String,
+    mode: String,
 ) -> Result<ImportResult, String> {
     if password.is_empty() {
         return Err("Password cannot be empty".into());
@@ -235,6 +280,18 @@ pub fn import_config(
     }
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // If replace mode, delete existing user data first
+    if mode == "replace" {
+        conn.execute("DELETE FROM providers", []).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM voices WHERE is_preset = 0", []).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM scenarios WHERE is_preset = 0", []).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM openclaw_instances", []).map_err(|e| e.to_string())?;
+        for key in EXPORTABLE_SETTINGS {
+            conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
+                .map_err(|e| e.to_string())?;
+        }
+    }
 
     let mut imported_providers = 0usize;
     let mut imported_voices = 0usize;
@@ -337,6 +394,22 @@ pub fn import_config(
         openclaw_instances: imported_openclaw,
         settings: imported_settings,
     })
+}
+
+// ── DB helpers ──────────────────────────────────────────────────────────
+
+fn has_any_config(conn: &rusqlite::Connection) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM providers) + \
+             (SELECT COUNT(*) FROM voices WHERE is_preset = 0) + \
+             (SELECT COUNT(*) FROM scenarios WHERE is_preset = 0) + \
+             (SELECT COUNT(*) FROM openclaw_instances)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(count > 0)
 }
 
 // ── DB collection helpers ───────────────────────────────────────────────

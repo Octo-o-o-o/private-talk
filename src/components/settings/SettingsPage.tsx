@@ -290,7 +290,9 @@ export function SettingsPage() {
         const instance = await api.createOpenClawInstance(
           t("本地 OpenClaw", "Local OpenClaw"),
           detection.gateway_url ?? "ws://127.0.0.1:18789",
-          detection.gateway_token ?? ""
+          detection.gateway_token ?? "",
+          true, // skipCliCheck: gateway already confirmed running during detection
+          false // isRemote: this is a local instance
         );
         setOpenclawInstances((prev) => [
           instance,
@@ -648,7 +650,9 @@ export function SettingsPage() {
       const instance = await api.createOpenClawInstance(
         t("本地 OpenClaw", "Local OpenClaw"),
         openclawDetection.gateway_url ?? "ws://127.0.0.1:18789",
-        openclawDetection.gateway_token ?? ""
+        openclawDetection.gateway_token ?? "",
+        true, // skipCliCheck: gateway already confirmed running
+        false // isRemote: local instance
       );
       setOpenclawInstances((prev) => [
         instance,
@@ -701,7 +705,8 @@ export function SettingsPage() {
         name,
         payload.url,
         payload.token,
-        true,
+        true, // skipCliCheck
+        true, // isRemote
         agentsCache
       );
       setOpenclawInstances((prev) => [
@@ -2129,8 +2134,20 @@ function DataManagementSection({
   const [exportPassword, setExportPassword] = useState("");
   const [exportConfirmPassword, setExportConfirmPassword] = useState("");
   const [importPassword, setImportPassword] = useState("");
+  const [importFilePath, setImportFilePath] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState("");
+  const [importValidation, setImportValidation] = useState<{
+    providers: number;
+    voices: number;
+    assistants: number;
+    openclaw_instances: number;
+    settings: number;
+    has_local_config: boolean;
+  } | null>(null);
+  const [showMergeDialog, setShowMergeDialog] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [exportResult, setExportResult] = useState("");
   const [importResult, setImportResult] = useState("");
   const [exportError, setExportError] = useState("");
@@ -2191,28 +2208,54 @@ function DataManagementSection({
     }
   };
 
-  const handleImport = async () => {
-    if (!importPassword) {
-      setImportError(t("请输入密码。", "Please enter the password."));
-      return;
-    }
-    setIsImporting(true);
+  const handleSelectFile = async () => {
     setImportError("");
     setImportResult("");
+    setImportValidation(null);
+    setImportPassword("");
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      // On mobile (iOS/Android), extension-based filters may not work,
-      // so we allow all files as a fallback. The file is validated by
-      // magic bytes on the Rust side regardless.
       const filePath = await open({
         multiple: false,
         filters: [{ name: "Private Talk Backup", extensions: ["ptbackup"] }],
       });
-      if (!filePath) {
-        setImportResult(t("已取消导入。", "Import cancelled."));
-        return;
+      if (!filePath) return;
+      const name = filePath.split(/[/\\]/).pop() ?? filePath;
+      setImportFilePath(filePath);
+      setImportFileName(name);
+    } catch (e) {
+      setImportError(String(e));
+    }
+  };
+
+  const handleValidateAndImport = async () => {
+    if (!importFilePath || !importPassword) return;
+    setIsValidating(true);
+    setImportError("");
+    try {
+      const validation = await api.validateBackup(importPassword, importFilePath);
+      setImportValidation(validation);
+      if (validation.has_local_config) {
+        // Show merge/replace dialog
+        setShowMergeDialog(true);
+      } else {
+        // No local config, import directly (merge mode)
+        await doImport("merge");
       }
-      const result = await api.importConfig(importPassword, filePath);
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const doImport = async (mode: "merge" | "replace") => {
+    if (!importFilePath || !importPassword) return;
+    setShowMergeDialog(false);
+    setIsImporting(true);
+    setImportError("");
+    try {
+      const result = await api.importConfig(importPassword, importFilePath, mode);
       const summary = [
         result.providers > 0
           ? t(`${result.providers} 个服务商`, `${result.providers} provider(s)`)
@@ -2239,6 +2282,9 @@ function DataManagementSection({
         t(`导入成功：${summary}`, `Imported: ${summary}`)
       );
       setImportPassword("");
+      setImportFilePath(null);
+      setImportFileName("");
+      setImportValidation(null);
       // Refresh all stores
       await Promise.all([
         loadProviders(),
@@ -2339,48 +2385,127 @@ function DataManagementSection({
               </CardTitle>
               <CardDescription className="mt-1">
                 {t(
-                  "从 .ptbackup 文件导入配置。导入的数据将追加到现有配置中，不会覆盖已有数据。",
-                  "Import from a .ptbackup file. Imported data is appended to existing configuration, not overwritten."
+                  "从 .ptbackup 文件导入配置。",
+                  "Import configuration from a .ptbackup file."
                 )}
               </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="max-w-sm">
-            <Label className="text-xs uppercase text-muted-foreground">
-              {t("解密密码", "Decryption Password")}
-            </Label>
-            <Input
-              type="password"
-              value={importPassword}
-              onChange={(e) => setImportPassword(e.target.value)}
-              placeholder={t("输入导出时设置的密码", "Enter the export password")}
-              className="mt-1"
-            />
+          {/* Step 1: Select file */}
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => void handleSelectFile()}
+              disabled={isImporting}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {t("选择备份文件", "Choose Backup File")}
+            </Button>
+            {importFileName && (
+              <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                {importFileName}
+              </span>
+            )}
           </div>
+
+          {/* Step 2: Enter password (shown after file selected) */}
+          {importFilePath && (
+            <div className="space-y-3">
+              <div className="max-w-sm">
+                <Label className="text-xs uppercase text-muted-foreground">
+                  {t("解密密码", "Decryption Password")}
+                </Label>
+                <Input
+                  type="password"
+                  value={importPassword}
+                  onChange={(e) => setImportPassword(e.target.value)}
+                  placeholder={t("输入导出时设置的密码", "Enter the export password")}
+                  className="mt-1"
+                />
+              </div>
+              <Button
+                onClick={() => void handleValidateAndImport()}
+                disabled={isImporting || isValidating || !importPassword}
+              >
+                {isValidating || isImporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                {isValidating
+                  ? t("验证中…", "Validating...")
+                  : isImporting
+                    ? t("导入中…", "Importing...")
+                    : t("开始导入", "Import")}
+              </Button>
+            </div>
+          )}
+
           {importError ? (
             <p className="text-sm text-destructive">{importError}</p>
           ) : null}
           {importResult ? (
             <p className="text-sm text-emerald-600 dark:text-emerald-400">{importResult}</p>
           ) : null}
-          <Button
-            variant="outline"
-            onClick={() => void handleImport()}
-            disabled={isImporting || !importPassword}
-          >
-            {isImporting ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Upload className="mr-2 h-4 w-4" />
-            )}
-            {isImporting
-              ? t("导入中…", "Importing...")
-              : t("选择文件并导入", "Choose File & Import")}
-          </Button>
         </CardContent>
       </Card>
+
+      {/* Merge/Replace Dialog */}
+      <AlertDialog open={showMergeDialog} onOpenChange={setShowMergeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("选择导入方式", "Choose Import Mode")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "检测到本地已有配置数据。请选择导入方式：",
+                "Existing local configuration detected. Choose how to import:"
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {importValidation && (
+            <p className="text-sm text-muted-foreground px-1">
+              {t("备份文件包含：", "Backup contains: ")}
+              {[
+                importValidation.providers > 0
+                  ? t(`${importValidation.providers} 个服务商`, `${importValidation.providers} provider(s)`)
+                  : null,
+                importValidation.voices > 0
+                  ? t(`${importValidation.voices} 个声音`, `${importValidation.voices} voice(s)`)
+                  : null,
+                importValidation.assistants > 0
+                  ? t(`${importValidation.assistants} 个助手`, `${importValidation.assistants} assistant(s)`)
+                  : null,
+                importValidation.openclaw_instances > 0
+                  ? t(`${importValidation.openclaw_instances} 个 OpenClaw`, `${importValidation.openclaw_instances} OpenClaw`)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(t("、", ", "))}
+            </p>
+          )}
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel onClick={() => setShowMergeDialog(false)}>
+              {t("取消", "Cancel")}
+            </AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => void doImport("merge")}
+            >
+              {t("与当前配置合并", "Merge with Current")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void doImport("replace")}
+            >
+              {t("替换当前配置", "Replace Current")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Info */}
       <Card className="border-muted">

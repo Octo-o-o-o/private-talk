@@ -193,6 +193,15 @@ export interface ImportResult {
   settings: number;
 }
 
+export interface ValidateBackupResult {
+  providers: number;
+  voices: number;
+  assistants: number;
+  openclaw_instances: number;
+  settings: number;
+  has_local_config: boolean;
+}
+
 export interface StreamChunkPayload {
   conversation_id: string;
   content: string;

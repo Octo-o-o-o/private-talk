@@ -544,11 +544,13 @@ pub async fn create_openclaw_instance(
     gateway_url: String,
     token: String,
     skip_cli_check: Option<bool>,
+    is_remote: Option<bool>,
     agents_cache: Option<String>,
 ) -> Result<OpenClawInstance, String> {
-    let is_remote = skip_cli_check.unwrap_or(false);
+    let skip_cli = skip_cli_check.unwrap_or(false);
+    let is_remote = is_remote.unwrap_or(skip_cli);
 
-    if !is_remote {
+    if !skip_cli {
         // Validate that the openclaw CLI is available
         let cli_check = openclaw_command().arg("--version").output().await;
 

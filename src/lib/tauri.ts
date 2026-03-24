@@ -5,6 +5,7 @@ import type {
   DailyUsage,
   ExportResult,
   ImportResult,
+  ValidateBackupResult,
   LocalOpenClawDetection,
   LocalProviderScanResult,
   Message,
@@ -352,6 +353,7 @@ export const createOpenClawInstance = (
   gatewayUrl: string,
   token: string,
   skipCliCheck?: boolean,
+  isRemote?: boolean,
   agentsCache?: string
 ) =>
   invoke<OpenClawInstance>("create_openclaw_instance", {
@@ -359,6 +361,7 @@ export const createOpenClawInstance = (
     gatewayUrl,
     token,
     skipCliCheck,
+    isRemote,
     agentsCache,
   });
 
@@ -402,8 +405,11 @@ export const stopOpenClawGeneration = (conversationId: string) =>
 export const exportConfig = (password: string, filePath: string) =>
   invoke<ExportResult>("export_config", { password, filePath });
 
-export const importConfig = (password: string, filePath: string) =>
-  invoke<ImportResult>("import_config", { password, filePath });
+export const validateBackup = (password: string, filePath: string) =>
+  invoke<ValidateBackupResult>("validate_backup", { password, filePath });
+
+export const importConfig = (password: string, filePath: string, mode: "merge" | "replace") =>
+  invoke<ImportResult>("import_config", { password, filePath, mode });
 
 export const parseConnectionString = (input: string) =>
   invoke<{
