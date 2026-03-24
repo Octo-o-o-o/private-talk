@@ -278,6 +278,7 @@ pub fn run() {
             commands::openclaw::parse_connection_string,
             // Config import/export commands
             commands::config_io::export_config,
+            commands::config_io::cache_backup_file,
             commands::config_io::validate_backup,
             commands::config_io::import_config,
         ]);

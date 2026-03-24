@@ -2221,7 +2221,11 @@ function DataManagementSection({
       });
       if (!filePath) return;
       const name = filePath.split(/[/\\]/).pop() ?? filePath;
-      setImportFilePath(filePath);
+      // On iOS the dialog returns a security-scoped temporary URL that may
+      // become inaccessible after the picker dismisses.  Cache the file into
+      // the app's own data directory immediately while we still have access.
+      const cachedPath = await api.cacheBackupFile(filePath);
+      setImportFilePath(cachedPath);
       setImportFileName(name);
     } catch (e) {
       setImportError(String(e));

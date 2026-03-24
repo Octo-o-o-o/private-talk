@@ -32,10 +32,6 @@ export function AppLayout() {
             className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-200 ease-out ${
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
             }`}
-            style={{
-              paddingTop: "env(safe-area-inset-top, 0px)",
-              paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            }}
           >
             <Sidebar />
           </div>

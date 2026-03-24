@@ -7,7 +7,7 @@ use pbkdf2::pbkdf2_hmac;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 const PBKDF2_ITERATIONS: u32 = 600_000;
 const SALT_LEN: usize = 32;
@@ -221,6 +221,27 @@ pub fn export_config(
     std::fs::write(&file_path, &encrypted).map_err(|e| e.to_string())?;
 
     Ok(result)
+}
+
+/// Cache a backup file into the app's data directory so it survives iOS
+/// security-scoped URL revocation.  Returns the stable cached path.
+#[tauri::command]
+pub fn cache_backup_file(app: AppHandle, file_path: String) -> Result<String, String> {
+    let data = std::fs::read(&file_path).map_err(|e| e.to_string())?;
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+
+    let cached = cache_dir.join("pending_import.ptbackup");
+    std::fs::write(&cached, &data).map_err(|e| e.to_string())?;
+
+    cached
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Non-UTF8 cache path".into())
 }
 
 /// Validate a backup file: decrypt with password and return summary + whether local config exists.

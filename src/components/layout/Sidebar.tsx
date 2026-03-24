@@ -388,7 +388,10 @@ export function Sidebar() {
           <div data-tauri-drag-region className="h-11 w-full shrink-0" />
         )}
 
-        <div className="space-y-2 px-3 pb-4" style={{ paddingTop: isMobile ? 12 : 6 }}>
+        <div
+          className="space-y-2 px-3 pb-4"
+          style={{ paddingTop: isMobile ? "calc(env(safe-area-inset-top, 0px) + 12px)" : 6 }}
+        >
           <div className="flex items-center justify-between">
             <Button
               onClick={() => {
@@ -712,7 +715,10 @@ export function Sidebar() {
 
         <GradientDivider />
 
-        <div className="flex items-center justify-between p-3">
+        <div
+          className="flex items-center justify-between p-3"
+          style={isMobile ? { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" } : undefined}
+        >
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
