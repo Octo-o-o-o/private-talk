@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1E8B2E8847913B2E6C0A0C49 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 72FFFA4B0F08ABFDC594461F /* QuartzCore.framework */; };
 		35BB032C2D19B1A48E0017F2 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 85F63D33003E649D97EE1523 /* libapp.a */; };
+		5B7F7F2A4AE94672A8B6C911 /* RemoveInputAccessoryView.m in Sources */ = {isa = PBXBuildFile; fileRef = 6A3A9E59F4D1489BB7C4C5F1 /* RemoveInputAccessoryView.m */; };
 		622F9FA41037D1CCF8F8A080 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FAF2745F054509186F4DFB8 /* main.mm */; };
 		6317C0F9B2E1B20FBE3777D6 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 687451FC20C33119536148F7 /* WebKit.framework */; };
 		6B2B84C6BBF3A4A63724B968 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0DB91FBF863141E33AE1C6BA /* Assets.xcassets */; };
@@ -33,6 +34,7 @@
 		4CA2E5D223C902EFC50F70C9 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		4F9A70F9F78FA67CBBE0BB3C /* usage.rs */ = {isa = PBXFileReference; path = usage.rs; sourceTree = "<group>"; };
 		592C77315485741D07664CA7 /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
+		6A3A9E59F4D1489BB7C4C5F1 /* RemoveInputAccessoryView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RemoveInputAccessoryView.m; sourceTree = "<group>"; };
 		6572BC63486F4DB087356C3F /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		687451FC20C33119536148F7 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		69F842BFB5832777B9B5CA89 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -178,6 +180,7 @@
 			isa = PBXGroup;
 			children = (
 				1FAF2745F054509186F4DFB8 /* main.mm */,
+				6A3A9E59F4D1489BB7C4C5F1 /* RemoveInputAccessoryView.m */,
 				6F456C02CCC14D285F5F7284 /* bindings */,
 			);
 			path = "private-talk";
@@ -337,6 +340,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5B7F7F2A4AE94672A8B6C911 /* RemoveInputAccessoryView.m in Sources */,
 				622F9FA41037D1CCF8F8A080 /* main.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

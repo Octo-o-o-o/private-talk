@@ -2208,27 +2208,29 @@ function DataManagementSection({
     }
   };
 
-  const handleSelectFile = async () => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSelectFile = () => {
     setImportError("");
     setImportResult("");
     setImportValidation(null);
     setImportPassword("");
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset so the same file can be re-selected
+    e.target.value = "";
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const filePath = await open({
-        multiple: false,
-        filters: [{ name: "Private Talk Backup", extensions: ["ptbackup"] }],
-      });
-      if (!filePath) return;
-      const name = filePath.split(/[/\\]/).pop() ?? filePath;
-      // On iOS the dialog returns a security-scoped temporary URL that may
-      // become inaccessible after the picker dismisses.  Cache the file into
-      // the app's own data directory immediately while we still have access.
-      const cachedPath = await api.cacheBackupFile(filePath);
+      const buffer = await file.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(buffer));
+      const cachedPath = await api.cacheBackupData(bytes);
       setImportFilePath(cachedPath);
-      setImportFileName(name);
-    } catch (e) {
-      setImportError(String(e));
+      setImportFileName(file.name);
+    } catch (err) {
+      setImportError(String(err));
     }
   };
 
@@ -2397,6 +2399,14 @@ function DataManagementSection({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Hidden file input for cross-platform file reading */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".ptbackup"
+            className="hidden"
+            onChange={(e) => void handleFileInputChange(e)}
+          />
           {/* Step 1: Select file */}
           <div className="flex items-center gap-3">
             <Button

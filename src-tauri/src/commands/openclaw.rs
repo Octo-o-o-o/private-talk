@@ -548,6 +548,10 @@ pub async fn create_openclaw_instance(
     agents_cache: Option<String>,
 ) -> Result<OpenClawInstance, String> {
     let skip_cli = skip_cli_check.unwrap_or(false);
+    // Mobile devices cannot host a local OpenClaw process — always treat as remote.
+    #[cfg(mobile)]
+    let is_remote = true;
+    #[cfg(desktop)]
     let is_remote = is_remote.unwrap_or(skip_cli);
 
     if !skip_cli {
@@ -683,6 +687,8 @@ pub struct LocalOpenClawDetection {
     pub gateway_running: bool,
 }
 
+/// On mobile there is no local OpenClaw CLI or config directory, so return an
+/// empty result immediately.  The real detection only runs on desktop.
 #[tauri::command]
 pub async fn detect_local_openclaw() -> Result<LocalOpenClawDetection, String> {
     let mut detection = LocalOpenClawDetection {
@@ -694,55 +700,63 @@ pub async fn detect_local_openclaw() -> Result<LocalOpenClawDetection, String> {
         gateway_running: false,
     };
 
-    // 1. Check CLI availability
-    if let Ok(output) = openclaw_command().arg("--version").output().await {
-        if output.status.success() {
-            detection.cli_available = true;
-            detection.cli_version =
-                Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
-        }
+    #[cfg(mobile)]
+    {
+        return Ok(detection);
     }
 
-    // 2. Load local config (new openclaw.json first, then legacy config.json)
-    let state_dir = openclaw_state_dir();
-    detection.config_dir_exists = state_dir.exists();
-    if let Ok(profile) = load_local_openclaw_profile().await {
-        detection.gateway_url = Some(profile.gateway_url);
-        detection.gateway_token = profile.gateway_token;
-    }
-
-    // 3. Check environment variable for token
-    if detection.gateway_token.is_none() {
-        if let Ok(token) = std::env::var("OPENCLAW_GATEWAY_TOKEN") {
-            if !token.is_empty() {
-                detection.gateway_token = Some(token);
+    #[cfg(desktop)]
+    {
+        // 1. Check CLI availability
+        if let Ok(output) = openclaw_command().arg("--version").output().await {
+            if output.status.success() {
+                detection.cli_available = true;
+                detection.cli_version =
+                    Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
             }
         }
-    }
 
-    // 4. Default gateway URL if not found in config
-    let gateway_url = detection
-        .gateway_url
-        .clone()
-        .unwrap_or_else(|| "ws://127.0.0.1:18789".to_string());
-    detection.gateway_url = Some(gateway_url.clone());
-
-    // 5. Health check — try HTTP on same host/port
-    let health_url = gateway_url
-        .replace("ws://", "http://")
-        .replace("wss://", "https://");
-    let health_url = format!("{}/health", health_url.trim_end_matches('/'));
-
-    if let Ok(client) = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
-        .build()
-    {
-        if let Ok(resp) = client.get(&health_url).send().await {
-            detection.gateway_running = resp.status().is_success();
+        // 2. Load local config (new openclaw.json first, then legacy config.json)
+        let state_dir = openclaw_state_dir();
+        detection.config_dir_exists = state_dir.exists();
+        if let Ok(profile) = load_local_openclaw_profile().await {
+            detection.gateway_url = Some(profile.gateway_url);
+            detection.gateway_token = profile.gateway_token;
         }
-    }
 
-    Ok(detection)
+        // 3. Check environment variable for token
+        if detection.gateway_token.is_none() {
+            if let Ok(token) = std::env::var("OPENCLAW_GATEWAY_TOKEN") {
+                if !token.is_empty() {
+                    detection.gateway_token = Some(token);
+                }
+            }
+        }
+
+        // 4. Default gateway URL if not found in config
+        let gateway_url = detection
+            .gateway_url
+            .clone()
+            .unwrap_or_else(|| "ws://127.0.0.1:18789".to_string());
+        detection.gateway_url = Some(gateway_url.clone());
+
+        // 5. Health check — try HTTP on same host/port
+        let health_url = gateway_url
+            .replace("ws://", "http://")
+            .replace("wss://", "https://");
+        let health_url = format!("{}/health", health_url.trim_end_matches('/'));
+
+        if let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+        {
+            if let Ok(resp) = client.get(&health_url).send().await {
+                detection.gateway_running = resp.status().is_success();
+            }
+        }
+
+        Ok(detection)
+    }
 }
 
 // ── Connection String ──

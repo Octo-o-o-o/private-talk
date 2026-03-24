@@ -316,6 +316,9 @@ export function ChatInput({ onSend, onStop }: Props) {
   const dragCounterRef = useRef(0);
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const keyboardViewportBaselineRef = useRef(0);
+  const keyboardViewportWidthRef = useRef(0);
+  const keyboardAnimationFrameRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -408,6 +411,87 @@ export function ChatInput({ onSend, onStop }: Props) {
   const canUseAttachmentPicker = !isStreaming && !isOtherStreaming && !isRecording && !isTranscribing;
   const shouldUseRuntimeSpeechFallback =
     runtimeSpeechRecognitionSupported && !nativeSpeechReady;
+
+  // iOS/WKWebView can shrink both visualViewport and innerHeight when the keyboard
+  // opens, so we track the largest baseline height we have seen without the keyboard.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!isMobile) {
+      setKeyboardVisible(false);
+      keyboardViewportBaselineRef.current = 0;
+      keyboardViewportWidthRef.current = 0;
+      if (keyboardAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(keyboardAnimationFrameRef.current);
+        keyboardAnimationFrameRef.current = null;
+      }
+      return;
+    }
+
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const threshold = 100;
+
+    const hasEditableFocus = () => {
+      const activeElement = document.activeElement;
+      if (!activeElement) return false;
+      if (
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLInputElement
+      ) {
+        return true;
+      }
+      return activeElement instanceof HTMLElement && activeElement.isContentEditable;
+    };
+
+    const updateKeyboardState = () => {
+      keyboardAnimationFrameRef.current = null;
+
+      const layoutWidth = window.innerWidth;
+      const currentHeight = vv.height;
+      const baselineHeight = Math.max(currentHeight, window.innerHeight);
+
+      if (
+        keyboardViewportWidthRef.current > 0 &&
+        Math.abs(layoutWidth - keyboardViewportWidthRef.current) > 100
+      ) {
+        keyboardViewportBaselineRef.current = baselineHeight;
+      }
+
+      keyboardViewportWidthRef.current = layoutWidth;
+      keyboardViewportBaselineRef.current = Math.max(
+        keyboardViewportBaselineRef.current,
+        baselineHeight
+      );
+
+      const keyboardInset = keyboardViewportBaselineRef.current - currentHeight;
+      setKeyboardVisible(hasEditableFocus() && keyboardInset > threshold);
+    };
+
+    const scheduleKeyboardState = () => {
+      if (keyboardAnimationFrameRef.current !== null) return;
+      keyboardAnimationFrameRef.current = window.requestAnimationFrame(updateKeyboardState);
+    };
+
+    scheduleKeyboardState();
+    vv.addEventListener("resize", scheduleKeyboardState);
+    vv.addEventListener("scroll", scheduleKeyboardState);
+    window.addEventListener("resize", scheduleKeyboardState);
+    document.addEventListener("focusin", scheduleKeyboardState);
+    document.addEventListener("focusout", scheduleKeyboardState);
+
+    return () => {
+      vv.removeEventListener("resize", scheduleKeyboardState);
+      vv.removeEventListener("scroll", scheduleKeyboardState);
+      window.removeEventListener("resize", scheduleKeyboardState);
+      document.removeEventListener("focusin", scheduleKeyboardState);
+      document.removeEventListener("focusout", scheduleKeyboardState);
+      if (keyboardAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(keyboardAnimationFrameRef.current);
+        keyboardAnimationFrameRef.current = null;
+      }
+    };
+  }, [isMobile]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -1774,9 +1858,10 @@ export function ChatInput({ onSend, onStop }: Props) {
   return (
     <div
       className={cn(
-        "relative border-t border-border/70 bg-background/95 backdrop-blur",
-        isMobile ? "px-2 py-1" : "px-4 py-4"
+        "relative border-t border-border/70",
+        isMobile ? "bg-background px-2 py-1" : "bg-background/95 px-4 py-4 backdrop-blur"
       )}
+      style={isMobile && !keyboardVisible ? { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 4px)" } : undefined}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}

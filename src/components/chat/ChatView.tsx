@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal, Bot } from "lucide-react";
+import { ChevronDown, Settings, ArrowDown, AlertCircle, ChevronUp, SlidersHorizontal, Bot, Upload } from "lucide-react";
 import appIconUrl from "@/assets/app-icon.png";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
@@ -132,6 +132,32 @@ export function ChatView() {
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    let rafId = 0;
+    const keepBottomContentVisible = () => {
+      if (!isNearBottomRef.current) return;
+      if (rafId !== 0) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        scrollToBottom(true);
+      });
+    };
+
+    viewport.addEventListener("resize", keepBottomContentVisible);
+    viewport.addEventListener("scroll", keepBottomContentVisible);
+
+    return () => {
+      viewport.removeEventListener("resize", keepBottomContentVisible);
+      viewport.removeEventListener("scroll", keepBottomContentVisible);
+      if (rafId !== 0) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [scrollToBottom]);
 
   // When a new user message is sent, always scroll to bottom
   const prevMessageCountRef = useRef(messages.length);
@@ -627,7 +653,7 @@ export function ChatView() {
         >
           <div className="mx-auto max-w-3xl space-y-6 pb-2">
             {!currentConversationId ? (
-              <div className="flex min-h-[calc(100vh-220px)] items-center justify-center">
+              <div className="flex min-h-[calc(var(--app-viewport-height,100vh)-220px)] items-center justify-center">
                 <div className="flex max-w-md flex-col items-center text-center px-6">
                   <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl">
                     <img src={appIconUrl} alt="Private Talk" className="h-16 w-16 rounded-2xl" />
@@ -641,13 +667,23 @@ export function ChatView() {
                           "To get started, configure an AI provider first."
                         )}
                       </p>
-                      <Button
-                        className="mt-5"
-                        onClick={() => navigate("/settings?section=providers")}
-                      >
-                        <Settings className="mr-2 h-4 w-4" />
-                        {t("添加服务商", "Add Provider")}
-                      </Button>
+                      <div className="mt-5 flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
+                        <Button
+                          className="sm:min-w-40"
+                          onClick={() => navigate("/settings?section=providers")}
+                        >
+                          <Settings className="mr-2 h-4 w-4" />
+                          {t("添加服务商", "Add Provider")}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="sm:min-w-40"
+                          onClick={() => navigate("/settings?section=data")}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          {t("导入配置", "Import Configuration")}
+                        </Button>
+                      </div>
                     </>
                   ) : (
                     <p className="mt-2 text-sm text-muted-foreground">

@@ -405,8 +405,8 @@ export const stopOpenClawGeneration = (conversationId: string) =>
 export const exportConfig = (password: string, filePath: string) =>
   invoke<ExportResult>("export_config", { password, filePath });
 
-export const cacheBackupFile = (filePath: string) =>
-  invoke<string>("cache_backup_file", { filePath });
+export const cacheBackupData = (data: number[]) =>
+  invoke<string>("cache_backup_data", { data });
 
 export const validateBackup = (password: string, filePath: string) =>
   invoke<ValidateBackupResult>("validate_backup", { password, filePath });

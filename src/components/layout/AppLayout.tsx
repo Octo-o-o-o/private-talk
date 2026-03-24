@@ -39,7 +39,10 @@ export function AppLayout() {
       ) : (
         <Sidebar />
       )}
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden text-foreground">
+      <main
+        className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground"
+        style={isMobile ? { paddingTop: "env(safe-area-inset-top, 0px)" } : undefined}
+      >
         {!isMobile && (
           <div data-tauri-drag-region className="h-11 w-full shrink-0" />
         )}

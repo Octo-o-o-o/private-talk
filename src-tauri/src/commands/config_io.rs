@@ -223,12 +223,10 @@ pub fn export_config(
     Ok(result)
 }
 
-/// Cache a backup file into the app's data directory so it survives iOS
-/// security-scoped URL revocation.  Returns the stable cached path.
+/// Cache backup bytes (read by the frontend) into the app's data directory.
+/// Returns the stable cached file path for subsequent validate / import calls.
 #[tauri::command]
-pub fn cache_backup_file(app: AppHandle, file_path: String) -> Result<String, String> {
-    let data = std::fs::read(&file_path).map_err(|e| e.to_string())?;
-
+pub fn cache_backup_data(app: AppHandle, data: Vec<u8>) -> Result<String, String> {
     let cache_dir = app
         .path()
         .app_cache_dir()
@@ -510,8 +508,10 @@ fn collect_assistants(conn: &rusqlite::Connection) -> Result<Vec<AssistantData>,
 }
 
 fn collect_openclaw(conn: &rusqlite::Connection) -> Result<Vec<OpenClawData>, String> {
+    // Only export remote instances — local ones use ws://127.0.0.1 which
+    // won't work on another device.
     let mut stmt = conn
-        .prepare("SELECT name, gateway_url, token, agents_cache, is_remote FROM openclaw_instances ORDER BY created_at ASC")
+        .prepare("SELECT name, gateway_url, token, agents_cache, is_remote FROM openclaw_instances WHERE is_remote = 1 ORDER BY created_at ASC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| {
