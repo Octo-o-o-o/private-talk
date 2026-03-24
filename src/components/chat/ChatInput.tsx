@@ -347,15 +347,33 @@ export function ChatInput({ onSend, onStop }: Props) {
     getSpeechRecognitionConstructor() !== null;
   const nativeSpeechReady = nativeSttInfo?.status === "ready";
 
-  // On mobile, auto-focus the input when a conversation becomes active
+  const isOtherStreaming =
+    isStreaming &&
+    streamingConversationId !== null &&
+    streamingConversationId !== currentConversationId;
+  const currentConversation = currentConversationId
+    ? conversations.find((conversation) => conversation.id === currentConversationId) ?? null
+    : null;
+  const isImageGenAssistant = currentConversation?.assistant_id?.startsWith("preset-img-") ?? false;
+
   // Reload image gen config when component mounts or conversation changes
   // (covers the case where user enables it in Settings then returns to chat)
+  // Also force-enable for image-gen preset assistants
   useEffect(() => {
+    if (isImageGenAssistant) {
+      setImageGenEnabled(true);
+      // Auto-prepend /img prefix for image-gen assistants if input is empty
+      if (!input.trim()) {
+        setInput("/img ");
+      }
+      return;
+    }
     api.getImageGenConfig().then((cfg) => {
       setImageGenEnabled(cfg?.enabled ?? false);
     }).catch(() => {});
-  }, [currentConversationId]);
+  }, [currentConversationId, isImageGenAssistant]);
 
+  // On mobile, auto-focus the input when a conversation becomes active
   useEffect(() => {
     if (isMobile && currentConversationId && textareaRef.current) {
       // Small delay to let the layout settle after conversation creation
@@ -372,13 +390,6 @@ export function ChatInput({ onSend, onStop }: Props) {
     (platform === "android" && nativeSpeechUnavailable) ||
     !!nativeSttInfo?.detail?.startsWith("native-stt-speech-privacy-disabled:");
 
-  const isOtherStreaming =
-    isStreaming &&
-    streamingConversationId !== null &&
-    streamingConversationId !== currentConversationId;
-  const currentConversation = currentConversationId
-    ? conversations.find((conversation) => conversation.id === currentConversationId) ?? null
-    : null;
   const canSendChatMessage =
     !!selectedProviderId || !!currentConversation?.openclaw_instance_id;
   const selectedSttProvider = selectedSttProviderId
@@ -1982,22 +1993,36 @@ export function ChatInput({ onSend, onStop }: Props) {
                   >
                     <Paperclip className="h-4 w-4" />
                   </button>
-                  {imageGenEnabled && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const current = input.trim();
-                        if (!current.startsWith("/img ")) {
-                          setInput(`/img ${current}`);
-                        }
-                        textareaRef.current?.focus();
-                      }}
-                      className={utilityButtonClass}
-                      title={t("生成图片", "Generate image")}
-                    >
-                      <ImageIcon className="h-4 w-4" />
-                    </button>
-                  )}
+                  {imageGenEnabled && (() => {
+                    const isImgMode = input.trimStart().startsWith("/img ");
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isImgMode) {
+                            setInput(input.replace(/^(\s*)\/img\s*/, "$1"));
+                          } else {
+                            const current = input.trim();
+                            setInput(`/img ${current}`);
+                          }
+                          textareaRef.current?.focus();
+                        }}
+                        className={cn(
+                          "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                          isImgMode
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
+                        )}
+                        title={isImgMode
+                          ? t("取消生图模式", "Cancel image mode")
+                          : t("生成图片", "Generate image")}
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        {t("生图", "Image")}
+                        {isImgMode && <X className="h-3 w-3" />}
+                      </button>
+                    );
+                  })()}
                   <input
                     ref={fileInputRef}
                     type="file"

@@ -55,6 +55,46 @@ pub fn seed_presets(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Seed preset image-generation scenarios (called in v16 migration)
+pub fn seed_image_gen_presets(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        INSERT INTO scenarios (id, name, name_en, description, description_en, system_prompt, icon, is_preset)
+        VALUES
+            ('preset-img-text2img', '文本生图', 'Text to Image',
+             '根据文字描述生成图片', 'Generate images from text descriptions',
+             '你是一个专业的图片生成助手。用户会给你描述想要的图片，你帮助他们生成。\n\n使用方法：直接输入图片描述即可。你可以用以下参数控制生成：\n--ratio 16:9 / 9:16 / 1:1 / 4:3 / 3:4（画面比例）\n--quality hd / standard（画质）\n--count 1-4（生成数量）\n--bg auto / transparent / opaque（背景）\n\n示例：一只橘猫在阳光下打盹 --ratio 16:9 --quality hd',
+             '', 1),
+            ('preset-img-img2img', '以图生图', 'Image to Image',
+             '基于参考图片生成新图片', 'Generate new images based on reference images',
+             '你是一个图片编辑助手。用户会上传一张参考图片，并描述想要的修改或变化，你帮助他们基于参考图生成新图片。\n\n使用方法：\n1. 点击附件按钮上传参考图片\n2. 输入你想要的修改描述\n\n示例：将背景改为星空 / 添加水彩画风格 / 把猫换成狗',
+             '', 1),
+            ('preset-img-avatar', '头像生成', 'Avatar Generator',
+             '生成个性化头像和角色立绘', 'Generate personalized avatars and character art',
+             '你是一个头像和角色设计助手。你擅长根据用户描述生成各种风格的头像、角色立绘和个人形象图。\n\n推荐参数：--ratio 1:1 --quality hd\n\n可以尝试的风格：赛博朋克、水彩、油画、像素风、动漫、3D渲染、极简线条等。\n\n示例：一个戴墨镜的赛博朋克风格女孩头像 --quality hd',
+             '', 1),
+            ('preset-img-poster', '海报设计', 'Poster Design',
+             '生成创意海报和宣传图', 'Generate creative posters and promotional graphics',
+             '你是一个海报和平面设计助手。你擅长根据用户需求生成各类海报、宣传图、封面等设计作品。\n\n推荐参数：--ratio 9:16（竖版海报）或 16:9（横幅）\n\n可以描述：主题、风格、配色、文字内容、目标受众等。\n\n示例：极简风格的音乐节海报，深蓝色调，有星空元素 --ratio 9:16 --quality hd',
+             '', 1),
+            ('preset-img-logo', 'Logo 设计', 'Logo Design',
+             '生成品牌标志和图标', 'Generate brand logos and icons',
+             '你是一个 Logo 和图标设计助手。你擅长根据用户的品牌理念生成简洁有力的标志设计。\n\n推荐参数：--ratio 1:1 --quality hd --bg transparent\n\n描述时可以包含：品牌名称、行业领域、风格偏好（极简/复古/科技感等）、配色偏好。\n\n示例：一个科技公司的极简 Logo，名称 NovaTech，蓝色调 --bg transparent --quality hd',
+             '', 1)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            name_en = excluded.name_en,
+            description = excluded.description,
+            description_en = excluded.description_en,
+            system_prompt = excluded.system_prompt,
+            icon = excluded.icon,
+            is_preset = excluded.is_preset,
+            updated_at = datetime('now');
+        ",
+    )?;
+    Ok(())
+}
+
 /// Seed preset voice profiles
 pub fn seed_preset_voices(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -465,6 +505,12 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         }
 
         set_schema_version(conn, 15)?;
+    }
+
+    // ── V16: Seed image-generation preset assistants ──
+    if version < 16 {
+        seed_image_gen_presets(conn)?;
+        set_schema_version(conn, 16)?;
     }
 
     Ok(())
