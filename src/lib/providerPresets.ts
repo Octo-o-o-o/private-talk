@@ -91,7 +91,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "gemini-2.5-flash",
       "gemini-2.5-pro",
     ],
-    imageGenModel: "imagen-3.0-generate-002",
+    imageGenModel: "gemini-3.1-flash-image-preview",
   },
   {
     id: "deepseek",
@@ -133,7 +133,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "grok-4-1-fast-reasoning",
       "grok-4-1-fast-non-reasoning",
     ],
-    imageGenModel: "grok-2-image",
+    imageGenModel: "grok-imagine-image",
   },
   {
     id: "volcengine",
@@ -179,7 +179,31 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyPlaceholder: "your-bigmodel-key",
     defaultModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
     recommendedModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
-    imageGenModel: "cogview-4",
+    imageGenModel: "cogView-4-250304",
+  },
+  {
+    id: "siliconflow",
+    name: "SiliconFlow",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    description: {
+      zh: "硅基流动 OpenAI 兼容端点，支持 FLUX 等生图模型。",
+      en: "SiliconFlow OpenAI-compatible endpoint with FLUX image models.",
+    },
+    category: "cloud",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: true,
+    apiKeyPlaceholder: "sk-...",
+    defaultModels: [
+      "deepseek-ai/DeepSeek-V3-0324",
+      "Qwen/Qwen3-8B",
+      "Pro/deepseek-ai/DeepSeek-V3-0324",
+    ],
+    recommendedModels: [
+      "deepseek-ai/DeepSeek-V3-0324",
+      "Qwen/Qwen3-8B",
+      "Pro/deepseek-ai/DeepSeek-V3-0324",
+    ],
+    imageGenModel: "black-forest-labs/FLUX.1-schnell",
   },
   {
     id: "localai",

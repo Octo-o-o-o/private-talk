@@ -1,5 +1,6 @@
 use base64::Engine;
 use chrono::Utc;
+use image::GenericImageView;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -191,6 +192,7 @@ pub fn prepare_attachment(
                 let img =
                     image::open(source_path).map_err(|e| format!("Failed to open image: {}", e))?;
                 let (path, size) = save_resized_image(&img, &dest_dir, &id)?;
+                let _ = generate_thumbnail(Path::new(&path));
                 return Ok(PreparedAttachment {
                     id,
                     file_type: file_type.to_string(),
@@ -212,6 +214,7 @@ pub fn prepare_attachment(
                     resized
                         .save(&dest_path)
                         .map_err(|e| format!("Failed to save resized image: {}", e))?;
+                    let _ = generate_thumbnail(&dest_path);
                     file_size = std::fs::metadata(&dest_path)
                         .map_err(|e| e.to_string())?
                         .len() as i64;
@@ -229,6 +232,9 @@ pub fn prepare_attachment(
             std::fs::copy(source_path, &dest_path)
                 .map_err(|e| format!("Failed to copy image: {}", e))?;
             file_size = src_size as i64;
+
+            // Generate thumbnail for chat list (best-effort)
+            let _ = generate_thumbnail(&dest_path);
         }
         "text_file" => {
             std::fs::copy(source_path, &dest_path)
@@ -279,6 +285,7 @@ pub fn prepare_image_from_bytes(
         || img.height() > MAX_IMAGE_DIMENSION
     {
         let (path, file_size) = save_resized_image(&img, &dest_dir, &id)?;
+        let _ = generate_thumbnail(Path::new(&path));
         return Ok(PreparedAttachment {
             id,
             file_type: "image".to_string(),
@@ -290,6 +297,7 @@ pub fn prepare_image_from_bytes(
     }
 
     std::fs::write(&dest_path, data).map_err(|e| format!("Failed to write image: {}", e))?;
+    let _ = generate_thumbnail(&dest_path);
 
     Ok(PreparedAttachment {
         id,
@@ -474,6 +482,9 @@ pub fn save_generated_image(
     std::fs::write(&dest_path, image_data)
         .map_err(|e| format!("Failed to write generated image: {}", e))?;
 
+    // Generate thumbnail (best-effort, non-fatal)
+    let _ = generate_thumbnail(&dest_path);
+
     let file_path = dest_path.to_string_lossy().to_string();
     let file_size = image_data.len() as i64;
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -498,9 +509,37 @@ pub fn save_generated_image(
     })
 }
 
+const THUMB_MAX_EDGE: u32 = 480;
+
+/// Generate a thumbnail alongside the original image.
+/// Returns the thumbnail path on success, or None on failure (non-fatal).
+fn generate_thumbnail(original_path: &Path) -> Option<PathBuf> {
+    let img = image::open(original_path).ok()?;
+    let (w, h) = img.dimensions();
+    if w <= THUMB_MAX_EDGE && h <= THUMB_MAX_EDGE {
+        // Image is small enough — no thumbnail needed
+        return None;
+    }
+    let thumb = img.thumbnail(THUMB_MAX_EDGE, THUMB_MAX_EDGE);
+
+    let stem = original_path.file_stem()?.to_string_lossy().to_string();
+    let thumb_path = original_path.with_file_name(format!("{}_thumb.jpg", stem));
+    thumb
+        .to_rgb8()
+        .save_with_format(&thumb_path, image::ImageFormat::Jpeg)
+        .ok()?;
+    Some(thumb_path)
+}
+
 /// Delete attachment files from disk for a list of attachment records.
 pub fn delete_attachment_files(attachments: &[Attachment]) {
     for att in attachments {
         let _ = std::fs::remove_file(&att.file_path);
+        // Also remove thumbnail if it exists
+        let path = Path::new(&att.file_path);
+        if let Some(stem) = path.file_stem() {
+            let thumb = path.with_file_name(format!("{}_thumb.jpg", stem.to_string_lossy()));
+            let _ = std::fs::remove_file(thumb);
+        }
     }
 }

@@ -135,7 +135,13 @@ pub async fn handle_image_generation(
     );
 
     // 6. Call the image generation API
-    let result = if request.reference_images.is_empty() {
+    //    Route based on provider + model capabilities:
+    //    - Chat-based models (Gemini native, OpenRouter): /chat/completions
+    //    - With reference images: /images/edits (OpenAI, Grok) or fallback to text-only
+    //    - Otherwise: /images/generations (provider-specific formatting)
+    let result = if image_gen::is_chat_image_model(&base_url, &model) {
+        image_gen::generate_via_chat(&base_url, &api_key, &model, &request).await
+    } else if request.reference_images.is_empty() {
         image_gen::generate_images(&base_url, &api_key, &model, &request).await
     } else {
         image_gen::edit_images(&base_url, &api_key, &model, &request).await

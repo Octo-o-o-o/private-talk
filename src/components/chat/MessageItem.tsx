@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { lazy, Suspense, useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 const CodeBlock = lazy(() => import("./CodeBlock").then(m => ({ default: m.CodeBlock })));
 import { useI18n } from "@/lib/i18n";
@@ -204,7 +205,10 @@ export function MessageItem({
   );
 
   return (
-    <div className={cn("group flex gap-3", isUser && "flex-row-reverse")}>
+    <div
+      className={cn("group flex gap-3", isUser && "flex-row-reverse")}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 120px" }}
+    >
       <div
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
@@ -266,6 +270,7 @@ export function MessageItem({
                         >
                           <AttachmentImage
                             filePath={att.file_path}
+                            preferThumbnail
                             alt={att.file_name}
                             className="max-h-72 max-w-[320px] rounded-xl object-cover transition-opacity hover:opacity-90"
                             fallbackClassName="flex h-24 w-24"
@@ -330,6 +335,7 @@ export function MessageItem({
                         >
                           <AttachmentImage
                             filePath={att.file_path}
+                            preferThumbnail
                             alt={att.file_name}
                             className="max-h-48 max-w-[220px] rounded-lg object-cover transition-opacity hover:opacity-90"
                             fallbackClassName="flex h-24 w-24"
@@ -488,8 +494,8 @@ export function MessageItem({
         ) : null}
       </div>
 
-      {/* Image lightbox */}
-      {lightboxSrc && (
+      {/* Image lightbox — portal to body to escape content-visibility containment */}
+      {lightboxSrc && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={closeLightbox}
@@ -500,7 +506,6 @@ export function MessageItem({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Copy image to clipboard via canvas
                     const img = new Image();
                     img.crossOrigin = "anonymous";
                     img.onload = () => {
@@ -524,7 +529,6 @@ export function MessageItem({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Download via anchor
                     const a = document.createElement("a");
                     a.href = lightboxSrc!;
                     a.download = lightboxFilePath!.split("/").pop() || "image.png";
@@ -550,7 +554,8 @@ export function MessageItem({
             className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

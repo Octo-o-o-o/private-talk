@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -6,20 +6,23 @@ import {
   Check,
   ChevronRight,
   Download,
+  ExternalLink,
   Globe,
   HardDrive,
   ImageIcon,
+  Info,
   Loader2,
   Mic,
   Plus,
   Server,
   Settings,
   Shield,
+  Star,
   Trash2,
   Upload,
-  Volume2,
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "@/lib/tauri";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -33,6 +36,7 @@ import type { DetectedLocalService, LocalOpenClawDetection, LocalProviderScanRes
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +74,7 @@ import {
 // Session-level flag: only show auto-detection dialog once per app session
 const SETTINGS_VISITED_KEY = "private-talk-settings-visited";
 
-type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data" | "image_gen";
+type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data" | "image_gen" | "about";
 
 type SettingsState = {
   hotWindowSize: number;
@@ -116,13 +120,10 @@ function createProviderFormFromProvider(provider: Provider): ProviderFormState {
 }
 
 export function SettingsPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
   const {
     providers,
-    voices,
-    assistants,
     pinEnabled,
     selectedSttProviderId,
     sttModel,
@@ -140,6 +141,8 @@ export function SettingsPage() {
     loadOpenClawInstances,
   } = useAppStore();
 
+  const isMobile = useIsMobile();
+
   const sectionParam = searchParams.get("section");
   const section: SettingsSection | null =
     sectionParam === "providers" ||
@@ -148,7 +151,8 @@ export function SettingsPage() {
     sectionParam === "openclaw" ||
     sectionParam === "stt" ||
     sectionParam === "data" ||
-    sectionParam === "image_gen"
+    sectionParam === "image_gen" ||
+    sectionParam === "about"
       ? sectionParam
       : null;
   const mode = searchParams.get("mode");
@@ -371,40 +375,6 @@ export function SettingsPage() {
       setProviderForm(createProviderFormFromProvider(editingProvider));
     }
   }, [editingProvider, isProviderCreate, section, selectedPreset]);
-
-  const statCards = useMemo(
-    () => [
-      {
-        label: t("服务商", "Providers"),
-        value: providers.length.toString(),
-        status: t("就绪", "Ready"),
-        icon: <Server className="h-4 w-4" />,
-        onClick: () => updateView(setSearchParams, { section: "providers" }),
-      },
-      {
-        label: t("声音", "Voices"),
-        value: voices.length.toString(),
-        status: t("就绪", "Ready"),
-        icon: <Volume2 className="h-4 w-4" />,
-        onClick: () => navigate("/voices"),
-      },
-      {
-        label: t("助手", "Assistants"),
-        value: assistants.length.toString(),
-        status: t("就绪", "Ready"),
-        icon: <Brain className="h-4 w-4" />,
-        onClick: () => navigate("/assistants"),
-      },
-      {
-        label: t("PIN 锁", "PIN Lock"),
-        value: pinEnabled ? t("开启", "On") : t("关闭", "Off"),
-        status: t("就绪", "Ready"),
-        icon: <Shield className="h-4 w-4" />,
-        onClick: () => updateView(setSearchParams, { section: "security" }),
-      },
-    ],
-    [navigate, pinEnabled, providers.length, assistants.length, setSearchParams, t, voices.length]
-  );
 
   const updateSettings = (next: Partial<SettingsState>) => {
     setSettings((prev) => ({ ...prev, ...next }));
@@ -752,13 +722,26 @@ export function SettingsPage() {
     }
   };
 
-  const pageHeading = getPageHeading(section, isProviderEdit, isProviderCreate, t);
+  const activeSection: SettingsSection | null = isMobile ? section : (section ?? "providers");
+
+  const navItems: { id: SettingsSection; icon: ReactNode; label: string; description: string }[] = [
+    { id: "providers", icon: <Server className="h-4 w-4" />, label: t("服务商", "Providers"), description: t("模型端点配置", "Model endpoints") },
+    { id: "image_gen", icon: <ImageIcon className="h-4 w-4" />, label: t("图片生成", "Image Generation"), description: t("生图模型与参数", "Image model & params") },
+    { id: "stt", icon: <Mic className="h-4 w-4" />, label: t("语音转文字", "Speech to Text"), description: t("转写服务配置", "Transcription config") },
+    { id: "memory", icon: <Brain className="h-4 w-4" />, label: t("上下文压缩", "Context"), description: t("压缩窗口与上限", "Window & limits") },
+    { id: "security", icon: <Shield className="h-4 w-4" />, label: t("安全", "Security"), description: t("PIN 锁与重置", "PIN lock & reset") },
+    { id: "openclaw", icon: <Globe className="h-4 w-4" />, label: t("OpenClaw", "OpenClaw"), description: t("Gateway 实例", "Gateway instances") },
+    { id: "data", icon: <HardDrive className="h-4 w-4" />, label: t("数据管理", "Data"), description: t("导入与导出", "Import & export") },
+    { id: "about", icon: <Info className="h-4 w-4" />, label: t("关于", "About"), description: t("项目信息与开源地址", "Project info & source") },
+  ];
+
+  const pageHeading = getPageHeading(activeSection, isProviderEdit, isProviderCreate, t);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-x-hidden bg-background">
       <div className="flex h-14 items-center gap-3 border-b border-border px-4 md:px-6">
         <MobileMenuButton />
-        {section ? (
+        {isMobile && section ? (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -769,93 +752,75 @@ export function SettingsPage() {
         ) : null}
         <div className="flex items-center gap-3">
           <Settings className="h-4 w-4 text-muted-foreground" />
-          <div className="space-y-0.5 leading-none">
-            <p className="text-xs uppercase tracking-wider leading-none text-muted-foreground">
-              {t("偏好设置", "Preferences")}
-            </p>
-            <h1 className="text-lg font-semibold leading-none text-foreground">
-              {t("设置", "Settings")}
-            </h1>
-          </div>
+          <h1 className="text-lg font-semibold text-foreground">
+            {isMobile && section ? pageHeading.title : t("设置", "Settings")}
+          </h1>
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto flex min-h-full max-w-6xl flex-col p-4 md:p-6">
-          <div className="mb-8">
-            <h2 className="mb-2 text-2xl font-semibold text-foreground">{pageHeading.title}</h2>
-            <p className="text-sm text-muted-foreground">{pageHeading.description}</p>
-          </div>
-
-          {!section ? (
-            <>
-              <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-                {statCards.map((card) => (
-                  <StatCard key={card.label} {...card} />
+      <div className="flex min-h-0 flex-1">
+        {/* Settings nav sidebar */}
+        {(!isMobile || !section) && (
+          <nav className={cn(
+            "shrink-0 overflow-y-auto",
+            isMobile ? "flex-1" : "w-52 border-r border-border"
+          )}>
+            {isMobile ? (
+              <div className="divide-y divide-border">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => updateView(setSearchParams, { section: item.id })}
+                    className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-accent"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      {item.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
                 ))}
               </div>
-
-              <div className="space-y-6">
-                <ProviderStackCard
-                  t={t}
-                  providers={providers}
-                  onOpenCreate={() => openProviderCreate()}
-                  onOpenDetails={openProviderDetail}
-                  onDelete={async (id) => {
-                    confirmDelete("provider", id);
-                  }}
-                  onSetDefault={handleSetDefault}
-                />
-
-                <ImageGenCard
-                  t={t}
-                  providers={providers}
-                  config={imageGenConfig}
-                  onConfigChange={(next) => {
-                    const updated = { ...imageGenConfig, ...next };
-                    setImageGenConfig(updated);
-                    void api.setImageGenConfig(updated);
-                  }}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "image_gen" })}
-                />
-
-                <SpeechToTextCard
-                  t={t}
-                  providers={providers}
-                  selectedSttProviderId={selectedSttProviderId}
-                  sttModel={sttModel}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "stt" })}
-                  draftProviderId={sttProviderDraft}
-                  draftModel={sttModelDraft}
-                  setDraftProviderId={setSttProviderDraft}
-                  setDraftModel={setSttModelDraft}
-                  onSave={handleSaveSttSettings}
-                  isSaving={isSavingSttSettings}
-                />
-
-                <MemoryCard
-                  t={t}
-                  settings={settings}
-                  onSettingsChange={updateSettings}
-                  onSave={saveContextSettings}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "memory" })}
-                />
-
-                <OpenClawSummaryCard
-                  t={t}
-                  instances={openclawInstances}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "openclaw" })}
-                />
-
-                <DataManagementCard
-                  t={t}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "data" })}
-                />
+            ) : (
+              <div className="space-y-0.5 p-2">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => updateView(setSearchParams, { section: item.id })}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                      activeSection === item.id
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    )}
+                  >
+                    <span className={activeSection === item.id ? "text-primary" : ""}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
-            </>
-          ) : null}
+            )}
+          </nav>
+        )}
 
-          {section === "providers" ? (
+        {/* Content area */}
+        {(!isMobile || section) && (
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="mx-auto flex min-h-full max-w-4xl flex-col p-4 md:p-6">
+            {!isMobile && (
+              <div className="mb-6">
+                <h2 className="mb-1 text-2xl font-semibold text-foreground">{pageHeading.title}</h2>
+                <p className="text-sm text-muted-foreground">{pageHeading.description}</p>
+              </div>
+            )}
+            {isMobile && (
+              <p className="mb-4 text-sm text-muted-foreground">{pageHeading.description}</p>
+            )}
+
+          {activeSection === "providers" ? (
             <div className="space-y-6">
               {!isProviderCreate && !isProviderEdit ? (
                 <ProviderStackCard
@@ -1185,7 +1150,7 @@ export function SettingsPage() {
             </div>
           ) : null}
 
-          {section === "memory" ? (
+          {activeSection === "memory" ? (
             <MemoryCard
               t={t}
               settings={settings}
@@ -1195,7 +1160,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {section === "stt" ? (
+          {activeSection === "stt" ? (
             <SpeechToTextCard
               t={t}
               providers={providers}
@@ -1211,7 +1176,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {section === "security" ? (
+          {activeSection === "security" ? (
             <SecurityCard
               t={t}
               standalone
@@ -1228,7 +1193,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {section === "image_gen" ? (
+          {activeSection === "image_gen" ? (
             <ImageGenCard
               t={t}
               providers={providers}
@@ -1242,7 +1207,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {section === "data" ? (
+          {activeSection === "data" ? (
             <DataManagementSection
               t={t}
               loadProviders={loadProviders}
@@ -1252,7 +1217,7 @@ export function SettingsPage() {
             />
           ) : null}
 
-          {section === "openclaw" ? (
+          {activeSection === "openclaw" ? (
             <div className="space-y-6">
               {/* Local detection banner */}
               {isDetectingOpenclaw ? (
@@ -1472,28 +1437,73 @@ export function SettingsPage() {
             </div>
           ) : null}
 
-          <div className="mt-auto border-t border-border pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">
-                  Private Talk <span className="font-normal text-muted-foreground">v0.1.0</span>
-                </h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t(
-                    "本地优先的 AI 聊天客户端。",
-                    "Local-first AI chat client."
-                  )}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{t("桌面工作区", "Desktop workspace")}</Badge>
-                <Badge variant="outline">{t("数据仅本地", "Local data only")}</Badge>
-                <Badge variant="outline">{t("多服务商就绪", "Multi-provider ready")}</Badge>
-              </div>
+          {activeSection === "about" ? (
+            <div className="space-y-6">
+              <Card>
+                <CardContent className="flex flex-col items-center py-10 text-center">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                    <Settings className="h-8 w-8 text-primary" />
+                  </div>
+                  <h3 className="text-2xl font-bold">Private Talk</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">v0.1.0</p>
+                  <p className="mt-3 max-w-md text-sm text-muted-foreground">
+                    {t(
+                      "本地优先、注重隐私的 AI 聊天客户端。支持多服务商接入、语音合成、语音识别、图片生成与 OpenClaw 智能体协议。所有数据存储在本地，不经过任何第三方中转。",
+                      "A local-first, privacy-focused AI chat client. Supports multiple LLM providers, text-to-speech, speech recognition, image generation, and the OpenClaw agent protocol. All data stays on your device — nothing is routed through third parties."
+                    )}
+                  </p>
+                  <Separator className="my-6 max-w-xs" />
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => void openUrl("https://github.com/Octo-o-o-o/private-talk")}
+                  >
+                    <Star className="h-4 w-4" />
+                    {t("在 GitHub 上 Star", "Star on GitHub")}
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                  <p className="mt-3 font-mono text-xs text-muted-foreground">
+                    github.com/Octo-o-o-o/private-talk
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t("技术栈", "Tech Stack")}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-lg border border-border px-3 py-2">
+                      <p className="font-medium">Tauri 2.0</p>
+                      <p className="text-xs text-muted-foreground">Rust + WebView</p>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2">
+                      <p className="font-medium">React + TypeScript</p>
+                      <p className="text-xs text-muted-foreground">Frontend</p>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2">
+                      <p className="font-medium">SQLite</p>
+                      <p className="text-xs text-muted-foreground">{t("本地存储", "Local storage")}</p>
+                    </div>
+                    <div className="rounded-lg border border-border px-3 py-2">
+                      <p className="font-medium">TailwindCSS + Radix</p>
+                      <p className="text-xs text-muted-foreground">UI</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <p className="text-center text-xs text-muted-foreground">
+                {t("采用 Apache 2.0 协议开源", "Open-sourced under the Apache 2.0 License")}
+              </p>
             </div>
-          </div>
+          ) : null}
+
         </div>
       </ScrollArea>
+        )}
+      </div>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
@@ -1660,66 +1670,6 @@ function ProviderStackCard({
           </div>
         )}
       </CardContent>
-    </Card>
-  );
-}
-
-function OpenClawSummaryCard({
-  t,
-  instances,
-  onOpenDetails,
-}: {
-  t: (zh: string, en: string) => string;
-  instances: OpenClawInstance[];
-  onOpenDetails: () => void;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
-        <div className="flex items-start gap-3">
-          <Globe className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              OpenClaw
-            </p>
-            <CardTitle className="text-lg">
-              {t("Gateway 实例", "Gateway Instances")}
-            </CardTitle>
-            <CardDescription className="mt-1">
-              {t("管理 OpenClaw Gateway 连接。", "Manage OpenClaw Gateway connections.")}
-            </CardDescription>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" className="self-start shrink-0" onClick={onOpenDetails}>
-          {t("管理", "Manage")}
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </Button>
-      </CardHeader>
-      {instances.length > 0 ? (
-        <CardContent className="space-y-2">
-          {instances.map((instance) => (
-            <div
-              key={instance.id}
-              className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
-            >
-              <div className="flex items-center gap-3">
-                <Globe className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">{instance.name}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{instance.gateway_url}</p>
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </div>
-          ))}
-        </CardContent>
-      ) : (
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            {t("暂无 Gateway 实例。", "No gateway instances configured.")}
-          </p>
-        </CardContent>
-      )}
     </Card>
   );
 }
@@ -2285,55 +2235,6 @@ function SecurityCard({
   );
 }
 
-function DataManagementCard({
-  t,
-  onOpenDetails,
-}: {
-  t: (zh: string, en: string) => string;
-  onOpenDetails: () => void;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            {t("数据管理", "Data Management")}
-          </p>
-          <Button variant="ghost" size="sm" onClick={onOpenDetails}>
-            {t("详情", "Details")}
-          </Button>
-        </div>
-        <div className="flex items-start gap-3">
-          <HardDrive className="mt-0.5 h-5 w-5 text-primary" />
-          <div>
-            <CardTitle className="text-lg">
-              {t("导出与导入", "Export & Import")}
-            </CardTitle>
-            <CardDescription className="mt-1">
-              {t(
-                "跨设备迁移服务商、声音、助手等配置。导出文件使用密码加密保护。",
-                "Migrate providers, voices, assistants across devices. Export files are password-encrypted."
-              )}
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="flex gap-3">
-          <Button variant="outline" size="sm" onClick={onOpenDetails}>
-            <Download className="mr-2 h-4 w-4" />
-            {t("导出配置", "Export")}
-          </Button>
-          <Button variant="outline" size="sm" onClick={onOpenDetails}>
-            <Upload className="mr-2 h-4 w-4" />
-            {t("导入配置", "Import")}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function DataManagementSection({
   t,
   loadProviders,
@@ -2752,35 +2653,6 @@ function DataManagementSection({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  status,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  status: string;
-  icon?: ReactNode;
-  onClick?: () => void;
-}) {
-  const isShortValue = value.length <= 3;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20"
-    >
-      <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={isShortValue ? "text-3xl font-semibold" : "text-lg font-semibold"}>{value}</p>
-      <div className="mt-1 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">{status}</p>
-        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-      </div>
-    </button>
-  );
-}
-
 function ProviderRow({
   t,
   provider,
@@ -2987,6 +2859,13 @@ function getPageHeading(
     return {
       title: t("OpenClaw Gateways", "OpenClaw Gateways"),
       description: t("管理 OpenClaw Gateway 实例。", "Manage OpenClaw Gateway instances."),
+    };
+  }
+
+  if (section === "about") {
+    return {
+      title: t("关于", "About"),
+      description: t("项目信息与开源地址。", "Project info and source code."),
     };
   }
 

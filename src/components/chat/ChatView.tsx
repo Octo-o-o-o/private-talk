@@ -219,6 +219,11 @@ export function ChatView() {
   // unmounted (e.g. user navigated to Settings and back), so the event
   // listener missed it and isStreaming was never cleared.
   useEffect(() => {
+    // Always clear image-gen placeholder when switching conversations —
+    // it is local UI state that does not belong to the new conversation.
+    setImageGenPhase(null);
+    setImageGenStartTime(null);
+
     if (
       isStreaming &&
       streamingConversationId === currentConversationId &&
@@ -228,8 +233,6 @@ export function ChatView() {
       if (lastMsg && lastMsg.role === "assistant") {
         setStreaming(false);
         clearStreamingContent();
-        setImageGenPhase(null);
-        setImageGenStartTime(null);
       }
     }
   }, [currentConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -419,13 +422,25 @@ export function ChatView() {
   const handleEditSubmit = async (messageId: string, newContent: string) => {
     if (!currentConversationId) return;
     if (!isOpenClawConversation && (!selectedProviderId || !selectedModel)) return;
+    const originalMsg = messages.find((m) => m.id === messageId);
+    const originalAttachments = originalMsg?.attachments ?? [];
     await deleteMessagesFrom(messageId);
     const editMsgId = crypto.randomUUID();
+    addMessage({
+      id: editMsgId,
+      conversation_id: currentConversationId,
+      role: "user",
+      content: newContent,
+      is_pinned: false,
+      created_at: new Date().toISOString(),
+      attachments: originalAttachments,
+    });
     setStreaming(true, currentConversationId);
     clearStreamingContent();
     setStreamingError("");
     try {
-      await sendViaCorrectApi(currentConversationId, newContent, editMsgId);
+      const attachmentJsons = originalAttachments.map((a) => JSON.stringify(a));
+      await sendViaCorrectApi(currentConversationId, newContent, editMsgId, attachmentJsons.length > 0 ? attachmentJsons : undefined);
     } catch (error) {
       setStreaming(false);
       clearStreamingContent();
