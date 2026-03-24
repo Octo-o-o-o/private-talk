@@ -27,6 +27,7 @@ import {
   createProviderModelsString,
   pickModelsForPreset,
   type ProviderPresetConfig,
+  getImageGenModelForProvider,
 } from "@/lib/providerPresets";
 import type { DetectedLocalService, LocalOpenClawDetection, LocalProviderScanResult, OpenClawAgent, OpenClawInstance, Provider } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -233,6 +234,7 @@ export function SettingsPage() {
   const [currentDetection, setCurrentDetection] = useState<DetectedLocalService | null>(null);
   const [dontRemindAgain, setDontRemindAgain] = useState(false);
   const detectionShownRef = useRef(false);
+  const providerFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -443,6 +445,12 @@ export function SettingsPage() {
       mode: "new",
       preset: preset?.id ?? null,
     });
+    // Scroll form into view after preset selection (delay for DOM update)
+    if (preset) {
+      setTimeout(() => {
+        providerFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
   };
 
   const openProviderDetail = (id: string) => {
@@ -799,10 +807,16 @@ export function SettingsPage() {
                   onSetDefault={handleSetDefault}
                 />
 
-                <OpenClawSummaryCard
+                <ImageGenCard
                   t={t}
-                  instances={openclawInstances}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "openclaw" })}
+                  providers={providers}
+                  config={imageGenConfig}
+                  onConfigChange={(next) => {
+                    const updated = { ...imageGenConfig, ...next };
+                    setImageGenConfig(updated);
+                    void api.setImageGenConfig(updated);
+                  }}
+                  onOpenDetails={() => updateView(setSearchParams, { section: "image_gen" })}
                 />
 
                 <SpeechToTextCard
@@ -827,16 +841,10 @@ export function SettingsPage() {
                   onOpenDetails={() => updateView(setSearchParams, { section: "memory" })}
                 />
 
-                <ImageGenCard
+                <OpenClawSummaryCard
                   t={t}
-                  providers={providers}
-                  config={imageGenConfig}
-                  onConfigChange={(next) => {
-                    const updated = { ...imageGenConfig, ...next };
-                    setImageGenConfig(updated);
-                    void api.setImageGenConfig(updated);
-                  }}
-                  onOpenDetails={() => updateView(setSearchParams, { section: "image_gen" })}
+                  instances={openclawInstances}
+                  onOpenDetails={() => updateView(setSearchParams, { section: "openclaw" })}
                 />
 
                 <DataManagementCard
@@ -1006,7 +1014,7 @@ export function SettingsPage() {
                         </CardContent>
                       </Card>
                     ) : (
-                      <div className="space-y-4">
+                      <div ref={providerFormRef} className="space-y-4">
                         {selectedPreset ? (
                           <div className="rounded-lg border border-border bg-muted/20 p-4">
                             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1924,7 +1932,21 @@ function ImageGenCard({
             <Label>{t("生图服务商", "Image Provider")}</Label>
             <Select
               value={config.provider_id || "__none__"}
-              onValueChange={(value) => onConfigChange({ provider_id: value === "__none__" ? "" : value })}
+              onValueChange={(value) => {
+                const pid = value === "__none__" ? "" : value;
+                const update: Partial<api.ImageGenConfig> = { provider_id: pid };
+                // Auto-fill model name based on provider's preset
+                if (pid) {
+                  const provider = providers.find((p) => p.id === pid);
+                  if (provider) {
+                    const suggestedModel = getImageGenModelForProvider(provider.base_url);
+                    if (suggestedModel) {
+                      update.model = suggestedModel;
+                    }
+                  }
+                }
+                onConfigChange(update);
+              }}
               disabled={!config.enabled}
             >
               <SelectTrigger>

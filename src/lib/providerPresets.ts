@@ -14,6 +14,8 @@ export type ProviderPresetConfig = {
   apiKeyPlaceholder: string;
   defaultModels: string[];
   recommendedModels: string[];
+  /** Default image generation model for this provider (empty if not supported). */
+  imageGenModel?: string;
 };
 
 export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
@@ -31,6 +33,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyPlaceholder: "sk-...",
     defaultModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o3", "o4-mini", "gpt-4.1"],
     recommendedModels: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o3", "o4-mini", "gpt-4.1"],
+    imageGenModel: "gpt-image-1",
   },
   {
     id: "openrouter",
@@ -60,6 +63,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "x-ai/grok-4.20-0309-reasoning",
       "qwen/qwen3-coder",
     ],
+    imageGenModel: "openai/gpt-image-1",
   },
   {
     id: "gemini",
@@ -87,6 +91,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "gemini-2.5-flash",
       "gemini-2.5-pro",
     ],
+    imageGenModel: "imagen-3.0-generate-002",
   },
   {
     id: "deepseek",
@@ -102,6 +107,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyPlaceholder: "sk-...",
     defaultModels: ["deepseek-chat", "deepseek-reasoner"],
     recommendedModels: ["deepseek-chat", "deepseek-reasoner"],
+    imageGenModel: "",
   },
   {
     id: "grok",
@@ -127,6 +133,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "grok-4-1-fast-reasoning",
       "grok-4-1-fast-non-reasoning",
     ],
+    imageGenModel: "grok-2-image",
   },
   {
     id: "volcengine",
@@ -156,6 +163,7 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
       "doubao-1.5-pro-256k",
       "doubao-1.5-pro-32k",
     ],
+    imageGenModel: "",
   },
   {
     id: "zhipu",
@@ -171,8 +179,34 @@ export const PROVIDER_PRESETS: ProviderPresetConfig[] = [
     apiKeyPlaceholder: "your-bigmodel-key",
     defaultModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
     recommendedModels: ["glm-5", "glm-5-turbo", "glm-4.7", "glm-4.7-flash", "glm-4.6"],
+    imageGenModel: "cogview-4",
+  },
+  {
+    id: "localai",
+    name: "LocalAI",
+    baseUrl: "http://localhost:8080/v1",
+    description: {
+      zh: "本地 OpenAI 兼容服务，支持 Stable Diffusion 等模型。",
+      en: "Local OpenAI-compatible server supporting Stable Diffusion and more.",
+    },
+    category: "local",
+    discoveryMode: "openai-compatible",
+    apiKeyRequired: false,
+    apiKeyPlaceholder: "",
+    defaultModels: [],
+    recommendedModels: [],
+    imageGenModel: "stablediffusion",
   },
 ];
+
+/** Given a provider's base_url, find the matching preset's image gen model. */
+export function getImageGenModelForProvider(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  const preset = PROVIDER_PRESETS.find(
+    (p) => normalized === p.baseUrl.replace(/\/+$/, "")
+  );
+  return preset?.imageGenModel ?? "";
+}
 
 const NON_CHAT_MODEL_PATTERN =
   /(embedding|rerank|tts|speech|transcribe|transcription|moderation|image|imagen|video|veo|audio|realtime|whisper)/i;

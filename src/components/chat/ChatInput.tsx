@@ -314,7 +314,8 @@ export function ChatInput({ onSend, onStop }: Props) {
     useState(false);
   const [nativeSttInfo, setNativeSttInfo] = useState<NativeSttInfo | null>(null);
   const [isResolvingNativeStt, setIsResolvingNativeStt] = useState(false);
-  const [imageGenEnabled, setImageGenEnabled] = useState(false);
+  const [imageGenConfigured, setImageGenConfigured] = useState(false);
+  const [isImgMode, setIsImgMode] = useState(false);
 
   const dragCounterRef = useRef(0);
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([]);
@@ -356,20 +357,17 @@ export function ChatInput({ onSend, onStop }: Props) {
     : null;
   const isImageGenAssistant = currentConversation?.assistant_id?.startsWith("preset-img-") ?? false;
 
-  // Reload image gen config when component mounts or conversation changes
-  // (covers the case where user enables it in Settings then returns to chat)
-  // Also force-enable for image-gen preset assistants
+  // Reload image gen config when component mounts or conversation changes.
+  // Force-enable for image-gen preset assistants.
   useEffect(() => {
     if (isImageGenAssistant) {
-      setImageGenEnabled(true);
-      // Auto-prepend /img prefix for image-gen assistants if input is empty
-      if (!input.trim()) {
-        setInput("/img ");
-      }
+      setImageGenConfigured(true);
+      setIsImgMode(true);
       return;
     }
+    setIsImgMode(false);
     api.getImageGenConfig().then((cfg) => {
-      setImageGenEnabled(cfg?.enabled ?? false);
+      setImageGenConfigured(cfg?.enabled ?? false);
     }).catch(() => {});
   }, [currentConversationId, isImageGenAssistant]);
 
@@ -657,7 +655,12 @@ export function ChatInput({ onSend, onStop }: Props) {
     const attachmentJsons = readyAttachments.map((attachment) =>
       JSON.stringify(attachment.prepared)
     );
-    onSend(input.trim(), attachmentJsons.length > 0 ? attachmentJsons : undefined);
+    let content = input.trim();
+    // Transparently prepend /img when image mode is active
+    if (isImgMode && !content.startsWith("/img ") && !content.startsWith("/img\n") && content !== "/img") {
+      content = `/img ${content}`;
+    }
+    onSend(content, attachmentJsons.length > 0 ? attachmentJsons : undefined);
     setInput("");
     setComposerAttachments((current) => {
       current.forEach((attachment) => {
@@ -668,7 +671,7 @@ export function ChatInput({ onSend, onStop }: Props) {
       return [];
     });
     setComposerError("");
-  }, [canSend, input, onSend, readyAttachments, composerError]);
+  }, [canSend, input, isImgMode, onSend, readyAttachments, composerError]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -1993,36 +1996,28 @@ export function ChatInput({ onSend, onStop }: Props) {
                   >
                     <Paperclip className="h-4 w-4" />
                   </button>
-                  {imageGenEnabled && (() => {
-                    const isImgMode = input.trimStart().startsWith("/img ");
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isImgMode) {
-                            setInput(input.replace(/^(\s*)\/img\s*/, "$1"));
-                          } else {
-                            const current = input.trim();
-                            setInput(`/img ${current}`);
-                          }
-                          textareaRef.current?.focus();
-                        }}
-                        className={cn(
-                          "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                          isImgMode
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
-                        )}
-                        title={isImgMode
-                          ? t("取消生图模式", "Cancel image mode")
-                          : t("生成图片", "Generate image")}
-                      >
-                        <ImageIcon className="h-3.5 w-3.5" />
-                        {t("生图", "Image")}
-                        {isImgMode && <X className="h-3 w-3" />}
-                      </button>
-                    );
-                  })()}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!imageGenConfigured) return;
+                      setIsImgMode((prev) => !prev);
+                      textareaRef.current?.focus();
+                    }}
+                    disabled={!imageGenConfigured}
+                    className={cn(
+                      utilityButtonClass,
+                      isImgMode && "bg-primary/15 text-primary"
+                    )}
+                    title={
+                      !imageGenConfigured
+                        ? t("请先在设置中配置生图模型", "Please configure image generation in Settings first")
+                        : isImgMode
+                          ? t("关闭生图模式", "Turn off image mode")
+                          : t("生成图片", "Generate image")
+                    }
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                  </button>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -2049,7 +2044,9 @@ export function ChatInput({ onSend, onStop }: Props) {
                             "其他会话生成中，请稍候...",
                             "Another session is generating, please wait..."
                           )
-                        : t("输入消息...", "Type a message...")
+                        : isImgMode
+                          ? t("描述你想生成的图片...", "Describe the image you want to generate...")
+                          : t("输入消息...", "Type a message...")
                     }
                     disabled={isOtherStreaming}
                     rows={1}
