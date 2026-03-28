@@ -19,9 +19,7 @@ pub struct Voice {
     pub updated_at: String,
 }
 
-fn parse_json_object(json_str: &str) -> serde_json::Value {
-    serde_json::from_str(json_str).unwrap_or(serde_json::json!({}))
-}
+use crate::db::{new_id, utc_now_str, parse_json_or_empty};
 
 fn remove_voice_from_assistants(
     conn: &rusqlite::Connection,
@@ -35,7 +33,7 @@ fn remove_voice_from_assistants(
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
 
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = utc_now_str();
 
     for row in rows {
         let (assistant_id, mapping_str) = row.map_err(|e| e.to_string())?;
@@ -85,7 +83,7 @@ pub fn list_voices(db: State<DbState>) -> Result<Vec<Voice>, String> {
                 display_name: row.get(1)?,
                 display_name_en: row.get(2)?,
                 engine: row.get(3)?,
-                engine_config: parse_json_object(&config_str),
+                engine_config: parse_json_or_empty(&config_str),
                 role_type: row.get(5)?,
                 tags: serde_json::from_str(&tags_str).unwrap_or_default(),
                 tags_en: serde_json::from_str(&tags_en_str).unwrap_or_default(),
@@ -116,7 +114,7 @@ pub fn get_voice(db: State<DbState>, id: String) -> Result<Voice, String> {
                 display_name: row.get(1)?,
                 display_name_en: row.get(2)?,
                 engine: row.get(3)?,
-                engine_config: parse_json_object(&config_str),
+                engine_config: parse_json_or_empty(&config_str),
                 role_type: row.get(5)?,
                 tags: serde_json::from_str(&tags_str).unwrap_or_default(),
                 tags_en: serde_json::from_str(&tags_en_str).unwrap_or_default(),
@@ -139,8 +137,8 @@ pub fn create_voice(
     tags: Vec<String>,
 ) -> Result<Voice, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let id = new_id();
+    let now = utc_now_str();
     let config_str = serde_json::to_string(&engine_config).map_err(|e| e.to_string())?;
     let tags_str = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
 
@@ -177,7 +175,7 @@ pub fn update_voice(
     tags: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = utc_now_str();
 
     let mut sets: Vec<String> = Vec::new();
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();

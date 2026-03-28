@@ -383,7 +383,7 @@ fn persist_instance_hints(
         return Ok(());
     }
 
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     match (token, agents_json) {
@@ -598,8 +598,8 @@ pub async fn create_openclaw_instance(
             .unwrap_or_else(|| "[]".to_string()),
     };
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let id = crate::db::new_id();
+    let now = crate::db::utc_now_str();
     conn.execute(
         "INSERT INTO openclaw_instances (id, name, gateway_url, token, agents_cache, is_remote, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![id, name, gateway_url, effective_token, agents_json, is_remote as i32, now, now],
@@ -626,7 +626,7 @@ pub fn update_openclaw_instance(
     token: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
     conn.execute(
         "UPDATE openclaw_instances SET name = ?1, gateway_url = ?2, token = ?3, updated_at = ?4 WHERE id = ?5",
         rusqlite::params![name, gateway_url, token, now, id],
@@ -1102,7 +1102,7 @@ pub async fn send_openclaw_message(
         .unwrap_or_default();
 
     // Save user message (ID provided by frontend for consistency)
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
 
     // Load conversation OpenClaw fields
     let (instance_id, agent_id, session_key) = {
@@ -1353,7 +1353,7 @@ async fn send_via_acp(
     // Build content blocks: text + attachments
     let content_blocks = build_acp_content_blocks(content, prepared_attachments);
 
-    let assistant_msg_id = uuid::Uuid::new_v4().to_string();
+    let assistant_msg_id = crate::db::new_id();
     let result = {
         let mut entry = entry_arc.lock().await;
         let session_id = entry.acp_session_id.clone();
@@ -1380,7 +1380,7 @@ async fn send_via_acp(
     };
 
     if !full_content.is_empty() {
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::db::utc_now_str();
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'assistant', ?3, ?4)",
@@ -1492,7 +1492,7 @@ async fn send_via_http(
     .await
     .map_err(rewrite_http_fallback_error)?;
 
-    let assistant_msg_id = uuid::Uuid::new_v4().to_string();
+    let assistant_msg_id = crate::db::new_id();
     let mut full_content = String::new();
     let mut had_error = false;
 
@@ -1529,7 +1529,7 @@ async fn send_via_http(
     }
 
     if !had_error || !full_content.is_empty() {
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::db::utc_now_str();
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'assistant', ?3, ?4)",

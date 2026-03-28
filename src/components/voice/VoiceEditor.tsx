@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { ArrowLeft, Save, Volume2, Upload, X, FileAudio, Loader2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as api from "@/lib/tauri";
+import { readFileAsBase64, getErrorMessage } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceEngineConfig } from "@/lib/types";
@@ -78,18 +79,6 @@ function isVideoFile(file: File): boolean {
   if (file.type.startsWith("video/")) return true;
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   return VIDEO_EXTENSIONS.has(ext);
-}
-
-function readFileAsBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.includes(",") ? result.split(",")[1] : result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function readFileAsArrayBuffer(file: Blob): Promise<ArrayBuffer> {
@@ -322,8 +311,7 @@ export function VoiceEditor() {
       await loadVoices();
       navigate("/voices");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
-      setSaveError(msg);
+      setSaveError(getErrorMessage(e, String(e)));
     } finally {
       setSaving(false);
     }

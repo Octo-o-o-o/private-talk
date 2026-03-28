@@ -178,7 +178,7 @@ pub fn prepare_attachment(
         .unwrap_or("unnamed")
         .to_string();
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let dest_dir = attachments_dir(app_data_dir)?;
 
     let ext = source_path
@@ -272,7 +272,7 @@ pub fn prepare_image_from_bytes(
     data: &[u8],
     mime_type: &str,
 ) -> Result<PreparedAttachment, String> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let dest_dir = attachments_dir(app_data_dir)?;
 
     let ext = match mime_type {
@@ -330,7 +330,7 @@ pub fn prepare_audio_from_bytes(
         return Err("Audio file is too large (max 20MB)".to_string());
     }
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let dest_dir = attachments_dir(app_data_dir)?;
 
     let ext = match mime_type {
@@ -477,7 +477,7 @@ pub fn save_generated_image(
     metadata: serde_json::Value,
     conn: &Connection,
 ) -> Result<Attachment, String> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let dest_dir = attachments_dir(app_data_dir)?;
 
     let ext = match mime_type {
@@ -569,7 +569,7 @@ pub fn prepare_pdf_from_bytes(
         return Err("PDF file is too large (max 50 MB)".to_string());
     }
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let dest_dir = attachments_dir(app_data_dir)?;
 
     let dest_path = dest_dir.join(format!("{}.pdf", id));

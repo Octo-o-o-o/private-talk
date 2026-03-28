@@ -114,45 +114,73 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
         .filter_map(|r| r.ok())
         .collect();
 
-    // Load regular (non-system, non-pinned) messages, take most recent hot_size
-    let mut reg_stmt = conn
-        .prepare(
-            "SELECT role, content FROM messages
-             WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0
-             ORDER BY message_order ASC",
+    // Count regular messages to decide fetch strategy
+    let regular_count: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages
+             WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0",
+            rusqlite::params![conversation_id],
+            |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
 
-    let regular_msgs: Vec<(String, String)> = reg_stmt
-        .query_map(rusqlite::params![conversation_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    let total = system_msgs.len()
+    let fixed_count = system_msgs.len()
         + usize::from(summary_msg.is_some())
-        + pinned_msgs.len()
-        + regular_msgs.len();
+        + pinned_msgs.len();
+    let total = fixed_count + regular_count;
 
-    // Under limit — return everything in order
+    // Under limit — fetch and return everything in order
     if total <= max_messages {
+        let mut reg_stmt = conn
+            .prepare(
+                "SELECT role, content FROM messages
+                 WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0
+                 ORDER BY message_order ASC",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let regular_msgs: Vec<ChatMessage> = reg_stmt
+            .query_map(rusqlite::params![conversation_id], |row| {
+                Ok(ChatMessage {
+                    role: row.get::<_, String>(0)?,
+                    content: ChatContent::text(row.get::<_, String>(1)?),
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
         let mut context = system_msgs;
         if let Some(s) = summary_msg {
             context.push(s);
         }
         context.extend(pinned_msgs);
-        context.extend(regular_msgs.into_iter().map(|(role, content)| ChatMessage {
-            role,
-            content: ChatContent::text(content),
-        }));
+        context.extend(regular_msgs);
         return Ok(context);
     }
 
-    // Over limit — keep system + summary + pinned + most recent hot_size regular
-    let hot_start = regular_msgs.len().saturating_sub(hot_size);
-    let hot_messages = &regular_msgs[hot_start..];
+    // Over limit — fetch only the most recent hot_size regular messages
+    let mut reg_stmt = conn
+        .prepare(
+            "SELECT role, content FROM (
+                 SELECT role, content, message_order FROM messages
+                 WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0
+                 ORDER BY message_order DESC
+                 LIMIT ?2
+             ) ORDER BY message_order ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let hot_messages: Vec<ChatMessage> = reg_stmt
+        .query_map(rusqlite::params![conversation_id, hot_size], |row| {
+            Ok(ChatMessage {
+                role: row.get::<_, String>(0)?,
+                content: ChatContent::text(row.get::<_, String>(1)?),
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut context: Vec<ChatMessage> = Vec::new();
     context.extend(system_msgs);
@@ -160,10 +188,7 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
         context.push(s);
     }
     context.extend(pinned_msgs);
-    context.extend(hot_messages.iter().map(|(role, content)| ChatMessage {
-        role: role.clone(),
-        content: ChatContent::text(content),
-    }));
+    context.extend(hot_messages);
 
     // Safety trim if still over (trim from after system+summary block)
     if context.len() > max_messages {
@@ -324,7 +349,7 @@ pub fn save_summary(
     summary_content: &str,
     covered_until_message_id: &str,
 ) -> Result<(), String> {
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
 
     conn.execute(
         "INSERT INTO conversation_summaries (conversation_id, summary, covered_until_message_id, created_at)

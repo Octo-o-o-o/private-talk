@@ -94,12 +94,8 @@ pub async fn handle_image_generation(
     // 3. Load provider base_url and api_key
     let (base_url, api_key) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT base_url, api_key FROM providers WHERE id = ?1",
-            rusqlite::params![provider_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .map_err(|e| format!("图片生成服务商未找到。\nImage provider not found: {}", e))?
+        crate::db::load_provider_credentials(&conn, &provider_id)
+            .map_err(|_| "图片生成服务商未找到。\nImage provider not found.".to_string())?
     };
 
     // 4. Read reference images from attachments (only first image is used by /images/edits)
@@ -175,8 +171,8 @@ pub async fn handle_image_generation(
     let n = result.images.len();
     let has_ref = !request.reference_images.is_empty();
 
-    let assistant_msg_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let assistant_msg_id = crate::db::new_id();
+    let now = crate::db::utc_now_str();
     let assistant_content = if has_ref {
         format!(
             "已基于参考图生成 {} 张图片。\nGenerated {} image(s) from reference.",

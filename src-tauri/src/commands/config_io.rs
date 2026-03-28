@@ -320,7 +320,7 @@ pub fn import_config(
 
     // Import providers
     for p in &payload.providers {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::db::new_id();
         let models_json = serde_json::to_string(&p.models).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
             "INSERT INTO providers (id, name, api_type, base_url, api_key, models, is_default, created_at)
@@ -333,7 +333,7 @@ pub fn import_config(
 
     // Import voices (non-preset)
     for v in &payload.voices {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::db::new_id();
         let config_json =
             serde_json::to_string(&v.engine_config).unwrap_or_else(|_| "{}".to_string());
         let tags_json = serde_json::to_string(&v.tags).unwrap_or_else(|_| "[]".to_string());
@@ -359,7 +359,7 @@ pub fn import_config(
 
     // Import assistants (non-preset)
     for a in &payload.assistants {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::db::new_id();
         let mapping_json =
             serde_json::to_string(&a.voice_mapping).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
@@ -384,7 +384,7 @@ pub fn import_config(
 
     // Import OpenClaw instances
     for o in &payload.openclaw_instances {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::db::new_id();
         conn.execute(
             "INSERT INTO openclaw_instances (id, name, gateway_url, token, agents_cache, is_remote, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), datetime('now'))",

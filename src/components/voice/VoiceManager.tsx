@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { Plus, Volume2, Play, Square, Loader2, Trash2, Edit2, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import * as api from "@/lib/tauri";
+import { getErrorMessage } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { Voice } from "@/lib/types";
@@ -91,8 +92,7 @@ export function VoiceManager() {
       } catch (e) {
         setLoadingId(null);
         setErrorId(voice.id);
-        const msg =
-          e instanceof Error ? e.message : typeof e === "string" ? e : "";
+        const msg = getErrorMessage(e);
         if (msg.includes("connect") || msg.includes("Connection")) {
           setErrorMsg(
             t(

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BarChart3,
   Check,
@@ -113,12 +113,19 @@ export function Sidebar() {
   const [refreshingAgents, setRefreshingAgents] = useState<Record<string, boolean>>({});
 
   const currentView = getCurrentView(location.pathname);
-  const filteredConversations = conversations.filter((conversation) => {
-    if (assistantFilter === null) return true;
-    if (assistantFilter === "free-chat") return conversation.assistant_id === null;
-    return conversation.assistant_id === assistantFilter;
-  });
-  const visibleConversationIds = filteredConversations.map((conversation) => conversation.id);
+  const filteredConversations = useMemo(
+    () =>
+      conversations.filter((conversation) => {
+        if (assistantFilter === null) return true;
+        if (assistantFilter === "free-chat") return conversation.assistant_id === null;
+        return conversation.assistant_id === assistantFilter;
+      }),
+    [conversations, assistantFilter]
+  );
+  const visibleConversationIds = useMemo(
+    () => filteredConversations.map((conversation) => conversation.id),
+    [filteredConversations]
+  );
   const allVisibleSelected =
     visibleConversationIds.length > 0 &&
     visibleConversationIds.every((id) => selectedIds.has(id));

@@ -3,12 +3,18 @@ import { useSyncExternalStore } from "react";
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
 
+let cachedMediaQueryList: MediaQueryList | null | undefined;
+
 function getMediaQueryList() {
+  if (cachedMediaQueryList !== undefined) return cachedMediaQueryList;
+
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    cachedMediaQueryList = null;
     return null;
   }
 
-  return window.matchMedia(MOBILE_MEDIA_QUERY);
+  cachedMediaQueryList = window.matchMedia(MOBILE_MEDIA_QUERY);
+  return cachedMediaQueryList;
 }
 
 function getSnapshot() {

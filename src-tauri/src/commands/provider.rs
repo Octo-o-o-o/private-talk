@@ -87,8 +87,8 @@ pub fn create_provider(
     models: Vec<String>,
 ) -> Result<Provider, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let id = crate::db::new_id();
+    let now = crate::db::utc_now_str();
     let models_json = serde_json::to_string(&models).map_err(|e| e.to_string())?;
 
     let count: i64 = conn

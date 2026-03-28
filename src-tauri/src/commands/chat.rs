@@ -41,8 +41,8 @@ fn save_usage_record(
     completion_tokens: i64,
     total_tokens: i64,
 ) -> Result<(), String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let id = crate::db::new_id();
+    let now = crate::db::utc_now_str();
     conn.execute(
         "INSERT INTO usage_records (id, conversation_id, message_id, model, prompt_tokens, completion_tokens, total_tokens, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![id, conversation_id, message_id, model, prompt_tokens, completion_tokens, total_tokens, now],
@@ -96,7 +96,7 @@ pub async fn send_message(
     STOP_FLAG.store(false, Ordering::SeqCst);
 
     // Save user message (ID provided by frontend for consistency)
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
     // Collect prepared attachments for this message
     let prepared_attachments: Vec<PreparedAttachment> = attachment_ids
         .as_ref()
@@ -142,12 +142,7 @@ pub async fn send_message(
     // Load provider info
     let (base_url, api_key) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT base_url, api_key FROM providers WHERE id = ?1",
-            rusqlite::params![provider_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .map_err(|e| format!("Provider not found: {}", e))?
+        crate::db::load_provider_credentials(&conn, &provider_id)?
     };
 
     // Try to compress old messages if over threshold
@@ -322,8 +317,8 @@ pub async fn send_message(
 
     // Only save assistant message if we got content or no error
     if !had_error || !full_content.is_empty() {
-        let assistant_msg_id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let assistant_msg_id = crate::db::new_id();
+        let now = crate::db::utc_now_str();
         {
             let conn = db.0.lock().map_err(|e| e.to_string())?;
             conn.execute(
@@ -443,12 +438,7 @@ pub async fn generate_title(
     // Load provider info
     let (base_url, api_key) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT base_url, api_key FROM providers WHERE id = ?1",
-            rusqlite::params![provider_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .map_err(|e| format!("Provider not found: {}", e))?
+        crate::db::load_provider_credentials(&conn, &provider_id)?
     };
 
     let messages = vec![
@@ -581,73 +571,64 @@ pub async fn prepare_attachments(
     .map_err(|e| format!("Attachment preparation task failed: {}", e))?
 }
 
-/// Prepare an image from base64 data (e.g., clipboard paste).
+async fn prepare_base64_attachment<F>(
+    app: &tauri::AppHandle,
+    data_base64: &str,
+    preparer: F,
+) -> Result<String, String>
+where
+    F: FnOnce(&Path, &[u8]) -> Result<attachments::PreparedAttachment, String> + Send + 'static,
+{
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_base64)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = preparer(&app_data_dir, &data)?;
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Attachment preparation task failed: {}", e))?
+}
+
 #[tauri::command]
 pub async fn prepare_image_attachment(
     app: tauri::AppHandle,
     image_base64: String,
     mime_type: String,
 ) -> Result<String, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &image_base64)
-        .map_err(|e| format!("Invalid base64: {}", e))?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let prepared = attachments::prepare_image_from_bytes(&app_data_dir, &data, &mime_type)?;
-        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    prepare_base64_attachment(&app, &image_base64, move |dir, data| {
+        attachments::prepare_image_from_bytes(dir, data, &mime_type)
     })
     .await
-    .map_err(|e| format!("Image preparation task failed: {}", e))?
 }
 
-/// Prepare an audio attachment from base64 data (e.g., recorded voice message).
 #[tauri::command]
 pub async fn prepare_audio_attachment(
     app: tauri::AppHandle,
     audio_base64: String,
     mime_type: String,
 ) -> Result<String, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &audio_base64)
-        .map_err(|e| format!("Invalid base64: {}", e))?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let prepared = attachments::prepare_audio_from_bytes(&app_data_dir, &data, &mime_type)?;
-        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    prepare_base64_attachment(&app, &audio_base64, move |dir, data| {
+        attachments::prepare_audio_from_bytes(dir, data, &mime_type)
     })
     .await
-    .map_err(|e| format!("Audio preparation task failed: {}", e))?
 }
 
-/// Prepare a PDF attachment: save original and extract text into a companion file.
 #[tauri::command]
 pub async fn prepare_pdf_attachment(
     app: tauri::AppHandle,
     pdf_base64: String,
     file_name: String,
 ) -> Result<String, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &pdf_base64)
-        .map_err(|e| format!("Invalid base64: {}", e))?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let prepared = attachments::prepare_pdf_from_bytes(&app_data_dir, &data, &file_name)?;
-        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    prepare_base64_attachment(&app, &pdf_base64, move |dir, data| {
+        attachments::prepare_pdf_from_bytes(dir, data, &file_name)
     })
     .await
-    .map_err(|e| format!("PDF preparation task failed: {}", e))?
 }
 
 /// Prepare a text file attachment from raw content (uploaded via FileReader).
@@ -679,7 +660,7 @@ pub async fn prepare_text_attachment(
         std::fs::write(&dest, &content).map_err(|e| format!("Failed to write text file: {}", e))?;
 
         let prepared = attachments::PreparedAttachment {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: crate::db::new_id(),
             file_type: "text_file".to_string(),
             file_name,
             file_path: dest.to_string_lossy().to_string(),

@@ -5,6 +5,12 @@ import * as api from "../lib/tauri";
 
 const LOCAL_SCAN_DISMISS_KEY = "private-talk-local-scan-dismiss";
 
+function refreshConversations(get: () => AppState) {
+  void get().loadConversations().catch((error) => {
+    console.error("Failed to refresh conversations:", error);
+  });
+}
+
 function normalizeUrl(url: string) {
   return url.replace(/\/+$/, "").toLowerCase();
 }
@@ -132,9 +138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
         messages: [],
       }));
-      void get().loadConversations().catch((error) => {
-        console.error("Failed to refresh conversations after assistant change:", error);
-      });
+      refreshConversations(get);
       return;
     }
 
@@ -192,9 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentAssistantId: conv.assistant_id,
       messages: [],
     }));
-    void get().loadConversations().catch((error) => {
-      console.error("Failed to refresh conversations after create:", error);
-    });
+    refreshConversations(get);
     return conv.id;
   },
   deleteConversation: async (id) => {
@@ -205,9 +207,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         s.currentConversationId === id ? null : s.currentConversationId,
       messages: s.currentConversationId === id ? [] : s.messages,
     }));
-    void get().loadConversations().catch((error) => {
-      console.error("Failed to refresh conversations after delete:", error);
-    });
+    refreshConversations(get);
   },
   deleteConversations: async (ids) => {
     await api.deleteConversations(ids);
@@ -222,9 +222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         messages: shouldClearCurrent ? [] : s.messages,
       };
     });
-    void get().loadConversations().catch((error) => {
-      console.error("Failed to refresh conversations after bulk delete:", error);
-    });
+    refreshConversations(get);
   },
   renameConversation: async (id, title) => {
     await api.renameConversation(id, title);
@@ -233,9 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         conversation.id === id ? { ...conversation, title } : conversation
       ),
     }));
-    void get().loadConversations().catch((error) => {
-      console.error("Failed to refresh conversations after rename:", error);
-    });
+    refreshConversations(get);
   },
   generateTitle: async (conversationId) => {
     const { selectedProviderId, selectedModel } = get();
@@ -400,9 +396,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentAssistantId: null,
       messages: [],
     }));
-    void get().loadConversations().catch((error) => {
-      console.error("Failed to refresh conversations after OpenClaw create:", error);
-    });
+    refreshConversations(get);
     return conv.id;
   },
 
@@ -425,8 +419,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     ]);
 
     // Dedup against existing data
-    const { providers } = get();
-    const currentInstances = await api.listOpenClawInstances().catch(() => [] as OpenClawInstance[]);
+    const { providers, openclawInstances: currentInstances } = get();
 
     const existingProviderUrls = new Set(providers.map((p) => normalizeUrl(p.base_url)));
     const existingOpenClawUrls = new Set(currentInstances.map((i) => normalizeUrl(i.gateway_url)));

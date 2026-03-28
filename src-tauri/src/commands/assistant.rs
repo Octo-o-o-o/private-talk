@@ -19,9 +19,7 @@ pub struct Assistant {
     pub updated_at: String,
 }
 
-fn parse_voice_mapping(json_str: &str) -> serde_json::Value {
-    serde_json::from_str(json_str).unwrap_or(serde_json::json!({}))
-}
+use crate::db::{new_id, utc_now_str, parse_json_or_empty};
 
 fn assistant_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Assistant> {
     let is_preset: i32 = row.get(7)?;
@@ -38,7 +36,7 @@ fn assistant_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Assistant> {
         system_prompt: row.get(5)?,
         icon: row.get(6)?,
         is_preset: is_preset != 0,
-        voice_mapping: parse_voice_mapping(&voice_mapping_str),
+        voice_mapping: parse_json_or_empty(&voice_mapping_str),
         tts_enabled: tts_enabled != 0,
         auto_play: auto_play != 0,
         created_at: row.get(11)?,
@@ -86,8 +84,8 @@ pub fn create_assistant(
     auto_play: Option<bool>,
 ) -> Result<Assistant, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let id = new_id();
+    let now = utc_now_str();
     let icon = icon.unwrap_or_default();
     let voice_mapping_value = voice_mapping.unwrap_or_else(|| serde_json::json!({}));
     let voice_mapping_str =
@@ -156,59 +154,60 @@ pub fn update_assistant(
         return Err("Cannot edit preset assistants".to_string());
     }
 
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = utc_now_str();
 
-    if let Some(name) = name {
-        conn.execute(
-            "UPDATE scenarios SET name = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![name, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    let mut sets: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(v) = name {
+        sets.push(format!("name = ?{}", params.len() + 1));
+        params.push(Box::new(v));
     }
-    if let Some(description) = description {
-        conn.execute(
-            "UPDATE scenarios SET description = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![description, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = description {
+        sets.push(format!("description = ?{}", params.len() + 1));
+        params.push(Box::new(v));
     }
-    if let Some(system_prompt) = system_prompt {
-        conn.execute(
-            "UPDATE scenarios SET system_prompt = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![system_prompt, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = system_prompt {
+        sets.push(format!("system_prompt = ?{}", params.len() + 1));
+        params.push(Box::new(v));
     }
-    if let Some(icon) = icon {
-        conn.execute(
-            "UPDATE scenarios SET icon = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![icon, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = icon {
+        sets.push(format!("icon = ?{}", params.len() + 1));
+        params.push(Box::new(v));
     }
-    if let Some(voice_mapping) = voice_mapping {
-        let voice_mapping_str =
-            serde_json::to_string(&voice_mapping).map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE scenarios SET voice_mapping = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![voice_mapping_str, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = voice_mapping {
+        let s = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+        sets.push(format!("voice_mapping = ?{}", params.len() + 1));
+        params.push(Box::new(s));
     }
-    if let Some(tts_enabled) = tts_enabled {
-        conn.execute(
-            "UPDATE scenarios SET tts_enabled = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![tts_enabled as i32, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = tts_enabled {
+        sets.push(format!("tts_enabled = ?{}", params.len() + 1));
+        params.push(Box::new(v as i32));
     }
-    if let Some(auto_play) = auto_play {
-        conn.execute(
-            "UPDATE scenarios SET auto_play = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![auto_play as i32, now, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = auto_play {
+        sets.push(format!("auto_play = ?{}", params.len() + 1));
+        params.push(Box::new(v as i32));
     }
+
+    if sets.is_empty() {
+        return Ok(());
+    }
+
+    sets.push(format!("updated_at = ?{}", params.len() + 1));
+    params.push(Box::new(now));
+
+    let id_param_idx = params.len() + 1;
+    params.push(Box::new(id));
+
+    let sql = format!(
+        "UPDATE scenarios SET {} WHERE id = ?{}",
+        sets.join(", "),
+        id_param_idx
+    );
+
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -258,8 +257,8 @@ pub fn duplicate_assistant(db: State<DbState>, id: String) -> Result<Assistant, 
         )
         .map_err(|e| format!("Assistant not found: {}", e))?;
 
-    let new_id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let new_id = new_id();
+    let now = utc_now_str();
     let new_name = format!("{} (Copy)", source.0);
 
     conn.execute(
@@ -281,7 +280,7 @@ pub fn duplicate_assistant(db: State<DbState>, id: String) -> Result<Assistant, 
         system_prompt: source.4,
         icon: source.5,
         is_preset: false,
-        voice_mapping: parse_voice_mapping(&source.6),
+        voice_mapping: parse_json_or_empty(&source.6),
         tts_enabled: source.7 != 0,
         auto_play: source.8 != 0,
         created_at: now.clone(),

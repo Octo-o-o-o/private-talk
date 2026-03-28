@@ -129,13 +129,7 @@ pub async fn stt_transcribe(
 ) -> Result<String, String> {
     let (base_url, api_key, stt_model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let (bu, ak) = conn
-            .query_row(
-                "SELECT base_url, api_key FROM providers WHERE id = ?1",
-                rusqlite::params![provider_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .map_err(|e| format!("Provider not found: {}", e))?;
+        let (bu, ak) = crate::db::load_provider_credentials(&conn, &provider_id)?;
 
         // Read configurable STT model from settings, default whisper-1
         let model = conn

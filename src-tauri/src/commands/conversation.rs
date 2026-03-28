@@ -75,7 +75,7 @@ fn replace_system_prompt_snapshot(
             .map_err(|e| format!("Assistant not found: {}", e))?;
 
         if !system_prompt.is_empty() {
-            let msg_id = uuid::Uuid::new_v4().to_string();
+            let msg_id = crate::db::new_id();
             conn.execute(
                 "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'system', ?3, ?4)",
                 rusqlite::params![msg_id, conversation_id, system_prompt, now],
@@ -136,12 +136,12 @@ pub fn create_conversation(
     openclaw_agent_id: Option<String>,
 ) -> Result<Conversation, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = crate::db::new_id();
     let title = title.unwrap_or_else(|| "New Chat".to_string());
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
 
     let openclaw_session_key = if openclaw_instance_id.is_some() {
-        Some(uuid::Uuid::new_v4().to_string())
+        Some(crate::db::new_id())
     } else {
         None
     };
@@ -195,7 +195,7 @@ pub fn update_conversation_assistant(
         return Err("Cannot change assistant after messages have been sent".to_string());
     }
 
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
 
     conn.execute(
         "UPDATE conversations SET scenario_id = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
@@ -236,7 +236,7 @@ pub async fn delete_conversation(
     crate::commands::openclaw::kill_acp_for_conversation(&acp_state, &id).await;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
 
     let msg_ids: Vec<String> = {
         let mut stmt = conn
@@ -272,7 +272,7 @@ pub async fn delete_conversation(
 #[tauri::command]
 pub fn rename_conversation(db: State<DbState>, id: String, title: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = crate::db::utc_now_str();
     conn.execute(
         "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
         rusqlite::params![title, now, id],

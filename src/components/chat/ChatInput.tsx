@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { cn, readFileAsBase64, getErrorMessage } from "@/lib/utils";
 import { useAppStore } from "../../stores/appStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMobileKeyboardInset } from "@/hooks/useMobileKeyboardInset";
@@ -162,18 +162,6 @@ function getExtensionFromMimeType(mimeType: string) {
   return subtype.split("+")[0] || "bin";
 }
 
-function readFileAsBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string;
-      resolve(dataUrl.split(",")[1] || "");
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -209,12 +197,6 @@ function getSupportedMimeType(): string {
   }
 
   return "";
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
 }
 
 function detectPlatform(): PlatformKind {
