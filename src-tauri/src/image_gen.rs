@@ -2,6 +2,9 @@ use base64::Engine;
 use image::ImageFormat;
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -286,8 +289,7 @@ async fn generate_gemini_native(
         }
     });
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .json(&body)
@@ -479,8 +481,7 @@ async fn generate_openrouter_chat(
         "max_tokens": 4096
     });
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -552,8 +553,7 @@ async fn generate_openai_compat(
 
     let timeout_secs = if provider == ProviderKind::Local { 600 } else { 120 };
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -632,8 +632,7 @@ async fn generate_grok(
         "response_format": "b64_json",
     });
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -689,8 +688,7 @@ async fn edit_grok(
         });
     }
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -744,8 +742,7 @@ async fn edit_openai(
         form = form.part("image", part);
     }
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -791,8 +788,7 @@ async fn generate_siliconflow(
         "batch_size": n,
     });
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = HTTP_CLIENT
         .post(&url)
         .timeout(std::time::Duration::from_secs(120))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -948,7 +944,6 @@ async fn parse_image_response_flexible(
         .map(|s| s.to_string());
 
     let mut images = Vec::new();
-    let client = reqwest::Client::new();
 
     for item in items {
         let image_data = if let Some(b64) = item.get("b64_json").and_then(|v| v.as_str()) {
@@ -956,7 +951,7 @@ async fn parse_image_response_flexible(
                 .decode(b64)
                 .map_err(|e| format!("Failed to decode base64 image: {}", e))?
         } else if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
-            client
+            HTTP_CLIENT
                 .get(url)
                 .timeout(std::time::Duration::from_secs(60))
                 .send()

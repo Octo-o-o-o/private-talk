@@ -1,6 +1,7 @@
 use crate::acp::client::AcpState;
 use crate::db::DbState;
 use serde::Serialize;
+use std::collections::HashMap;
 use tauri::State;
 
 #[derive(Debug, Serialize)]
@@ -307,12 +308,13 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
 
-    // Batch-load attachments for all messages
+    // Batch-load attachments and join via HashMap for O(n) instead of O(n*m)
     let msg_ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
     let all_attachments = crate::attachments::get_attachments_for_messages(&conn, &msg_ids)?;
+    let idx_map: HashMap<String, usize> = msgs.iter().enumerate().map(|(i, m)| (m.id.clone(), i)).collect();
     for att in all_attachments {
-        if let Some(msg) = msgs.iter_mut().find(|m| m.id == att.message_id) {
-            msg.attachments.push(att);
+        if let Some(&idx) = idx_map.get(&att.message_id) {
+            msgs[idx].attachments.push(att);
         }
     }
 

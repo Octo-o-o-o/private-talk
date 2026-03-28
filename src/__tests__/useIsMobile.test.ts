@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useIsMobile } from "@/hooks/useIsMobile";
 
 describe("useIsMobile", () => {
   let matchMediaListeners: Map<string, Set<() => void>>;
   let matchMediaResult: boolean;
+  let useIsMobile: typeof import("@/hooks/useIsMobile").useIsMobile;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     matchMediaListeners = new Map();
     matchMediaResult = false;
 
@@ -18,7 +18,7 @@ describe("useIsMobile", () => {
           matchMediaListeners.set(query, new Set());
         }
         return {
-          matches: matchMediaResult,
+          get matches() { return matchMediaResult; },
           media: query,
           addEventListener: vi.fn((_: string, cb: () => void) => {
             matchMediaListeners.get(query)!.add(cb);
@@ -31,6 +31,10 @@ describe("useIsMobile", () => {
         };
       }),
     });
+
+    // Re-import to reset the module-level cached MediaQueryList
+    vi.resetModules();
+    ({ useIsMobile } = await import("@/hooks/useIsMobile"));
   });
 
   afterEach(() => {

@@ -10,27 +10,6 @@ describe("tauri wrapper coverage", () => {
     vi.clearAllMocks();
   });
 
-  it("normalizes legacy conversations from listFreeConversations", async () => {
-    mockedInvoke.mockResolvedValue([
-      {
-        id: "conversation-1",
-        title: "Legacy",
-        assistant_id: null,
-        scenario_id: "assistant-legacy",
-        created_at: "2024-01-01T00:00:00Z",
-        updated_at: "2024-01-01T00:00:00Z",
-        openclaw_instance_id: null,
-        openclaw_agent_id: null,
-        openclaw_session_key: null,
-      },
-    ]);
-
-    const result = await api.listFreeConversations();
-
-    expect(result[0].assistant_id).toBe("assistant-legacy");
-    expect(result[0].scenario_id).toBe("assistant-legacy");
-  });
-
   it("normalizes updated conversations from updateConversationScenario", async () => {
     mockedInvoke.mockResolvedValue({
       id: "conversation-1",

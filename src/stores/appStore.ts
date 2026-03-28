@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Conversation, DetectedLocalService, Message, OpenClawInstance, Provider, Assistant, Voice } from "../lib/types";
 import type { LocalOpenClawDetection, LocalProviderScanResult } from "../lib/types";
 import * as api from "../lib/tauri";
+import { normalizeUrl } from "../lib/utils";
 
 const LOCAL_SCAN_DISMISS_KEY = "private-talk-local-scan-dismiss";
 
@@ -9,10 +10,6 @@ function refreshConversations(get: () => AppState) {
   void get().loadConversations().catch((error) => {
     console.error("Failed to refresh conversations:", error);
   });
-}
-
-function normalizeUrl(url: string) {
-  return url.replace(/\/+$/, "").toLowerCase();
 }
 
 interface AppState {
@@ -149,15 +146,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   conversations: [],
   currentConversationId: null,
   loadConversations: async () => {
-    // Always load all conversations (no assistant filtering here)
     const conversations = await api.listConversations();
     set({ conversations });
   },
   selectConversation: async (id) => {
-    // Sync the selected assistant to match the conversation snapshot
     const conversation = get().conversations.find((c) => c.id === id);
     const { streamingConversationId } = get();
-    // Clear streaming display state when switching away from the streaming conversation
     const isTargetStreaming = streamingConversationId === id;
     set({
       currentConversationId: id,

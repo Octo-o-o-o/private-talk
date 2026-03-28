@@ -22,3 +22,7 @@ export function getErrorMessage(error: unknown, fallback = ""): string {
   if (typeof error === "string" && error.trim()) return error;
   return fallback;
 }
+
+export function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}

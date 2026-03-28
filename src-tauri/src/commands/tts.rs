@@ -131,14 +131,7 @@ pub async fn stt_transcribe(
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let (bu, ak) = crate::db::load_provider_credentials(&conn, &provider_id)?;
 
-        // Read configurable STT model from settings, default whisper-1
-        let model = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'stt_model'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_else(|_| "whisper-1".to_string());
+        let model = crate::db::get_setting_str(&conn, "stt_model", "whisper-1");
 
         (bu, ak, model)
     };

@@ -197,6 +197,7 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
     if (get().themeMode !== "system") return;
 
     const resolvedTheme = resolveTheme("system");
+    if (resolvedTheme === get().resolvedTheme) return;
     applyTheme("system", resolvedTheme);
     set({ resolvedTheme });
   },

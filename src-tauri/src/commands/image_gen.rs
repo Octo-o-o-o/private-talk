@@ -24,14 +24,12 @@ pub async fn handle_image_generation(
     // 1. Read image_gen_config from settings
     let config = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let raw: Option<String> = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = 'image_gen_config'",
-                [],
-                |row| row.get(0),
-            )
-            .ok();
-        raw.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        let raw = crate::db::get_setting_str(&conn, "image_gen_config", "");
+        if raw.is_empty() {
+            None
+        } else {
+            serde_json::from_str::<serde_json::Value>(&raw).ok()
+        }
     };
 
     let config = config.ok_or(

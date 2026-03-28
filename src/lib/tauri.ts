@@ -49,11 +49,6 @@ export const listConversations = async (assistantId?: string) =>
     normalizeConversation
   );
 
-export const listFreeConversations = () =>
-  invoke<BackendConversation[]>("list_free_conversations").then((conversations) =>
-    conversations.map(normalizeConversation)
-  );
-
 export const createConversation = (
   title?: string,
   assistantId?: string,

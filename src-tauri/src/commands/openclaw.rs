@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::acp::client::{AcpClientEntry, AcpState};
 use crate::db::DbState;
+use crate::llm::types::{StreamChunkPayload, StreamDonePayload, StreamErrorPayload};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{Emitter, State};
@@ -473,27 +474,6 @@ fn rewrite_http_fallback_error(error: String) -> String {
     }
 
     error
-}
-
-// ── Tauri event payloads (same shape as chat.rs) ──
-
-#[derive(Clone, Serialize)]
-struct StreamChunkPayload {
-    conversation_id: String,
-    content: String,
-}
-
-#[derive(Clone, Serialize)]
-struct StreamDonePayload {
-    conversation_id: String,
-    message_id: String,
-    full_content: String,
-}
-
-#[derive(Clone, Serialize)]
-struct StreamErrorPayload {
-    conversation_id: String,
-    error: String,
 }
 
 // ── OpenClaw Instance CRUD ──

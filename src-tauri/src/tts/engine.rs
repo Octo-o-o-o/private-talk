@@ -1,17 +1,9 @@
 use super::types::{TtsSpeechRequest, VoiceEngineConfig};
+use crate::llm::provider::with_optional_bearer;
 use reqwest::Client;
+use std::sync::LazyLock;
 
-fn with_optional_bearer(
-    request: reqwest::RequestBuilder,
-    api_key: &str,
-) -> reqwest::RequestBuilder {
-    let trimmed = api_key.trim();
-    if trimmed.is_empty() {
-        request
-    } else {
-        request.bearer_auth(trimmed)
-    }
-}
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 /// Detect the Qwen3-TTS model variant from the model name.
 enum Qwen3TtsMode {
@@ -37,7 +29,6 @@ fn detect_mode(model: &str) -> Qwen3TtsMode {
 /// Synthesize speech using an OpenAI-compatible TTS endpoint.
 /// Returns raw audio bytes (mp3/wav depending on config).
 pub async fn synthesize(config: &VoiceEngineConfig, text: &str) -> Result<Vec<u8>, String> {
-    let client = Client::new();
     let url = format!("{}/v1/audio/speech", config.endpoint.trim_end_matches('/'));
 
     let mode = detect_mode(&config.model);
@@ -78,7 +69,7 @@ pub async fn synthesize(config: &VoiceEngineConfig, text: &str) -> Result<Vec<u8
     };
 
     let api_key = config.api_key.as_deref().unwrap_or("");
-    let req_builder = client.post(&url).header("Content-Type", "application/json");
+    let req_builder = HTTP_CLIENT.post(&url).header("Content-Type", "application/json");
 
     let response = with_optional_bearer(req_builder, api_key)
         .json(&request)
@@ -109,7 +100,6 @@ pub async fn transcribe(
     model: &str,
     mime_type: Option<&str>,
 ) -> Result<String, String> {
-    let client = Client::new();
     let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
 
     let mime = mime_type.unwrap_or("audio/webm");
@@ -130,7 +120,7 @@ pub async fn transcribe(
         .text("model", model.to_string())
         .part("file", part);
 
-    let response = with_optional_bearer(client.post(&url).multipart(form), api_key)
+    let response = with_optional_bearer(HTTP_CLIENT.post(&url).multipart(form), api_key)
         .send()
         .await
         .map_err(|e| format!("STT request failed: {}", e))?;

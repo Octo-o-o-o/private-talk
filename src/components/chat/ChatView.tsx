@@ -457,12 +457,7 @@ export function ChatView() {
     let isNewConversation = false;
 
     // For OpenClaw conversations, we don't need provider/model
-    const conv = conversationId
-      ? conversations.find((c) => c.id === conversationId)
-      : null;
-    const isAcp = !!conv?.openclaw_instance_id;
-
-    if (!isAcp && (!selectedProviderId || !selectedModel)) {
+    if (!isOpenClawConversation && (!selectedProviderId || !selectedModel)) {
       console.error("No provider/model selected");
       return;
     }
@@ -472,7 +467,6 @@ export function ChatView() {
       isNewConversation = true;
     }
 
-    // Check if this is the first user message (for title generation)
     const isFirstMessage =
       isNewConversation ||
       messages.filter((m) => m.role === "user").length === 0;
@@ -508,13 +502,13 @@ export function ChatView() {
     setStreamingError("");
 
     try {
-      if (isAcp) {
+      if (isOpenClawConversation) {
         await api.sendOpenClawMessage(conversationId, content, userMsgId, attachmentJsons);
       } else {
         await api.sendMessage(conversationId, content, selectedProviderId!, selectedModel!, userMsgId, attachmentJsons);
       }
       // Auto-generate title after first message (only for local LLM)
-      if (isFirstMessage && !isAcp) {
+      if (isFirstMessage && !isOpenClawConversation) {
         void generateTitle(conversationId);
       }
     } catch (error) {

@@ -99,6 +99,27 @@ pub struct Delta {
     pub content: Option<String>,
 }
 
+// ── Tauri event payloads for streaming (shared across chat, openclaw, acp) ──
+
+#[derive(Clone, Serialize)]
+pub struct StreamChunkPayload {
+    pub conversation_id: String,
+    pub content: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct StreamDonePayload {
+    pub conversation_id: String,
+    pub message_id: String,
+    pub full_content: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct StreamErrorPayload {
+    pub conversation_id: String,
+    pub error: String,
+}
+
 // Non-streaming response types
 #[derive(Debug, Deserialize)]
 pub struct ChatResponse {

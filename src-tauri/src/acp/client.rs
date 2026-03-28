@@ -9,27 +9,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::acp::types::*;
-
-// ── Tauri event payloads (match existing chat events) ──
-
-#[derive(Clone, serde::Serialize)]
-struct StreamChunkPayload {
-    conversation_id: String,
-    content: String,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct StreamDonePayload {
-    conversation_id: String,
-    message_id: String,
-    full_content: String,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct StreamErrorPayload {
-    conversation_id: String,
-    error: String,
-}
+use crate::llm::types::{StreamChunkPayload, StreamDonePayload, StreamErrorPayload};
 
 // ── AcpClient ──
 

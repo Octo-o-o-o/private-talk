@@ -124,35 +124,40 @@ pub fn update_provider(
     models: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    if let Some(name) = name {
-        conn.execute(
-            "UPDATE providers SET name = ?1 WHERE id = ?2",
-            rusqlite::params![name, id],
-        )
-        .map_err(|e| e.to_string())?;
+    let mut sets: Vec<String> = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(v) = name {
+        params.push(Box::new(v));
+        sets.push(format!("name = ?{}", params.len()));
     }
-    if let Some(base_url) = base_url {
-        conn.execute(
-            "UPDATE providers SET base_url = ?1 WHERE id = ?2",
-            rusqlite::params![base_url, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = base_url {
+        params.push(Box::new(v));
+        sets.push(format!("base_url = ?{}", params.len()));
     }
-    if let Some(api_key) = api_key {
-        conn.execute(
-            "UPDATE providers SET api_key = ?1 WHERE id = ?2",
-            rusqlite::params![api_key, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = api_key {
+        params.push(Box::new(v));
+        sets.push(format!("api_key = ?{}", params.len()));
     }
-    if let Some(models) = models {
-        let models_json = serde_json::to_string(&models).map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE providers SET models = ?1 WHERE id = ?2",
-            rusqlite::params![models_json, id],
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some(v) = models {
+        let json = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+        params.push(Box::new(json));
+        sets.push(format!("models = ?{}", params.len()));
     }
+
+    if sets.is_empty() {
+        return Ok(());
+    }
+
+    params.push(Box::new(id));
+    let sql = format!(
+        "UPDATE providers SET {} WHERE id = ?{}",
+        sets.join(", "),
+        params.len()
+    );
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

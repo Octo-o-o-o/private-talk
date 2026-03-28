@@ -3,35 +3,17 @@ use crate::context::compressor;
 use crate::db::DbState;
 use crate::llm::is_vision_model;
 use crate::llm::provider::{chat_complete, stream_chat, StreamItem};
-use crate::llm::types::{ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail};
+use crate::llm::types::{
+    ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail, StreamChunkPayload,
+    StreamDonePayload, StreamErrorPayload,
+};
 use base64::Engine;
-use serde::Serialize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager, State};
 
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Serialize)]
-struct StreamChunkPayload {
-    conversation_id: String,
-    content: String,
-}
-
-#[derive(Clone, Serialize)]
-struct StreamDonePayload {
-    conversation_id: String,
-    message_id: String,
-    full_content: String,
-}
-
-#[derive(Clone, Serialize)]
-struct StreamErrorPayload {
-    conversation_id: String,
-    error: String,
-}
-
-/// Save a usage record to the database
 fn save_usage_record(
     conn: &rusqlite::Connection,
     conversation_id: &str,
@@ -645,18 +627,12 @@ pub async fn prepare_text_attachment(
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let now = chrono::Utc::now();
-        let month_dir = app_data_dir
-            .join("attachments")
-            .join(now.format("%Y-%m").to_string());
-        std::fs::create_dir_all(&month_dir)
-            .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
-
+        let dest_dir = attachments::attachments_dir(&app_data_dir)?;
         let ext = std::path::Path::new(&file_name)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("txt");
-        let dest = month_dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+        let dest = dest_dir.join(format!("{}.{}", crate::db::new_id(), ext));
         std::fs::write(&dest, &content).map_err(|e| format!("Failed to write text file: {}", e))?;
 
         let prepared = attachments::PreparedAttachment {

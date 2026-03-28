@@ -131,7 +131,7 @@ pub fn classify_file(path: &Path) -> Option<(&'static str, String)> {
 }
 
 /// Get the attachments storage directory, creating it if needed.
-fn attachments_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
+pub fn attachments_dir(app_data_dir: &Path) -> Result<PathBuf, String> {
     let now = Utc::now();
     let month_dir = app_data_dir
         .join("attachments")

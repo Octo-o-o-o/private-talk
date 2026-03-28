@@ -1,9 +1,12 @@
 use super::types::{ChatChunk, ChatMessage, ChatRequest, ChatResponse, StreamOptions, Usage};
 use futures::StreamExt;
 use reqwest::Client;
+use std::sync::LazyLock;
 use tokio::sync::mpsc;
 
-fn with_optional_bearer(
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+
+pub(crate) fn with_optional_bearer(
     request: reqwest::RequestBuilder,
     api_key: &str,
 ) -> reqwest::RequestBuilder {
@@ -42,7 +45,6 @@ pub async fn stream_chat_with_headers(
     temperature: Option<f64>,
     extra_headers: Option<Vec<(String, String)>>,
 ) -> Result<mpsc::Receiver<Result<StreamItem, String>>, String> {
-    let client = Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let request = ChatRequest {
@@ -55,7 +57,7 @@ pub async fn stream_chat_with_headers(
         }),
     };
 
-    let mut req_builder = client
+    let mut req_builder = HTTP_CLIENT
         .post(&url)
         .header("Content-Type", "application/json")
         .json(&request);
@@ -89,10 +91,12 @@ pub async fn stream_chat_with_headers(
                     let text = String::from_utf8_lossy(&bytes);
                     buffer.push_str(&text);
 
-                    // Process complete SSE lines
-                    while let Some(pos) = buffer.find('\n') {
-                        let line = buffer[..pos].trim().to_string();
-                        buffer = buffer[pos + 1..].to_string();
+                    // Process complete SSE lines (drain consumed bytes to avoid O(n²) copies)
+                    let mut cursor = 0;
+                    while let Some(rel) = buffer[cursor..].find('\n') {
+                        let pos = cursor + rel;
+                        let line = buffer[cursor..pos].trim();
+                        cursor = pos + 1;
 
                         if line.is_empty() || line.starts_with(':') {
                             continue;
@@ -105,7 +109,6 @@ pub async fn stream_chat_with_headers(
 
                             match serde_json::from_str::<ChatChunk>(data) {
                                 Ok(chunk) => {
-                                    // Check for usage in the chunk (usually the final one)
                                     if let Some(usage) = chunk.usage {
                                         let _ = tx.send(Ok(StreamItem::Usage(usage))).await;
                                     }
@@ -127,6 +130,10 @@ pub async fn stream_chat_with_headers(
                             }
                         }
                     }
+                    // Keep only unprocessed bytes
+                    if cursor > 0 {
+                        buffer.drain(..cursor);
+                    }
                 }
                 Err(e) => {
                     let _ = tx.send(Err(format!("Stream error: {}", e))).await;
@@ -146,7 +153,6 @@ pub async fn chat_complete(
     model: &str,
     messages: Vec<ChatMessage>,
 ) -> Result<String, String> {
-    let client = Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let request = ChatRequest {
@@ -158,7 +164,7 @@ pub async fn chat_complete(
     };
 
     let response = with_optional_bearer(
-        client
+        HTTP_CLIENT
             .post(&url)
             .header("Content-Type", "application/json")
             .json(&request),

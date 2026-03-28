@@ -10,22 +10,10 @@ pub struct ContextStats {
     pub usage_percent: f64,
 }
 
-/// Load a single usize setting from the database, with a fallback default.
-fn get_setting(conn: &Connection, key: &str, default: usize) -> usize {
-    conn.query_row(
-        "SELECT value FROM settings WHERE key = ?1",
-        rusqlite::params![key],
-        |row| row.get::<_, String>(0),
-    )
-    .ok()
-    .and_then(|v| v.parse().ok())
-    .unwrap_or(default)
-}
-
 /// Load context settings from the database.
 fn get_settings(conn: &Connection) -> (usize, usize) {
-    let hot_size = get_setting(conn, "context_hot_size", 20);
-    let max_messages = get_setting(conn, "context_max_messages", 50);
+    let hot_size = crate::db::get_setting_parsed(conn, "context_hot_size", 20);
+    let max_messages = crate::db::get_setting_parsed(conn, "context_max_messages", 50);
     (hot_size, max_messages)
 }
 

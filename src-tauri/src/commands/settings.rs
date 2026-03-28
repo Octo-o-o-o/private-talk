@@ -4,16 +4,8 @@ use tauri::State;
 #[tauri::command]
 pub fn get_setting(db: State<DbState>, key: String) -> Result<Option<String>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let result = conn.query_row(
-        "SELECT value FROM settings WHERE key = ?1",
-        rusqlite::params![key],
-        |row| row.get(0),
-    );
-    match result {
-        Ok(val) => Ok(Some(val)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+    let val = crate::db::get_setting_str(&conn, &key, "");
+    Ok(if val.is_empty() { None } else { Some(val) })
 }
 
 #[tauri::command]

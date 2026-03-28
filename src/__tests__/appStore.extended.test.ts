@@ -379,6 +379,7 @@ describe("appStore extended behaviors", () => {
           base_url: "HTTP://LOCALHOST:11434/v1/",
         }),
       ],
+      openclawInstances: [existingInstance],
     });
 
     mockedInvoke.mockImplementation(async (command: string) => {
