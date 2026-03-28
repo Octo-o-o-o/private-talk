@@ -14,7 +14,7 @@ import { useAppStore } from "../../stores/appStore";
 const CHUNK_GAP_SECONDS = 0.6;
 
 /** Split text into TTS-friendly chunks by newlines. */
-function splitTextIntoChunks(text: string): string[] {
+export function splitTextIntoChunks(text: string): string[] {
   const cleaned = text
     .replace(/```[\s\S]*?```/g, "")                        // code blocks
     .replace(/^#{1,6}\s+/gm, "")                           // headings
@@ -70,7 +70,7 @@ interface PlaybackChunk {
   voiceId: string;
 }
 
-function mergeAdjacentPlaybackSegments(
+export function mergeAdjacentPlaybackSegments(
   segments: ResolvedPlaybackSegment[]
 ): ResolvedPlaybackSegment[] {
   const merged: ResolvedPlaybackSegment[] = [];
@@ -90,7 +90,7 @@ function mergeAdjacentPlaybackSegments(
   return merged;
 }
 
-function expandPlaybackChunks(
+export function expandPlaybackChunks(
   segments: ResolvedPlaybackSegment[]
 ): PlaybackChunk[] {
   return mergeAdjacentPlaybackSegments(segments).flatMap((segment) =>
@@ -105,7 +105,7 @@ function expandPlaybackChunks(
   );
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
+export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const byteChars = atob(base64);
   const bytes = new Uint8Array(byteChars.length);
   for (let i = 0; i < byteChars.length; i++) {
@@ -114,7 +114,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const whole = Math.floor(seconds);
   return `${Math.floor(whole / 60)}:${(whole % 60).toString().padStart(2, "0")}`;

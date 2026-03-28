@@ -1,6 +1,7 @@
 use crate::attachments::{self, PreparedAttachment};
 use crate::context::compressor;
 use crate::db::DbState;
+use crate::llm::is_vision_model;
 use crate::llm::provider::{chat_complete, stream_chat, StreamItem};
 use crate::llm::types::{ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail};
 use serde::Serialize;
@@ -47,6 +48,37 @@ fn save_usage_record(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn delete_messages_from_connection(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM messages
+         WHERE conversation_id = ?1
+           AND role != 'system'
+           AND message_order >= (SELECT message_order FROM messages WHERE id = ?2)",
+        rusqlite::params![conversation_id, message_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn get_first_user_message_content(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Result<String, String> {
+    conn.query_row(
+        "SELECT content FROM messages
+         WHERE conversation_id = ?1 AND role = 'user'
+         ORDER BY message_order ASC
+         LIMIT 1",
+        rusqlite::params![conversation_id],
+        |row| row.get::<_, String>(0),
+    )
+    .map_err(|e| format!("No user message found: {}", e))
 }
 
 #[tauri::command]
@@ -189,6 +221,32 @@ pub async fn send_message(
                                     att.file_name, file_content
                                 ),
                             });
+                        }
+                    }
+                    "pdf" => {
+                        if is_vision_model(&model) {
+                            if let Ok(b64) = attachments::read_pdf_as_base64(&att.file_path) {
+                                parts.push(ChatContentPart::ImageUrl {
+                                    image_url: ImageUrlDetail {
+                                        url: format!(
+                                            "data:application/pdf;base64,{}",
+                                            b64
+                                        ),
+                                        detail: None,
+                                    },
+                                });
+                            }
+                        }
+                        if let Ok(text) = attachments::read_pdf_text_content(&att.file_path) {
+                            let trimmed = text.trim();
+                            if !trimmed.is_empty() {
+                                parts.push(ChatContentPart::Text {
+                                    text: format!(
+                                        "--- PDF: {} ---\n{}\n--- End of PDF ---",
+                                        att.file_name, trimmed
+                                    ),
+                                });
+                            }
                         }
                     }
                     _ => {}
@@ -344,12 +402,7 @@ pub fn delete_messages_from(
     message_id: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "DELETE FROM messages WHERE conversation_id = ?1 AND role != 'system' AND created_at >= (SELECT created_at FROM messages WHERE id = ?2)",
-        rusqlite::params![conversation_id, message_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    delete_messages_from_connection(&conn, &conversation_id, &message_id)
 }
 
 /// Update the content of a message
@@ -379,12 +432,7 @@ pub async fn generate_title(
     // Get first user message
     let first_message = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT content FROM messages WHERE conversation_id = ?1 AND role = 'user' ORDER BY created_at ASC LIMIT 1",
-            rusqlite::params![conversation_id],
-            |row| row.get::<_, String>(0),
-        )
-        .map_err(|e| format!("No user message found: {}", e))?
+        get_first_user_message_content(&conn, &conversation_id)?
     };
 
     // Load provider info
@@ -427,6 +475,79 @@ pub async fn generate_title(
     }
 
     Ok(title)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{delete_messages_from_connection, get_first_user_message_content};
+    use rusqlite::Connection;
+
+    #[test]
+    fn delete_messages_from_uses_message_order_boundary() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::init_db(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv1', 'Test', '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        for (id, role, content) in [
+            ("msg1", "user", "first"),
+            ("msg2", "assistant", "second"),
+            ("msg3", "user", "third"),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, 'conv1', ?2, ?3, '2024-01-01 00:00:00')",
+                rusqlite::params![id, role, content],
+            )
+            .unwrap();
+        }
+
+        delete_messages_from_connection(&conn, "conv1", "msg2").unwrap();
+
+        let remaining_ids: Vec<String> = conn
+            .prepare("SELECT id FROM messages WHERE conversation_id = 'conv1' ORDER BY message_order ASC")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(remaining_ids, vec!["msg1"]);
+    }
+
+    #[test]
+    fn first_user_message_prefers_stable_message_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema::init_db(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv1', 'Test', '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('msg1', 'conv1', 'user', 'first user', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('msg2', 'conv1', 'assistant', 'assistant', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('msg3', 'conv1', 'user', 'second user', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        let first_user = get_first_user_message_content(&conn, "conv1").unwrap();
+        assert_eq!(first_user, "first user");
+    }
 }
 
 /// Prepare file attachments: copy/compress to app data, return metadata.
@@ -499,6 +620,29 @@ pub async fn prepare_audio_attachment(
     })
     .await
     .map_err(|e| format!("Audio preparation task failed: {}", e))?
+}
+
+/// Prepare a PDF attachment: save original and extract text into a companion file.
+#[tauri::command]
+pub async fn prepare_pdf_attachment(
+    app: tauri::AppHandle,
+    pdf_base64: String,
+    file_name: String,
+) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &pdf_base64)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = attachments::prepare_pdf_from_bytes(&app_data_dir, &data, &file_name)?;
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("PDF preparation task failed: {}", e))?
 }
 
 /// Prepare a text file attachment from raw content (uploaded via FileReader).

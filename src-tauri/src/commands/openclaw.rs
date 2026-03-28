@@ -1421,7 +1421,7 @@ async fn send_via_http(
     let mut messages: Vec<ChatMessage> = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC")
+            .prepare("SELECT role, content FROM messages WHERE conversation_id = ?1 ORDER BY message_order ASC")
             .map_err(|e| e.to_string())?;
         let msgs = stmt
             .query_map(rusqlite::params![conversation_id], |row| {

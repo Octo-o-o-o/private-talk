@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Empty, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,7 @@ export function VoiceManager() {
   const navigate = useNavigate();
   const { voices, loadVoices, loadAssistants } = useAppStore();
   const { t } = useI18n();
+  const headerDragProps = useDesktopWindowDrag();
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -115,8 +117,11 @@ export function VoiceManager() {
   const customVoices = voices.filter((voice) => !voice.is_preset);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-14 items-center justify-between border-b border-border px-6">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+      <div
+        {...headerDragProps}
+        className="flex h-14 select-none items-center justify-between border-b border-border px-4 md:px-6"
+      >
         <div className="flex items-center gap-3">
           <MobileMenuButton />
           <Volume2 className="h-4 w-4 text-muted-foreground" />
@@ -130,7 +135,7 @@ export function VoiceManager() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto max-w-4xl space-y-8 p-6">
+        <div className="mx-auto w-full max-w-4xl space-y-8 p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
           <section>
             <h2 className="mb-4 text-sm uppercase tracking-wider text-muted-foreground">
               {t("预设声音", "Preset Voices")}

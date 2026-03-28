@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import type { UserConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
@@ -36,4 +37,52 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+
+          if (
+            id.includes("react-syntax-highlighter") ||
+            id.includes("/languages/prism/") ||
+            id.includes("/styles/prism/")
+          ) {
+            return "code-vendor";
+          }
+
+          if (
+            id.includes("react-markdown") ||
+            id.includes("remark-gfm") ||
+            id.includes("mdast-util") ||
+            id.includes("micromark")
+          ) {
+            return "markdown-vendor";
+          }
+
+          if (id.includes("@radix-ui")) {
+            return "radix-vendor";
+          }
+
+          if (id.includes("@tauri-apps")) {
+            return "tauri-vendor";
+          }
+
+          if (id.includes("react-router")) {
+            return "router-vendor";
+          }
+        },
+      },
+    },
+  },
+
+  // Vitest configuration
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: ["./src/__tests__/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+    css: false,
+  },
+} as UserConfig));

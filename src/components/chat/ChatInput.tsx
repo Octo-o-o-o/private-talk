@@ -46,7 +46,7 @@ type MicrophonePermissionState =
   | "granted"
   | "denied";
 type ComposerAttachmentStatus = "preparing" | "ready" | "error";
-type ComposerAttachmentType = "image" | "text_file" | "audio";
+type ComposerAttachmentType = "image" | "text_file" | "audio" | "pdf";
 
 interface ComposerAttachment {
   clientId: string;
@@ -774,6 +774,43 @@ export function ChatInput({ onSend, onStop }: Props) {
     })();
   };
 
+  const queuePdfAttachment = (file: File) => {
+    const clientId = crypto.randomUUID();
+
+    appendComposerAttachment({
+      clientId,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: "pdf",
+      mimeType: "application/pdf",
+      status: "preparing",
+    });
+
+    void (async () => {
+      try {
+        const b64 = await readFileAsBase64(file);
+        const json = await api.preparePdfAttachment(b64, file.name);
+        const prepared = JSON.parse(json) as PreparedAttachment;
+        updateComposerAttachment(clientId, {
+          status: "ready",
+          prepared,
+          fileName: prepared.file_name,
+          fileSize: prepared.file_size,
+          mimeType: prepared.mime_type,
+        });
+      } catch (error) {
+        console.error(`Failed to prepare PDF ${file.name}:`, error);
+        updateComposerAttachment(clientId, {
+          status: "error",
+          error: getErrorMessage(
+            error,
+            t("PDF 处理失败，请移除后重试", "PDF preparation failed")
+          ),
+        });
+      }
+    })();
+  };
+
   const prepareSelectedFiles = (files: FileList | File[]) => {
     clearComposerError();
 
@@ -782,6 +819,11 @@ export function ChatInput({ onSend, onStop }: Props) {
 
       if (file.type.startsWith("image/")) {
         queueImageAttachment(file, file.name, file.type || "image/png");
+        continue;
+      }
+
+      if (ext === "pdf" || file.type === "application/pdf") {
+        queuePdfAttachment(file);
         continue;
       }
 
@@ -1803,7 +1845,11 @@ export function ChatInput({ onSend, onStop }: Props) {
         "relative border-t border-border/70",
         isMobile ? "bg-background px-2 py-1" : "bg-background/95 px-4 py-4 backdrop-blur"
       )}
-      style={isMobile && !keyboardVisible ? { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 4px)" } : undefined}
+      style={
+        isMobile && !keyboardVisible
+          ? { paddingBottom: "max(env(safe-area-inset-bottom, 0px), 4px)" }
+          : undefined
+      }
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -1813,12 +1859,12 @@ export function ChatInput({ onSend, onStop }: Props) {
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 backdrop-blur-[2px]">
           <Upload className="mb-2 h-7 w-7 text-primary/60" />
           <p className="text-sm font-medium text-primary/70">
-            {t("拖放图片或文件到这里", "Drop images or files here")}
+            {t("拖放图片、PDF 或文件到这里", "Drop images, PDFs, or files here")}
           </p>
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto w-full max-w-3xl">
         <div className="overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-sm">
           {composerAttachments.length > 0 ? (
             <div className="flex flex-wrap gap-2 border-b border-border/60 px-3 py-3">
@@ -2022,7 +2068,7 @@ export function ChatInput({ onSend, onStop }: Props) {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept="image/*,.md,.txt,.log,.csv,.tsv,.json,.yaml,.yml,.toml,.xml,.py,.rs,.js,.ts,.tsx,.jsx,.go,.java,.c,.cpp,.h,.hpp,.sh,.html,.css,.scss,.sql"
+                    accept="image/*,.pdf,.md,.txt,.log,.csv,.tsv,.json,.yaml,.yml,.toml,.xml,.py,.rs,.js,.ts,.tsx,.jsx,.go,.java,.c,.cpp,.h,.hpp,.sh,.html,.css,.scss,.sql"
                     onChange={handleFileSelect}
                     className="hidden"
                   />

@@ -1,7 +1,7 @@
 {
   "name": "private-talk",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Local-first lightweight desktop toolkit for LLM chat, TTS, and OpenClaw Agent debugging.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Octo-o-o-o/private-talk#readme",
@@ -33,7 +33,12 @@
     "ios:build": "node tools/mobile-toolchain/build-ios.mjs",
     "ios:build:device": "node tools/mobile-toolchain/build-ios.mjs --target aarch64",
     "mac:build": "node tools/mobile-toolchain/build-macos.mjs",
-    "package:all": "pnpm mac:build && pnpm ios:build:device && pnpm android:build"
+    "package:all": "pnpm mac:build && pnpm ios:build:device && pnpm android:build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:all": "pnpm test && pnpm test:rust"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -68,10 +73,15 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/coverage-v8": "^4.1.1",
+    "jsdom": "^29.0.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.1"
   }
 }

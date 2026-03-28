@@ -16,6 +16,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 import {
   Select,
   SelectContent,
@@ -333,10 +334,14 @@ export function VoiceEditor() {
   };
 
   const isQwen = formData.engine === "qwen3-tts";
+  const headerDragProps = useDesktopWindowDrag();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-6">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+      <div
+        {...headerDragProps}
+        className="flex h-14 select-none items-center gap-3 border-b border-border px-4 md:px-6"
+      >
         <Button variant="ghost" size="icon-sm" onClick={handleCancel}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -349,7 +354,7 @@ export function VoiceEditor() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto max-w-2xl p-6">
+        <div className="mx-auto w-full max-w-2xl p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
           <Card>
             <CardHeader>
               <CardTitle>{t("声音配置", "Voice Profile")}</CardTitle>

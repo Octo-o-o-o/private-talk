@@ -17,6 +17,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useAppStore } from "../../stores/appStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDesktopWindowDrag, windowDragExcludeProps } from "@/hooks/useDesktopWindowDrag";
 import { useMobileKeyboardInset } from "@/hooks/useMobileKeyboardInset";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import { MessageItem } from "./MessageItem";
@@ -77,6 +78,7 @@ export function ChatView() {
   const [mobileInputHeight, setMobileInputHeight] = useState(0);
   const mobileInputRef = useRef<HTMLDivElement>(null);
   const { keyboardInset: mobileKeyboardInset } = useMobileKeyboardInset(isMobile);
+  const headerDragProps = useDesktopWindowDrag();
 
   const currentAssistant = assistants.find((assistant) => assistant.id === currentAssistantId);
   const currentProvider = providers.find((provider) => provider.id === selectedProviderId);
@@ -532,9 +534,12 @@ export function ChatView() {
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
       {/* Header bar */}
-      <div className="flex h-12 items-center justify-between gap-3 border-b border-border bg-muted/30 px-4">
+      <div
+        {...headerDragProps}
+        className="flex h-12 select-none items-center justify-between gap-3 border-b border-border bg-muted/30 px-4"
+      >
         {/* Left: Menu button + Assistant selector */}
         <div className="flex min-w-0 items-center gap-2">
           <MobileMenuButton />
@@ -609,58 +614,58 @@ export function ChatView() {
             <SlidersHorizontal className="h-4 w-4" />
           </Button>
         ) : (
-        <div className="flex items-center gap-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 gap-1.5">
-                <Badge variant="secondary" className="bg-primary/20 text-primary text-[11px]">
-                  {currentProvider?.name || t("选择服务商", "Provider")}
-                </Badge>
-                <span className="max-w-[120px] truncate font-mono text-xs text-muted-foreground lg:max-w-[200px]">
-                  {selectedModel || t("未选择", "No model")}
-                </span>
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              {providers.length === 0 ? (
-                <DropdownMenuItem disabled>
-                  {t("未配置服务商", "No providers configured")}
-                </DropdownMenuItem>
-              ) : null}
-              {providers.flatMap((provider) =>
-                provider.models.map((model) => (
-                  <DropdownMenuItem
-                    key={`${provider.id}-${model}`}
-                    onClick={() => {
-                      setSelectedProvider(provider.id);
-                      setSelectedModel(model);
-                    }}
-                  >
-                    <span className="mr-2 text-xs text-muted-foreground">{provider.name}</span>
-                    <span className="truncate font-mono text-sm">{model}</span>
+          <div {...windowDragExcludeProps} className="flex items-center gap-4">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5">
+                  <Badge variant="secondary" className="bg-primary/20 text-primary text-[11px]">
+                    {currentProvider?.name || t("选择服务商", "Provider")}
+                  </Badge>
+                  <span className="max-w-[120px] truncate font-mono text-xs text-muted-foreground lg:max-w-[200px]">
+                    {selectedModel || t("未选择", "No model")}
+                  </span>
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-80">
+                {providers.length === 0 ? (
+                  <DropdownMenuItem disabled>
+                    {t("未配置服务商", "No providers configured")}
                   </DropdownMenuItem>
-                ))
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                ) : null}
+                {providers.flatMap((provider) =>
+                  provider.models.map((model) => (
+                    <DropdownMenuItem
+                      key={`${provider.id}-${model}`}
+                      onClick={() => {
+                        setSelectedProvider(provider.id);
+                        setSelectedModel(model);
+                      }}
+                    >
+                      <span className="mr-2 text-xs text-muted-foreground">{provider.name}</span>
+                      <span className="truncate font-mono text-sm">{model}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">{t("上下文", "Ctx")}</span>
-            <Slider
-              value={[contextSize]}
-              onValueChange={([value]) => setContextSize(value)}
-              onValueCommit={([value]) => {
-                void api.setSetting("context_hot_size", String(value));
-              }}
-              min={5}
-              max={100}
-              step={1}
-              className="w-20"
-            />
-            <span className="w-8 text-[11px] text-muted-foreground">{contextSize}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">{t("上下文", "Ctx")}</span>
+              <Slider
+                value={[contextSize]}
+                onValueChange={([value]) => setContextSize(value)}
+                onValueCommit={([value]) => {
+                  void api.setSetting("context_hot_size", String(value));
+                }}
+                min={5}
+                max={100}
+                step={1}
+                className="w-20"
+              />
+              <span className="w-8 text-[11px] text-muted-foreground">{contextSize}</span>
+            </div>
           </div>
-        </div>
         )}
       </div>
 
@@ -721,19 +726,22 @@ export function ChatView() {
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1">
         <div
           ref={scrollContainerRef}
           onScroll={checkIfNearBottom}
-          className="h-full overflow-y-auto p-4"
+          className="h-full min-w-0 overflow-y-auto p-4"
           style={{
             willChange: "scroll-position",
             paddingBottom: isMobile ? `${mobileInputHeight + 16}px` : undefined,
           }}
         >
-          <div className="mx-auto max-w-3xl space-y-6 pb-2">
+          <div className="mx-auto w-full max-w-3xl space-y-6 pb-2">
             {!currentConversationId ? (
-              <div className="flex min-h-[calc(100dvh-220px)] items-center justify-center">
+              <div
+                className="flex items-center justify-center"
+                style={{ minHeight: "calc(var(--app-layout-height, 100dvh) - 220px)" }}
+              >
                 <div className="flex max-w-md flex-col items-center text-center px-6">
                   <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl">
                     <img src={appIconUrl} alt="Private Talk" className="h-16 w-16 rounded-2xl" />
@@ -889,7 +897,7 @@ export function ChatView() {
       {isMobile ? (
         <div
           ref={mobileInputRef}
-          className="fixed inset-x-0 z-20 bg-background"
+          className="safe-area-bleed-bottom fixed inset-x-0 z-20 bg-background"
           style={{
             bottom: `${mobileKeyboardInset}px`,
             paddingLeft: "env(safe-area-inset-left, 0px)",

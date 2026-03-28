@@ -185,3 +185,168 @@ pub async fn chat_complete(
         .and_then(|c| c.message.content.clone())
         .ok_or_else(|| "No content in response".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::types::ChatContent;
+    use reqwest::header::AUTHORIZATION;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn sample_messages() -> Vec<ChatMessage> {
+        vec![ChatMessage {
+            role: "user".to_string(),
+            content: ChatContent::text("Hello"),
+        }]
+    }
+
+    async fn spawn_test_server(response_body: String) -> (String, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0_u8; 8192];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            socket.write_all(response_body.as_bytes()).await.unwrap();
+            socket.shutdown().await.unwrap();
+            request
+        });
+
+        (format!("http://{}", addr), handle)
+    }
+
+    #[test]
+    fn with_optional_bearer_skips_blank_api_keys() {
+        let request = with_optional_bearer(
+            Client::new().post("http://127.0.0.1/test"),
+            "   ",
+        )
+        .build()
+        .unwrap();
+
+        assert!(request.headers().get(AUTHORIZATION).is_none());
+    }
+
+    #[test]
+    fn with_optional_bearer_trims_and_sets_authorization() {
+        let request = with_optional_bearer(
+            Client::new().post("http://127.0.0.1/test"),
+            "  sk-test  ",
+        )
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            request.headers().get(AUTHORIZATION).unwrap(),
+            "Bearer sk-test"
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_complete_sends_authorization_and_parses_response() {
+        let response_json = r#"{"choices":[{"message":{"content":"Hello back"}}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_json.len(),
+            response_json
+        );
+        let (base_url, request_handle) = spawn_test_server(response).await;
+
+        let result = chat_complete(&base_url, " sk-test ", "gpt-test", sample_messages())
+            .await
+            .unwrap();
+        let request = request_handle.await.unwrap().to_lowercase();
+
+        assert_eq!(result, "Hello back");
+        assert!(request.contains("post /chat/completions http/1.1"));
+        assert!(request.contains("authorization: bearer sk-test"));
+        assert!(request.contains("content-type: application/json"));
+    }
+
+    #[tokio::test]
+    async fn chat_complete_returns_an_error_when_content_is_missing() {
+        let response_json = r#"{"choices":[{"message":{"content":null}}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_json.len(),
+            response_json
+        );
+        let (base_url, _) = spawn_test_server(response).await;
+
+        let error = chat_complete(&base_url, "sk-test", "gpt-test", sample_messages())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "No content in response");
+    }
+
+    #[tokio::test]
+    async fn stream_chat_with_headers_emits_content_and_usage() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            sse.len(),
+            sse
+        );
+        let (base_url, request_handle) = spawn_test_server(response).await;
+
+        let mut receiver = stream_chat_with_headers(
+            &base_url,
+            "",
+            "gpt-test",
+            sample_messages(),
+            Some(0.3),
+            Some(vec![("x-openclaw-session-key".to_string(), "session-1".to_string())]),
+        )
+        .await
+        .unwrap();
+
+        let first = receiver.recv().await.unwrap().unwrap();
+        let second = receiver.recv().await.unwrap().unwrap();
+        let request = request_handle.await.unwrap().to_lowercase();
+
+        match first {
+            StreamItem::Content(content) => assert_eq!(content, "Hello"),
+            StreamItem::Usage(_) => panic!("expected content chunk first"),
+        }
+
+        match second {
+            StreamItem::Usage(usage) => {
+                assert_eq!(usage.prompt_tokens, 1);
+                assert_eq!(usage.completion_tokens, 2);
+                assert_eq!(usage.total_tokens, 3);
+            }
+            StreamItem::Content(_) => panic!("expected usage chunk second"),
+        }
+
+        assert!(request.contains("x-openclaw-session-key: session-1"));
+        assert!(!request.contains("authorization:"));
+    }
+
+    #[tokio::test]
+    async fn stream_chat_reports_sse_parse_errors() {
+        let sse = concat!("data: not-json\n\n", "data: [DONE]\n\n");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            sse.len(),
+            sse
+        );
+        let (base_url, _) = spawn_test_server(response).await;
+
+        let mut receiver = stream_chat(&base_url, "sk-test", "gpt-test", sample_messages(), None)
+            .await
+            .unwrap();
+        let item = receiver.recv().await.unwrap();
+
+        match item {
+            Err(error) => assert!(error.contains("Parse error:")),
+            Ok(_) => panic!("expected parse error from malformed SSE chunk"),
+        }
+    }
+}

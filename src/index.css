@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --app-layout-height: 100vh;
   --background: oklch(0.975 0.007 248);
   --foreground: oklch(0.205 0.02 248);
   --card: oklch(0.992 0.004 248);
@@ -157,22 +158,76 @@
   html,
   body,
   #root {
-    height: 100%;
-    min-height: 100%;
+    height: var(--app-layout-height);
+    min-height: var(--app-layout-height);
     width: 100%;
     overflow: hidden;
-    background: var(--background) !important;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--background);
+  }
+
+  /* While the splash screen is visible, keep the html/body background blue
+     so the safe-area region behind the home indicator matches the splash. */
+  html:has(#splash-screen:not(.fade-out)),
+  html:has(#splash-screen:not(.fade-out)) > body {
+    background: #35A6FD !important;
   }
 
   #root {
+    background: var(--background);
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    /* Ensure the background color extends behind safe area insets */
-    background-color: var(--background);
+    @apply text-foreground font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .safe-area-bleed-top,
+  .safe-area-bleed-bottom,
+  .safe-area-bleed-y {
+    isolation: isolate;
+  }
+
+  .app-safe-area-shell {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .safe-area-bleed-top::before,
+  .safe-area-bleed-y::before,
+  .safe-area-bleed-bottom::after,
+  .safe-area-bleed-y::after,
+  .app-safe-area-shell::before,
+  .app-safe-area-shell::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: inherit;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .safe-area-bleed-top::before,
+  .safe-area-bleed-y::before,
+  .app-safe-area-shell::before {
+    top: calc(env(safe-area-inset-top, 0px) * -1);
+    height: env(safe-area-inset-top, 0px);
+  }
+
+  .safe-area-bleed-bottom::after,
+  .safe-area-bleed-y::after,
+  .app-safe-area-shell::after {
+    bottom: calc(env(safe-area-inset-bottom, 0px) * -1);
+    height: env(safe-area-inset-bottom, 0px);
   }
 }
 

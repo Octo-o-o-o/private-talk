@@ -6,6 +6,7 @@ import {
   Calendar,
   ChevronRight,
   DollarSign,
+  Globe,
   MessageSquare,
   RefreshCw,
   Zap,
@@ -27,9 +28,11 @@ import {
 } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 
 type ViewMode = "session" | "date";
 type PricingMap = Record<string, { prompt: number; completion: number }>;
+type PricingStatus = "idle" | "loading" | "ready" | "error";
 
 let cachedPricing: PricingMap | null = null;
 
@@ -140,23 +143,25 @@ function getCollapsedModelLabel(usages: ModelUsage[]) {
 
 export function UsagePage() {
   const { locale, t } = useI18n();
+  const headerDragProps = useDesktopWindowDrag();
   const [viewMode, setViewMode] = useState<ViewMode>("session");
   const [conversationUsages, setConversationUsages] = useState<ConversationUsage[]>([]);
   const [dailyUsages, setDailyUsages] = useState<DailyUsage[]>([]);
   const [pricing, setPricing] = useState<PricingMap>({});
+  const [pricingStatus, setPricingStatus] = useState<PricingStatus>(
+    cachedPricing ? "ready" : "idle"
+  );
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [conversationData, dailyData, pricingData] = await Promise.all([
+      const [conversationData, dailyData] = await Promise.all([
         api.getUsageByConversation(),
         api.getUsageByDate(),
-        fetchPricing(),
       ]);
       setConversationUsages(conversationData);
       setDailyUsages(dailyData);
-      setPricing(pricingData);
     } catch (error) {
       console.error("Failed to load usage data:", error);
     } finally {
@@ -164,7 +169,23 @@ export function UsagePage() {
     }
   }, []);
 
+  const syncPricing = useCallback(async () => {
+    setPricingStatus("loading");
+    try {
+      const pricingData = await fetchPricing();
+      setPricing(pricingData);
+      setPricingStatus(Object.keys(pricingData).length > 0 ? "ready" : "error");
+    } catch (error) {
+      console.error("Failed to sync pricing:", error);
+      setPricing({});
+      setPricingStatus("error");
+    }
+  }, []);
+
   useEffect(() => {
+    if (cachedPricing) {
+      setPricing(cachedPricing);
+    }
     void loadData();
   }, [loadData]);
 
@@ -196,12 +217,41 @@ export function UsagePage() {
 
   const totalTokens = conversationUsages.length > 0 ? conversationTokenTotal : dailyTokenTotal;
   const totalCost = conversationUsages.length > 0 ? conversationCostTotal : dailyCostTotal;
-  const hasPricing = Object.keys(pricing).length > 0;
+  const hasPricing =
+    pricingStatus === "ready" && Object.keys(pricing).length > 0;
+
+  const pricingSummary = (() => {
+    if (pricingStatus === "loading") {
+      return t(
+        "正在同步公开模型定价，完成后会显示费用估算。",
+        "Syncing public model pricing. Cost estimates will appear when finished."
+      );
+    }
+    if (pricingStatus === "ready") {
+      return t(
+        "已同步公开模型定价。以下费用为估算值，不会影响本地数据。",
+        "Public pricing has been synced. Costs below are estimates only and do not affect local data."
+      );
+    }
+    if (pricingStatus === "error") {
+      return t(
+        "定价同步失败，当前仅显示本地 token 统计。",
+        "Pricing sync failed, so this page is showing local token stats only."
+      );
+    }
+    return t(
+      "默认只显示本地 token 统计。点击右侧按钮后，才会从 OpenRouter 拉取公开模型定价。",
+      "This page shows local token stats by default. Pricing is fetched from OpenRouter only after you click the sync button."
+    );
+  })();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
       <div className="shrink-0 border-b border-border">
-        <div className="flex items-center justify-between px-6 py-4">
+        <div
+          {...headerDragProps}
+          className="flex select-none items-center justify-between px-4 py-4 md:px-6"
+        >
           <div className="flex items-center gap-3">
             <MobileMenuButton />
             <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/10 bg-gradient-to-br from-primary/20 to-primary/5">
@@ -231,7 +281,7 @@ export function UsagePage() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-5 p-6">
+        <div className="w-full space-y-5 p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
           <div className="flex items-stretch gap-3">
             <StatCard
               icon={<Zap className="h-3.5 w-3.5" />}
@@ -243,7 +293,7 @@ export function UsagePage() {
             <StatCard
               icon={<DollarSign className="h-3.5 w-3.5" />}
               label={t("总费用", "Total Cost")}
-              value={formatCost(totalCost)}
+              value={hasPricing ? formatCost(totalCost) : t("未同步", "Not synced")}
               highlight
               className="flex-1"
             />
@@ -265,14 +315,34 @@ export function UsagePage() {
             />
           </div>
 
-          {!hasPricing && !loading && (
-            <p className="text-xs text-muted-foreground">
-              {t(
-                "当前未获取到模型定价，费用会显示为 $0.00。",
-                "Model pricing is unavailable right now, so costs are shown as $0.00."
-              )}
-            </p>
-          )}
+          <Card className="border-border/50 px-4 py-3 shadow-none">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                  <Globe className="h-3.5 w-3.5" />
+                  <span>{t("公开定价同步", "Public pricing sync")}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{pricingSummary}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 self-start sm:self-center"
+                onClick={() => void syncPricing()}
+                disabled={pricingStatus === "loading"}
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    pricingStatus === "loading" && "animate-spin"
+                  )}
+                />
+                {pricingStatus === "ready"
+                  ? t("刷新定价", "Refresh pricing")
+                  : t("同步定价", "Sync pricing")}
+              </Button>
+            </div>
+          </Card>
 
           <div className="flex w-fit rounded-lg border border-border/50 bg-muted/30 p-0.5">
             <button
@@ -309,13 +379,20 @@ export function UsagePage() {
             </div>
           ) : viewMode === "session" ? (
             <SessionList
+              hasPricing={hasPricing}
               locale={locale}
               pricing={pricing}
               sessions={conversationUsages}
               t={t}
             />
           ) : (
-            <DateList dailyUsages={dailyUsages} locale={locale} pricing={pricing} t={t} />
+            <DateList
+              dailyUsages={dailyUsages}
+              hasPricing={hasPricing}
+              locale={locale}
+              pricing={pricing}
+              t={t}
+            />
           )}
         </div>
       </ScrollArea>
@@ -360,11 +437,13 @@ function StatCard({
 
 function SessionList({
   sessions,
+  hasPricing,
   pricing,
   locale,
   t,
 }: {
   sessions: ConversationUsage[];
+  hasPricing: boolean;
   pricing: PricingMap;
   locale: string;
   t: (zh: string, en: string) => string;
@@ -394,6 +473,7 @@ function SessionList({
     <div className="space-y-2">
       {sessions.map((session) => (
         <SessionRow
+          hasPricing={hasPricing}
           key={session.conversation_id}
           locale={locale}
           pricing={pricing}
@@ -407,11 +487,13 @@ function SessionList({
 
 function SessionRow({
   session,
+  hasPricing,
   pricing,
   locale,
   t,
 }: {
   session: ConversationUsage;
+  hasPricing: boolean;
   pricing: PricingMap;
   locale: string;
   t: (zh: string, en: string) => string;
@@ -472,7 +554,9 @@ function SessionRow({
         )}
 
         <div className="shrink-0 text-right">
-          <p className="text-sm font-semibold text-primary">{formatCost(totalCost)}</p>
+          <p className="text-sm font-semibold text-primary">
+            {hasPricing ? formatCost(totalCost) : "—"}
+          </p>
           <p className="text-[10px] text-muted-foreground">{formatTokens(totalTokens)}</p>
         </div>
       </button>
@@ -489,7 +573,13 @@ function SessionRow({
           </div>
 
           {session.model_usages.map((usage, index) => (
-            <ModelRow key={`${usage.model}-${index}`} pricing={pricing} usage={usage} t={t} />
+            <ModelRow
+              key={`${usage.model}-${index}`}
+              hasPricing={hasPricing}
+              pricing={pricing}
+              usage={usage}
+              t={t}
+            />
           ))}
         </div>
       )}
@@ -499,11 +589,13 @@ function SessionRow({
 
 function DateList({
   dailyUsages,
+  hasPricing,
   pricing,
   locale,
   t,
 }: {
   dailyUsages: DailyUsage[];
+  hasPricing: boolean;
   pricing: PricingMap;
   locale: string;
   t: (zh: string, en: string) => string;
@@ -532,7 +624,14 @@ function DateList({
   return (
     <div className="space-y-2">
       {dailyUsages.map((day) => (
-        <DateRow key={day.date} day={day} locale={locale} pricing={pricing} t={t} />
+        <DateRow
+          key={day.date}
+          day={day}
+          hasPricing={hasPricing}
+          locale={locale}
+          pricing={pricing}
+          t={t}
+        />
       ))}
     </div>
   );
@@ -540,11 +639,13 @@ function DateList({
 
 function DateRow({
   day,
+  hasPricing,
   pricing,
   locale,
   t,
 }: {
   day: DailyUsage;
+  hasPricing: boolean;
   pricing: PricingMap;
   locale: string;
   t: (zh: string, en: string) => string;
@@ -588,7 +689,9 @@ function DateRow({
         )}
 
         <div className="shrink-0 text-right">
-          <p className="text-sm font-semibold text-primary">{formatCost(totalCost)}</p>
+          <p className="text-sm font-semibold text-primary">
+            {hasPricing ? formatCost(totalCost) : "—"}
+          </p>
           <p className="text-[10px] text-muted-foreground">{formatTokens(totalTokens)}</p>
         </div>
       </button>
@@ -596,7 +699,13 @@ function DateRow({
       {expanded && (
         <div className="border-t border-border/50 bg-muted/10">
           {day.model_usages.map((usage, index) => (
-            <ModelRow key={`${usage.model}-${index}`} pricing={pricing} usage={usage} t={t} />
+            <ModelRow
+              key={`${usage.model}-${index}`}
+              hasPricing={hasPricing}
+              pricing={pricing}
+              usage={usage}
+              t={t}
+            />
           ))}
         </div>
       )}
@@ -606,10 +715,12 @@ function DateRow({
 
 function ModelRow({
   usage,
+  hasPricing,
   pricing,
   t,
 }: {
   usage: ModelUsage;
+  hasPricing: boolean;
   pricing: PricingMap;
   t: (zh: string, en: string) => string;
 }) {
@@ -636,7 +747,9 @@ function ModelRow({
         </span>
       </div>
 
-      <span className="shrink-0 text-xs font-medium">{formatCost(calcCost(pricing, usage))}</span>
+      <span className="shrink-0 text-xs font-medium">
+        {hasPricing ? formatCost(calcCost(pricing, usage)) : "—"}
+      </span>
     </div>
   );
 }

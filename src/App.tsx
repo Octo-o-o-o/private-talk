@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ChatView } from "./components/chat/ChatView";
 import { PinLock } from "./components/pin/PinLock";
+import { useViewportCssVars } from "./hooks/useViewportCssVars";
 import { useAppStore } from "./stores/appStore";
 import { appZoomStep, usePreferencesStore } from "./stores/preferencesStore";
 
@@ -33,6 +34,7 @@ function App() {
     scanLocalServices,
   } = useAppStore();
   const initPreferences = usePreferencesStore((state) => state.initPreferences);
+  useViewportCssVars();
 
   useEffect(() => {
     const init = async () => {
@@ -156,11 +158,11 @@ function App() {
   }, []);
 
   if (pinEnabled && isLocked) {
-    return <div className="h-full w-full bg-background text-foreground"><PinLock /></div>;
+    return <div className="app-safe-area-shell h-full w-full bg-background text-foreground"><PinLock /></div>;
   }
 
   return (
-    <div className="h-full w-full bg-background text-foreground">
+    <div className="app-safe-area-shell h-full w-full bg-background text-foreground">
       <Suspense>
         <Routes>
           <Route element={<AppLayout />}>

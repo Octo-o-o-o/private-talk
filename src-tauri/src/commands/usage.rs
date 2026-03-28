@@ -41,7 +41,7 @@ pub fn get_usage_by_conversation(db: State<DbState>) -> Result<Vec<ConversationU
             "SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at, c.deleted_at IS NOT NULL
              FROM conversations c
              INNER JOIN usage_records u ON u.conversation_id = c.id
-             ORDER BY c.updated_at DESC",
+             ORDER BY c.updated_at_order DESC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -65,7 +65,7 @@ pub fn get_usage_by_conversation(db: State<DbState>) -> Result<Vec<ConversationU
         // Get first user message preview
         let first_msg: String = conn
             .query_row(
-                "SELECT content FROM messages WHERE conversation_id = ?1 AND role = 'user' ORDER BY created_at ASC LIMIT 1",
+                "SELECT content FROM messages WHERE conversation_id = ?1 AND role = 'user' ORDER BY message_order ASC LIMIT 1",
                 rusqlite::params![conv_id],
                 |row| row.get(0),
             )

@@ -17,11 +17,12 @@ import {
   Server,
   Settings,
   Shield,
+  Sparkles,
   Star,
   Trash2,
   Upload,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "@/lib/tauri";
 import { useI18n } from "@/lib/i18n";
@@ -37,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,6 +77,10 @@ import {
 const SETTINGS_VISITED_KEY = "private-talk-settings-visited";
 
 type SettingsSection = "providers" | "memory" | "security" | "openclaw" | "stt" | "data" | "image_gen" | "about";
+type SettingsNavRoute = "assistants";
+type SettingsNavItem =
+  | { kind: "section"; key: SettingsSection; icon: ReactNode; label: string; description: string }
+  | { kind: "route"; key: SettingsNavRoute; icon: ReactNode; label: string; description: string; to: string };
 
 type SettingsState = {
   hotWindowSize: number;
@@ -120,6 +126,7 @@ function createProviderFormFromProvider(provider: Provider): ProviderFormState {
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
   const {
@@ -142,6 +149,7 @@ export function SettingsPage() {
   } = useAppStore();
 
   const isMobile = useIsMobile();
+  const headerDragProps = useDesktopWindowDrag();
 
   const sectionParam = searchParams.get("section");
   const section: SettingsSection | null =
@@ -724,22 +732,26 @@ export function SettingsPage() {
 
   const activeSection: SettingsSection | null = isMobile ? section : (section ?? "providers");
 
-  const navItems: { id: SettingsSection; icon: ReactNode; label: string; description: string }[] = [
-    { id: "providers", icon: <Server className="h-4 w-4" />, label: t("服务商", "Providers"), description: t("模型端点配置", "Model endpoints") },
-    { id: "image_gen", icon: <ImageIcon className="h-4 w-4" />, label: t("图片生成", "Image Generation"), description: t("生图模型与参数", "Image model & params") },
-    { id: "stt", icon: <Mic className="h-4 w-4" />, label: t("语音转文字", "Speech to Text"), description: t("转写服务配置", "Transcription config") },
-    { id: "memory", icon: <Brain className="h-4 w-4" />, label: t("上下文压缩", "Context"), description: t("压缩窗口与上限", "Window & limits") },
-    { id: "security", icon: <Shield className="h-4 w-4" />, label: t("安全", "Security"), description: t("PIN 锁与重置", "PIN lock & reset") },
-    { id: "openclaw", icon: <Globe className="h-4 w-4" />, label: t("OpenClaw", "OpenClaw"), description: t("Gateway 实例", "Gateway instances") },
-    { id: "data", icon: <HardDrive className="h-4 w-4" />, label: t("数据管理", "Data"), description: t("导入与导出", "Import & export") },
-    { id: "about", icon: <Info className="h-4 w-4" />, label: t("关于", "About"), description: t("项目信息与开源地址", "Project info & source") },
+  const navItems: SettingsNavItem[] = [
+    { kind: "section", key: "providers", icon: <Server className="h-4 w-4" />, label: t("服务商", "Providers"), description: t("模型端点配置", "Model endpoints") },
+    { kind: "route", key: "assistants", icon: <Sparkles className="h-4 w-4" />, label: t("助手管理", "Assistants"), description: t("管理预设与自定义助手", "Manage preset and custom assistants"), to: "/assistants" },
+    { kind: "section", key: "image_gen", icon: <ImageIcon className="h-4 w-4" />, label: t("图片生成", "Image Generation"), description: t("生图模型与参数", "Image model & params") },
+    { kind: "section", key: "stt", icon: <Mic className="h-4 w-4" />, label: t("语音转文字", "Speech to Text"), description: t("转写服务配置", "Transcription config") },
+    { kind: "section", key: "memory", icon: <Brain className="h-4 w-4" />, label: t("上下文压缩", "Context"), description: t("压缩窗口与上限", "Window & limits") },
+    { kind: "section", key: "security", icon: <Shield className="h-4 w-4" />, label: t("安全", "Security"), description: t("PIN 锁与重置", "PIN lock & reset") },
+    { kind: "section", key: "openclaw", icon: <Globe className="h-4 w-4" />, label: t("OpenClaw", "OpenClaw"), description: t("Gateway 实例", "Gateway instances") },
+    { kind: "section", key: "data", icon: <HardDrive className="h-4 w-4" />, label: t("数据管理", "Data"), description: t("导入与导出", "Import & export") },
+    { kind: "section", key: "about", icon: <Info className="h-4 w-4" />, label: t("关于", "About"), description: t("项目信息与开源地址", "Project info & source") },
   ];
 
   const pageHeading = getPageHeading(activeSection, isProviderEdit, isProviderCreate, t);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-x-hidden bg-background">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-4 md:px-6">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-x-hidden bg-background">
+      <div
+        {...headerDragProps}
+        className="flex h-14 select-none items-center gap-3 border-b border-border px-4 md:px-6"
+      >
         <MobileMenuButton />
         {isMobile && section ? (
           <Button
@@ -758,7 +770,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         {/* Settings nav sidebar */}
         {(!isMobile || !section) && (
           <nav className={cn(
@@ -766,11 +778,15 @@ export function SettingsPage() {
             isMobile ? "flex-1" : "w-52 border-r border-border"
           )}>
             {isMobile ? (
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
                 {navItems.map((item) => (
                   <button
-                    key={item.id}
-                    onClick={() => updateView(setSearchParams, { section: item.id })}
+                    key={item.key}
+                    onClick={() =>
+                      item.kind === "section"
+                        ? updateView(setSearchParams, { section: item.key })
+                        : navigate(item.to)
+                    }
                     className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-accent"
                   >
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -788,16 +804,20 @@ export function SettingsPage() {
               <div className="space-y-0.5 p-2">
                 {navItems.map((item) => (
                   <button
-                    key={item.id}
-                    onClick={() => updateView(setSearchParams, { section: item.id })}
+                    key={item.key}
+                    onClick={() =>
+                      item.kind === "section"
+                        ? updateView(setSearchParams, { section: item.key })
+                        : navigate(item.to)
+                    }
                     className={cn(
                       "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors",
-                      activeSection === item.id
+                      item.kind === "section" && activeSection === item.key
                         ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                     )}
                   >
-                    <span className={activeSection === item.id ? "text-primary" : ""}>{item.icon}</span>
+                    <span className={item.kind === "section" && activeSection === item.key ? "text-primary" : ""}>{item.icon}</span>
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -808,8 +828,8 @@ export function SettingsPage() {
 
         {/* Content area */}
         {(!isMobile || section) && (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex min-h-full max-w-4xl flex-col p-4 md:p-6">
+        <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
             {!isMobile && (
               <div className="mb-6">
                 <h2 className="mb-1 text-2xl font-semibold text-foreground">{pageHeading.title}</h2>
@@ -2130,8 +2150,8 @@ function SecurityCard({
             <CardTitle className="text-lg">PIN Lock</CardTitle>
             <CardDescription className="mt-1">
               {t(
-                "启动时需输入 PIN 解锁，PIN 仅存于本地。",
-                "Require PIN to unlock on launch. PIN is stored locally only."
+                "启动时需输入 PIN 解锁。PIN 仅存于本地，可防止他人随手查看，但不替代系统密码或磁盘加密。",
+                "Require a PIN to unlock on launch. It helps prevent casual access on this device, but does not replace your system password or disk encryption."
               )}
             </CardDescription>
           </div>
@@ -2149,8 +2169,8 @@ function SecurityCard({
         </div>
         <p className="text-xs text-muted-foreground">
           {t(
-            "开启后需解锁才能进入工作区。",
-            "When enabled, unlock is required before entering the workspace."
+            "如需更强保护，请同时启用系统登录密码与设备加密。",
+            "For stronger protection, also rely on your OS login password and full-disk encryption."
           )}
         </p>
 

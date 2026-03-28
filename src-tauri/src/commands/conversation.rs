@@ -99,7 +99,7 @@ pub fn list_conversations(
             "SELECT id, title, scenario_id, created_at, updated_at, openclaw_instance_id, openclaw_agent_id, openclaw_session_key
              FROM conversations
              WHERE scenario_id = ?1 AND deleted_at IS NULL
-             ORDER BY updated_at DESC",
+             ORDER BY updated_at_order DESC",
             &[&assistant_id as &dyn rusqlite::types::ToSql],
         ),
         None => query_conversations(
@@ -107,7 +107,7 @@ pub fn list_conversations(
             "SELECT id, title, scenario_id, created_at, updated_at, openclaw_instance_id, openclaw_agent_id, openclaw_session_key
              FROM conversations
              WHERE deleted_at IS NULL
-             ORDER BY updated_at DESC",
+             ORDER BY updated_at_order DESC",
             &[],
         ),
     }
@@ -122,7 +122,7 @@ pub fn list_free_conversations(db: State<DbState>) -> Result<Vec<Conversation>, 
         "SELECT id, title, scenario_id, created_at, updated_at, openclaw_instance_id, openclaw_agent_id, openclaw_session_key
          FROM conversations
          WHERE scenario_id IS NULL AND deleted_at IS NULL
-         ORDER BY updated_at DESC",
+         ORDER BY updated_at_order DESC",
         &[],
     )
 }
@@ -286,7 +286,7 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT id, conversation_id, role, content, is_pinned, created_at FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
+            "SELECT id, conversation_id, role, content, is_pinned, created_at FROM messages WHERE conversation_id = ?1 ORDER BY message_order ASC",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt

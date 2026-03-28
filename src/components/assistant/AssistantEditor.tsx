@@ -23,6 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import { ASSISTANT_ICONS } from "./assistantIcons";
@@ -51,6 +52,7 @@ export function AssistantEditor() {
   const [autoPlay, setAutoPlay] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const headerDragProps = useDesktopWindowDrag();
 
   useEffect(() => {
     if (editingAssistant) {
@@ -121,7 +123,10 @@ export function AssistantEditor() {
   if (isMissing) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <div className="flex h-14 items-center gap-3 border-b border-border px-6">
+        <div
+          {...headerDragProps}
+          className="flex h-14 select-none items-center gap-3 border-b border-border px-6"
+        >
           <Button variant="ghost" size="icon-sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -142,8 +147,11 @@ export function AssistantEditor() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-14 items-center gap-3 border-b border-border px-6">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+      <div
+        {...headerDragProps}
+        className="flex h-14 select-none items-center gap-3 border-b border-border px-4 md:px-6"
+      >
         <Button variant="ghost" size="icon-sm" onClick={handleBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -163,7 +171,7 @@ export function AssistantEditor() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto max-w-4xl space-y-4 p-4">
+        <div className="mx-auto w-full max-w-4xl space-y-4 p-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
           <Card>
             <CardHeader>
               <CardTitle>{t("助手资料", "Assistant Profile")}</CardTitle>

@@ -9,6 +9,9 @@ const MAX_IMAGE_DIMENSION: u32 = 2048;
 const MAX_IMAGE_BYTES: u64 = 4 * 1024 * 1024; // 4 MB
 const MAX_TEXT_FILE_BYTES: u64 = 100 * 1024; // 100 KB
 const MAX_AUDIO_BYTES: u64 = 20 * 1024 * 1024; // 20 MB
+const MAX_PDF_BYTES: u64 = 50 * 1024 * 1024; // 50 MB
+const MAX_PDF_TEXT_CHARS: usize = 500_000;
+const PDF_SCANNED_CHARS_PER_PAGE: usize = 50;
 
 /// Supported text file extensions (whitelist)
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -60,6 +63,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
 ];
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp"];
+const PDF_EXTENSIONS: &[&str] = &["pdf"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
@@ -100,6 +104,10 @@ pub fn classify_file(path: &Path) -> Option<(&'static str, String)> {
             _ => "application/octet-stream",
         };
         return Some(("image", mime.to_string()));
+    }
+
+    if PDF_EXTENSIONS.contains(&ext.as_str()) {
+        return Some(("pdf", "application/pdf".to_string()));
     }
 
     if TEXT_EXTENSIONS.contains(&ext.as_str()) {
@@ -439,6 +447,13 @@ pub fn read_image_as_base64(file_path: &str) -> Result<(String, String), String>
     Ok((b64, mime))
 }
 
+/// Read a PDF file and return its raw bytes as base64.
+pub fn read_pdf_as_base64(file_path: &str) -> Result<String, String> {
+    let data =
+        std::fs::read(file_path).map_err(|e| format!("Failed to read PDF: {}", e))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&data))
+}
+
 /// Read a text file and return its contents (truncated if too large).
 pub fn read_text_file_content(file_path: &str) -> Result<String, String> {
     let path = Path::new(file_path);
@@ -535,11 +550,105 @@ fn generate_thumbnail(original_path: &Path) -> Option<PathBuf> {
 pub fn delete_attachment_files(attachments: &[Attachment]) {
     for att in attachments {
         let _ = std::fs::remove_file(&att.file_path);
-        // Also remove thumbnail if it exists
         let path = Path::new(&att.file_path);
         if let Some(stem) = path.file_stem() {
-            let thumb = path.with_file_name(format!("{}_thumb.jpg", stem.to_string_lossy()));
+            let stem_str = stem.to_string_lossy();
+            let thumb = path.with_file_name(format!("{}_thumb.jpg", stem_str));
             let _ = std::fs::remove_file(thumb);
+            let text_companion = path.with_file_name(format!("{}_text.txt", stem_str));
+            let _ = std::fs::remove_file(text_companion);
         }
     }
+}
+
+/// Prepare a PDF attachment from raw bytes.
+/// Saves the original PDF and extracts text into a companion `_text.txt` file.
+pub fn prepare_pdf_from_bytes(
+    app_data_dir: &Path,
+    data: &[u8],
+    file_name: &str,
+) -> Result<PreparedAttachment, String> {
+    if data.is_empty() {
+        return Err("PDF payload is empty".to_string());
+    }
+    if data.len() as u64 > MAX_PDF_BYTES {
+        return Err("PDF file is too large (max 50 MB)".to_string());
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let dest_dir = attachments_dir(app_data_dir)?;
+
+    let dest_path = dest_dir.join(format!("{}.pdf", id));
+    std::fs::write(&dest_path, data).map_err(|e| format!("Failed to write PDF: {}", e))?;
+
+    let pages_text = pdf_extract::extract_text_from_mem_by_pages(data).unwrap_or_default();
+
+    let mut combined = String::new();
+    let page_count = pages_text.len();
+    let mut total_chars: usize = 0;
+
+    for (i, page_text) in pages_text.iter().enumerate() {
+        let trimmed = page_text.trim();
+        total_chars += trimmed.len();
+        if !trimmed.is_empty() {
+            if !combined.is_empty() {
+                combined.push('\n');
+            }
+            combined.push_str(&format!("[Page {}]\n{}", i + 1, trimmed));
+        }
+    }
+
+    if combined.chars().count() > MAX_PDF_TEXT_CHARS {
+        combined = combined.chars().take(MAX_PDF_TEXT_CHARS).collect();
+        combined.push_str("\n\n[... text truncated ...]");
+    }
+
+    let is_scanned =
+        page_count > 0 && (total_chars / page_count) < PDF_SCANNED_CHARS_PER_PAGE;
+
+    if is_scanned && !combined.trim().is_empty() {
+        combined = format!(
+            "[Note: This PDF appears to be a scanned document. Text extraction quality may be limited.]\n\n{}",
+            combined
+        );
+    } else if is_scanned {
+        combined = format!(
+            "[Note: This PDF ({} page{}) appears to be a scanned document with no extractable text.]",
+            page_count,
+            if page_count == 1 { "" } else { "s" }
+        );
+    }
+
+    let text_path = dest_dir.join(format!("{}_text.txt", id));
+    std::fs::write(&text_path, &combined)
+        .map_err(|e| format!("Failed to write extracted text: {}", e))?;
+
+    Ok(PreparedAttachment {
+        id,
+        file_type: "pdf".to_string(),
+        file_name: file_name.to_string(),
+        file_path: dest_path.to_string_lossy().to_string(),
+        mime_type: "application/pdf".to_string(),
+        file_size: data.len() as i64,
+    })
+}
+
+/// Read extracted text for a PDF attachment from its companion `_text.txt` file.
+/// Falls back to re-extraction from the PDF if the companion file is missing.
+pub fn read_pdf_text_content(file_path: &str) -> Result<String, String> {
+    let pdf_path = Path::new(file_path);
+    let stem = pdf_path
+        .file_stem()
+        .ok_or_else(|| "Invalid PDF path".to_string())?;
+    let text_path = pdf_path.with_file_name(format!("{}_text.txt", stem.to_string_lossy()));
+
+    if text_path.exists() {
+        return std::fs::read_to_string(&text_path)
+            .map_err(|e| format!("Failed to read extracted text: {}", e));
+    }
+
+    let data =
+        std::fs::read(pdf_path).map_err(|e| format!("Failed to read PDF: {}", e))?;
+    pdf_extract::extract_text_from_mem(&data)
+        .map_err(|e| format!("Failed to extract text from PDF: {}", e))
 }

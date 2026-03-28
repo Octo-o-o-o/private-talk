@@ -58,6 +58,8 @@ import {
 
 type AssistantFilter = string | "free-chat" | null;
 
+const DESKTOP_SIDEBAR_TITLEBAR_INSET = "max(40px, calc(env(titlebar-area-height, 0px) + 8px))";
+
 function parseOpenClawAgentsCache(raw: string): OpenClawAgent[] {
   try {
     const parsed = JSON.parse(raw);
@@ -350,9 +352,11 @@ export function Sidebar() {
   if (!sidebarOpen && !isMobile) {
     return (
       <TooltipProvider>
-        <div className="flex h-full w-12 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-          <div data-tauri-drag-region className="h-11 w-full shrink-0" />
-          <div className="py-2">
+        <div
+          className="flex h-full w-12 flex-col items-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+          style={{ paddingTop: DESKTOP_SIDEBAR_TITLEBAR_INSET }}
+        >
+          <div className="pb-2">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -380,17 +384,27 @@ export function Sidebar() {
 
   return (
     <TooltipProvider>
-      <div className={cn(
-        "relative flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
-        isMobile ? "w-full" : "w-64"
-      )}>
-        {!isMobile && (
-          <div data-tauri-drag-region className="h-11 w-full shrink-0" />
+      <div
+        className={cn(
+          "relative flex h-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          isMobile ? "w-full" : "w-64"
         )}
-
+        style={
+          isMobile
+            ? {
+                paddingLeft: "env(safe-area-inset-left, 0px)",
+                paddingRight: "env(safe-area-inset-right, 0px)",
+              }
+            : undefined
+        }
+      >
         <div
           className="space-y-2 px-3 pb-4"
-          style={{ paddingTop: isMobile ? "calc(env(safe-area-inset-top, 0px) + 12px)" : 6 }}
+          style={{
+            paddingTop: isMobile
+              ? "calc(env(safe-area-inset-top, 0px) + 12px)"
+              : DESKTOP_SIDEBAR_TITLEBAR_INSET,
+          }}
         >
           <div className="flex items-center justify-between">
             <Button

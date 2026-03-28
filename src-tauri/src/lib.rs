@@ -257,6 +257,7 @@ pub fn run() {
             commands::chat::prepare_attachments,
             commands::chat::prepare_image_attachment,
             commands::chat::prepare_audio_attachment,
+            commands::chat::prepare_pdf_attachment,
             commands::chat::prepare_text_attachment,
             // PIN commands
             commands::pin::is_pin_enabled,

@@ -26,7 +26,23 @@ pub fn verify_pin_cmd(db: State<DbState>, input_pin: String) -> Result<bool, Str
         |row| row.get::<_, String>(0),
     );
     match result {
-        Ok(hash) => Ok(pin::verify_pin(&input_pin, &hash)),
+        Ok(hash) => {
+            let verified = pin::verify_pin(&input_pin, &hash);
+            if verified && pin::needs_rehash(&hash) {
+                match pin::hash_pin(&input_pin) {
+                    Ok(upgraded_hash) => {
+                        if let Err(error) = conn.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_hash', ?1)",
+                            rusqlite::params![upgraded_hash],
+                        ) {
+                            eprintln!("Failed to upgrade legacy PIN hash: {}", error);
+                        }
+                    }
+                    Err(error) => eprintln!("Failed to rehash legacy PIN: {}", error),
+                }
+            }
+            Ok(verified)
+        }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
         Err(e) => Err(e.to_string()),
     }
@@ -35,7 +51,7 @@ pub fn verify_pin_cmd(db: State<DbState>, input_pin: String) -> Result<bool, Str
 #[tauri::command]
 pub fn enable_pin(db: State<DbState>, new_pin: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let hash = pin::hash_pin(&new_pin);
+    let hash = pin::hash_pin(&new_pin)?;
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_hash', ?1)",
         rusqlite::params![hash],

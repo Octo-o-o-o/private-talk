@@ -20,6 +20,39 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
     Ok(())
 }
 
+fn backfill_message_order(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("SELECT rowid FROM messages ORDER BY created_at ASC, rowid ASC")?;
+    let rowids: Vec<i64> = stmt
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (index, rowid) in rowids.into_iter().enumerate() {
+        conn.execute(
+            "UPDATE messages SET message_order = ?1 WHERE rowid = ?2",
+            rusqlite::params![(index as i64) + 1, rowid],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn backfill_conversation_updated_order(conn: &Connection) -> Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT rowid FROM conversations ORDER BY updated_at ASC, rowid ASC")?;
+    let rowids: Vec<i64> = stmt
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (index, rowid) in rowids.into_iter().enumerate() {
+        conn.execute(
+            "UPDATE conversations SET updated_at_order = ?1 WHERE rowid = ?2",
+            rusqlite::params![(index as i64) + 1, rowid],
+        )?;
+    }
+
+    Ok(())
+}
+
 /// Seed preset scenarios (called in v2 migration and after reset)
 pub fn seed_presets(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -513,5 +546,153 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         set_schema_version(conn, 16)?;
     }
 
+    // ── V17: Stable message/conversation ordering independent of second-level timestamps ──
+    if version < 17 {
+        if !has_column(conn, "messages", "message_order")? {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN message_order INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+        if !has_column(conn, "conversations", "updated_at_order")? {
+            conn.execute_batch(
+                "ALTER TABLE conversations ADD COLUMN updated_at_order INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        backfill_message_order(conn)?;
+        backfill_conversation_updated_order(conn)?;
+
+        conn.execute_batch(
+            "
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_order
+                ON messages(conversation_id, message_order);
+
+            CREATE INDEX IF NOT EXISTS idx_conversations_updated_order
+                ON conversations(deleted_at, updated_at_order DESC);
+
+            CREATE TRIGGER IF NOT EXISTS trg_messages_assign_order
+            AFTER INSERT ON messages
+            FOR EACH ROW
+            WHEN NEW.message_order = 0
+            BEGIN
+                UPDATE messages
+                SET message_order = (
+                    SELECT COALESCE(MAX(message_order), 0) + 1
+                    FROM messages
+                    WHERE rowid != NEW.rowid
+                )
+                WHERE rowid = NEW.rowid;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_conversations_assign_updated_order_insert
+            AFTER INSERT ON conversations
+            FOR EACH ROW
+            WHEN NEW.updated_at_order = 0
+            BEGIN
+                UPDATE conversations
+                SET updated_at_order = (
+                    SELECT COALESCE(MAX(updated_at_order), 0) + 1
+                    FROM conversations
+                    WHERE rowid != NEW.rowid
+                )
+                WHERE rowid = NEW.rowid;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_conversations_bump_updated_order
+            AFTER UPDATE OF updated_at ON conversations
+            FOR EACH ROW
+            WHEN NEW.updated_at_order = OLD.updated_at_order
+            BEGIN
+                UPDATE conversations
+                SET updated_at_order = (
+                    SELECT COALESCE(MAX(updated_at_order), 0) + 1
+                    FROM conversations
+                    WHERE rowid != NEW.rowid
+                )
+                WHERE rowid = NEW.rowid;
+            END;
+            ",
+        )?;
+
+        set_schema_version(conn, 17)?;
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::init_db;
+    use rusqlite::Connection;
+
+    #[test]
+    fn message_order_trigger_assigns_stable_sequence() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv1', 'Test', '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        for (id, role, content) in [
+            ("msg1", "user", "first"),
+            ("msg2", "assistant", "second"),
+            ("msg3", "user", "third"),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, 'conv1', ?2, ?3, '2024-01-01 00:00:00')",
+                rusqlite::params![id, role, content],
+            )
+            .unwrap();
+        }
+
+        let ordered_ids: Vec<String> = conn
+            .prepare(
+                "SELECT id FROM messages WHERE conversation_id = 'conv1' ORDER BY message_order ASC",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(ordered_ids, vec!["msg1", "msg2", "msg3"]);
+    }
+
+    #[test]
+    fn conversation_updated_order_trigger_tracks_latest_update() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv1', 'One', '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv2', 'Two', '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "UPDATE conversations SET updated_at = '2024-01-01 00:00:00' WHERE id = 'conv1'",
+            [],
+        )
+        .unwrap();
+
+        let ordered_ids: Vec<String> = conn
+            .prepare(
+                "SELECT id FROM conversations WHERE deleted_at IS NULL ORDER BY updated_at_order DESC",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(ordered_ids, vec!["conv1", "conv2"]);
+    }
 }

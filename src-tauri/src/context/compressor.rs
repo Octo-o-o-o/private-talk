@@ -66,7 +66,7 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
             "SELECT role, content FROM messages
              WHERE conversation_id = ?1 AND role = 'system'
                AND content NOT LIKE '[上下文摘要]%'
-             ORDER BY created_at ASC",
+             ORDER BY message_order ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -99,7 +99,7 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
         .prepare(
             "SELECT role, content FROM messages
              WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 1
-             ORDER BY created_at ASC",
+             ORDER BY message_order ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -119,7 +119,7 @@ pub fn build_context(conn: &Connection, conversation_id: &str) -> Result<Vec<Cha
         .prepare(
             "SELECT role, content FROM messages
              WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0
-             ORDER BY created_at ASC",
+             ORDER BY message_order ASC",
         )
         .map_err(|e| e.to_string())?;
 
@@ -224,7 +224,7 @@ pub fn prepare_compression(
         .prepare(
             "SELECT id, role, content FROM messages
              WHERE conversation_id = ?1 AND role != 'system' AND is_pinned = 0
-             ORDER BY created_at ASC",
+             ORDER BY message_order ASC",
         )
         .map_err(|e| e.to_string())?;
 

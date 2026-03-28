@@ -21,11 +21,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MobileMenuButton } from "@/components/layout/MobileMenuButton";
+import { useDesktopWindowDrag } from "@/hooks/useDesktopWindowDrag";
 
 export function AssistantManager() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { assistants, currentAssistantId, loadAssistants, selectAssistant } = useAppStore();
+  const headerDragProps = useDesktopWindowDrag();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
@@ -56,8 +58,11 @@ export function AssistantManager() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-14 items-center justify-between border-b border-border px-6">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+      <div
+        {...headerDragProps}
+        className="flex h-14 select-none items-center justify-between border-b border-border px-4 md:px-6"
+      >
         <div className="flex items-center gap-3">
           <MobileMenuButton />
           <Button variant="ghost" size="icon-sm" onClick={() => navigate("/settings")}>
@@ -72,7 +77,7 @@ export function AssistantManager() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto max-w-2xl p-6">
+        <div className="mx-auto w-full max-w-2xl p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
           <p className="mb-6 text-sm text-muted-foreground">
             {t(
               "每个助手都可以绑定系统提示词、语音路由和播放行为，新会话会自动继承这些设置。",

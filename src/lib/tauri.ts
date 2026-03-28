@@ -204,6 +204,9 @@ export const prepareAudioAttachment = (audioBase64: string, mimeType: string) =>
 export const prepareTextAttachment = (fileName: string, content: string, mimeType: string) =>
   invoke<string>("prepare_text_attachment", { fileName, content, mimeType });
 
+export const preparePdfAttachment = (pdfBase64: string, fileName: string) =>
+  invoke<string>("prepare_pdf_attachment", { pdfBase64, fileName });
+
 export const stopGeneration = () => invoke<void>("stop_generation");
 
 // Settings commands
