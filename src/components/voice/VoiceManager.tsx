@@ -135,7 +135,7 @@ export function VoiceManager() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-4xl space-y-8 p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
+        <div className="mx-auto w-full max-w-4xl space-y-8 p-4 md:p-6 pb-safe-6">
           <section>
             <h2 className="mb-4 text-sm uppercase tracking-wider text-muted-foreground">
               {t("预设声音", "Preset Voices")}

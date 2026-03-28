@@ -1,9 +1,5 @@
 import { useEffect } from "react";
 
-function roundToDevicePixel(value: number) {
-  return Math.round(value);
-}
-
 export function useViewportCssVars() {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -16,9 +12,9 @@ export function useViewportCssVars() {
       animationFrameId = 0;
 
       const visualBottom = viewport
-        ? roundToDevicePixel(viewport.height + viewport.offsetTop)
-        : roundToDevicePixel(window.innerHeight);
-      const layoutHeight = Math.max(roundToDevicePixel(window.innerHeight), visualBottom);
+        ? Math.round(viewport.height + viewport.offsetTop)
+        : Math.round(window.innerHeight);
+      const layoutHeight = Math.max(Math.round(window.innerHeight), visualBottom);
 
       root.style.setProperty("--app-layout-height", `${layoutHeight}px`);
     };

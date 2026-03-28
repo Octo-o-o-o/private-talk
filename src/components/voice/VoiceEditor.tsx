@@ -354,7 +354,7 @@ export function VoiceEditor() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-2xl p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
+        <div className="mx-auto w-full max-w-2xl p-4 md:p-6 pb-safe-6">
           <Card>
             <CardHeader>
               <CardTitle>{t("声音配置", "Voice Profile")}</CardTitle>

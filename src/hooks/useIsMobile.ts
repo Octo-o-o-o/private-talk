@@ -24,29 +24,18 @@ function subscribe(onStoreChange: () => void) {
   const handleChange = () => onStoreChange();
 
   if (mediaQueryList) {
-    if (typeof mediaQueryList.addEventListener === "function") {
-      mediaQueryList.addEventListener("change", handleChange);
-    } else {
-      mediaQueryList.addListener(handleChange);
-    }
+    mediaQueryList.addEventListener("change", handleChange);
   }
 
-  window.addEventListener("resize", handleChange);
+  // orientationchange is needed on older mobile browsers that don't fire MQL change
   window.addEventListener("orientationchange", handleChange);
-  window.visualViewport?.addEventListener("resize", handleChange);
 
   return () => {
     if (mediaQueryList) {
-      if (typeof mediaQueryList.removeEventListener === "function") {
-        mediaQueryList.removeEventListener("change", handleChange);
-      } else {
-        mediaQueryList.removeListener(handleChange);
-      }
+      mediaQueryList.removeEventListener("change", handleChange);
     }
 
-    window.removeEventListener("resize", handleChange);
     window.removeEventListener("orientationchange", handleChange);
-    window.visualViewport?.removeEventListener("resize", handleChange);
   };
 }
 

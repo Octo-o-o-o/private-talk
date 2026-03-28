@@ -20,37 +20,39 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
     Ok(())
 }
 
-fn backfill_message_order(conn: &Connection) -> Result<()> {
-    let mut stmt = conn.prepare("SELECT rowid FROM messages ORDER BY created_at ASC, rowid ASC")?;
+fn backfill_order_column(
+    conn: &Connection,
+    table: &str,
+    sort_column: &str,
+    order_column: &str,
+) -> Result<()> {
+    let sql = format!(
+        "SELECT rowid FROM {} ORDER BY {} ASC, rowid ASC",
+        table, sort_column
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rowids: Vec<i64> = stmt
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<Result<Vec<_>, _>>()?;
 
+    let update_sql = format!(
+        "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
+        table, order_column
+    );
+    let mut update_stmt = conn.prepare(&update_sql)?;
     for (index, rowid) in rowids.into_iter().enumerate() {
-        conn.execute(
-            "UPDATE messages SET message_order = ?1 WHERE rowid = ?2",
-            rusqlite::params![(index as i64) + 1, rowid],
-        )?;
+        update_stmt.execute(rusqlite::params![(index as i64) + 1, rowid])?;
     }
 
     Ok(())
 }
 
+fn backfill_message_order(conn: &Connection) -> Result<()> {
+    backfill_order_column(conn, "messages", "created_at", "message_order")
+}
+
 fn backfill_conversation_updated_order(conn: &Connection) -> Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT rowid FROM conversations ORDER BY updated_at ASC, rowid ASC")?;
-    let rowids: Vec<i64> = stmt
-        .query_map([], |row| row.get::<_, i64>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    for (index, rowid) in rowids.into_iter().enumerate() {
-        conn.execute(
-            "UPDATE conversations SET updated_at_order = ?1 WHERE rowid = ?2",
-            rusqlite::params![(index as i64) + 1, rowid],
-        )?;
-    }
-
-    Ok(())
+    backfill_order_column(conn, "conversations", "updated_at", "updated_at_order")
 }
 
 /// Seed preset scenarios (called in v2 migration and after reset)
@@ -579,7 +581,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
                 SET message_order = (
                     SELECT COALESCE(MAX(message_order), 0) + 1
                     FROM messages
-                    WHERE rowid != NEW.rowid
+                    WHERE conversation_id = NEW.conversation_id
+                      AND rowid != NEW.rowid
                 )
                 WHERE rowid = NEW.rowid;
             END;

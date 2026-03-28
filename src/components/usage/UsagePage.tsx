@@ -185,6 +185,7 @@ export function UsagePage() {
   useEffect(() => {
     if (cachedPricing) {
       setPricing(cachedPricing);
+      setPricingStatus("ready");
     }
     void loadData();
   }, [loadData]);
@@ -281,7 +282,7 @@ export function UsagePage() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="w-full space-y-5 p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
+        <div className="w-full space-y-5 p-4 md:p-6 pb-safe-6">
           <div className="flex items-stretch gap-3">
             <StatCard
               icon={<Zap className="h-3.5 w-3.5" />}

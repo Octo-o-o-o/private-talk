@@ -49,48 +49,12 @@ describe("useIsMobile", () => {
     expect(result.current).toBe(true);
   });
 
-  it("should respond to resize events", () => {
+  it("should respond to media query change events", () => {
     matchMediaResult = false;
     const { result } = renderHook(() => useIsMobile());
     expect(result.current).toBe(false);
 
-    // Simulate viewport change to mobile
-    matchMediaResult = true;
-    act(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-    expect(result.current).toBe(true);
-  });
-
-  it("should fall back to legacy media query listeners when addEventListener is unavailable", () => {
-    const addListener = vi.fn((cb: () => void) => {
-      matchMediaListeners.get("(max-width: 767px)")!.add(cb);
-    });
-    const removeListener = vi.fn((cb: () => void) => {
-      matchMediaListeners.get("(max-width: 767px)")!.delete(cb);
-    });
-
-    Object.defineProperty(window, "matchMedia", {
-      writable: true,
-      value: vi.fn((query: string) => {
-        if (!matchMediaListeners.has(query)) {
-          matchMediaListeners.set(query, new Set());
-        }
-        return {
-          matches: matchMediaResult,
-          media: query,
-          addEventListener: undefined,
-          removeEventListener: undefined,
-          addListener,
-          removeListener,
-        };
-      }),
-    });
-
-    const { result, unmount } = renderHook(() => useIsMobile());
-    expect(result.current).toBe(false);
-    expect(addListener).toHaveBeenCalledTimes(1);
-
+    // Simulate viewport change to mobile via MQL change event
     matchMediaResult = true;
     act(() => {
       for (const listener of matchMediaListeners.get("(max-width: 767px)") ?? []) {
@@ -98,8 +62,17 @@ describe("useIsMobile", () => {
       }
     });
     expect(result.current).toBe(true);
+  });
 
-    unmount();
-    expect(removeListener).toHaveBeenCalledTimes(1);
+  it("should respond to orientationchange events", () => {
+    matchMediaResult = false;
+    const { result } = renderHook(() => useIsMobile());
+    expect(result.current).toBe(false);
+
+    matchMediaResult = true;
+    act(() => {
+      window.dispatchEvent(new Event("orientationchange"));
+    });
+    expect(result.current).toBe(true);
   });
 });

@@ -47,7 +47,6 @@ export function useDesktopWindowDrag(): WindowDragSurfaceProps {
     if (isMobile || typeof window === "undefined" || !isTauri()) {
       return null;
     }
-
     return getCurrentWindow();
   }, [isMobile]);
 

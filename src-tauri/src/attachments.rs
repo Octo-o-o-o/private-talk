@@ -448,12 +448,6 @@ pub fn read_image_as_base64(file_path: &str) -> Result<(String, String), String>
 }
 
 /// Read a PDF file and return its raw bytes as base64.
-pub fn read_pdf_as_base64(file_path: &str) -> Result<String, String> {
-    let data =
-        std::fs::read(file_path).map_err(|e| format!("Failed to read PDF: {}", e))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&data))
-}
-
 /// Read a text file and return its contents (truncated if too large).
 pub fn read_text_file_content(file_path: &str) -> Result<String, String> {
     let path = Path::new(file_path);
@@ -598,7 +592,8 @@ pub fn prepare_pdf_from_bytes(
         }
     }
 
-    if combined.chars().count() > MAX_PDF_TEXT_CHARS {
+    if combined.len() > MAX_PDF_TEXT_CHARS {
+        // Byte length exceeds limit; truncate at the char boundary
         combined = combined.chars().take(MAX_PDF_TEXT_CHARS).collect();
         combined.push_str("\n\n[... text truncated ...]");
     }
@@ -635,7 +630,8 @@ pub fn prepare_pdf_from_bytes(
 
 /// Read extracted text for a PDF attachment from its companion `_text.txt` file.
 /// Falls back to re-extraction from the PDF if the companion file is missing.
-pub fn read_pdf_text_content(file_path: &str) -> Result<String, String> {
+/// When `preread_bytes` is provided, skips re-reading the PDF from disk.
+pub fn read_pdf_text_content(file_path: &str, preread_bytes: Option<&[u8]>) -> Result<String, String> {
     let pdf_path = Path::new(file_path);
     let stem = pdf_path
         .file_stem()
@@ -647,8 +643,14 @@ pub fn read_pdf_text_content(file_path: &str) -> Result<String, String> {
             .map_err(|e| format!("Failed to read extracted text: {}", e));
     }
 
-    let data =
-        std::fs::read(pdf_path).map_err(|e| format!("Failed to read PDF: {}", e))?;
-    pdf_extract::extract_text_from_mem(&data)
+    let owned;
+    let data = match preread_bytes {
+        Some(bytes) => bytes,
+        None => {
+            owned = std::fs::read(pdf_path).map_err(|e| format!("Failed to read PDF: {}", e))?;
+            &owned
+        }
+    };
+    pdf_extract::extract_text_from_mem(data)
         .map_err(|e| format!("Failed to extract text from PDF: {}", e))
 }

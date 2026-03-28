@@ -4,6 +4,7 @@ use crate::db::DbState;
 use crate::llm::is_vision_model;
 use crate::llm::provider::{chat_complete, stream_chat, StreamItem};
 use crate::llm::types::{ChatContent, ChatContentPart, ChatMessage, ImageUrlDetail};
+use base64::Engine;
 use serde::Serialize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -224,8 +225,12 @@ pub async fn send_message(
                         }
                     }
                     "pdf" => {
+                        // Read raw bytes once; reuse for both vision base64 and text extraction
+                        let raw_bytes = std::fs::read(&att.file_path).ok();
+
                         if is_vision_model(&model) {
-                            if let Ok(b64) = attachments::read_pdf_as_base64(&att.file_path) {
+                            if let Some(ref data) = raw_bytes {
+                                let b64 = base64::engine::general_purpose::STANDARD.encode(data);
                                 parts.push(ChatContentPart::ImageUrl {
                                     image_url: ImageUrlDetail {
                                         url: format!(
@@ -237,7 +242,7 @@ pub async fn send_message(
                                 });
                             }
                         }
-                        if let Ok(text) = attachments::read_pdf_text_content(&att.file_path) {
+                        if let Ok(text) = attachments::read_pdf_text_content(&att.file_path, raw_bytes.as_deref()) {
                             let trimmed = text.trim();
                             if !trimmed.is_empty() {
                                 parts.push(ChatContentPart::Text {

@@ -829,7 +829,7 @@ export function SettingsPage() {
         {/* Content area */}
         {(!isMobile || section) && (
         <ScrollArea className="min-h-0 min-w-0 flex-1">
-          <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
+          <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col p-4 md:p-6 pb-safe-4">
             {!isMobile && (
               <div className="mb-6">
                 <h2 className="mb-1 text-2xl font-semibold text-foreground">{pageHeading.title}</h2>

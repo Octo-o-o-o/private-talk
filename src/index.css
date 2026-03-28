@@ -190,6 +190,13 @@
 }
 
 @layer utilities {
+  .pb-safe-4 {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  }
+  .pb-safe-6 {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  }
+
   .safe-area-bleed-top,
   .safe-area-bleed-bottom,
   .safe-area-bleed-y {

@@ -125,7 +125,7 @@ export function AssistantEditor() {
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div
           {...headerDragProps}
-          className="flex h-14 select-none items-center gap-3 border-b border-border px-6"
+          className="flex h-14 select-none items-center gap-3 border-b border-border px-4 md:px-6"
         >
           <Button variant="ghost" size="icon-sm" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4" />
@@ -171,7 +171,7 @@ export function AssistantEditor() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-4xl space-y-4 p-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
+        <div className="mx-auto w-full max-w-4xl space-y-4 p-4 pb-safe-4">
           <Card>
             <CardHeader>
               <CardTitle>{t("助手资料", "Assistant Profile")}</CardTitle>

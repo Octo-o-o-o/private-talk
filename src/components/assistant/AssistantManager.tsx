@@ -77,7 +77,7 @@ export function AssistantManager() {
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-2xl p-4 md:p-6" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
+        <div className="mx-auto w-full max-w-2xl p-4 md:p-6 pb-safe-6">
           <p className="mb-6 text-sm text-muted-foreground">
             {t(
               "每个助手都可以绑定系统提示词、语音路由和播放行为，新会话会自动继承这些设置。",
