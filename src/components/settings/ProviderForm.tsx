@@ -1,187 +1,298 @@
+import {
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Plus,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import * as api from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
-import type { Provider } from "../../lib/types";
-import { Trash2, Star, Eye, EyeOff } from "lucide-react";
+import { SettingsSection } from "./SettingsPage";
+import { Field, FormError, TextField, buttonStyles } from "./formControls";
 
-const PRESETS = [
-  { name: "OpenAI", baseUrl: "https://api.openai.com/v1", models: "gpt-4o,gpt-4o-mini,o3-mini" },
-  { name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", models: "grok-3,grok-3-mini" },
+type Preset = {
+  name: string;
+  baseUrl: string;
+  models: string;
+};
+
+const PRESETS: Preset[] = [
+  {
+    name: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    models: "gpt-5.4,gpt-5.4-mini,o4-mini",
+  },
+  {
+    name: "Grok (xAI)",
+    baseUrl: "https://api.x.ai/v1",
+    models: "grok-3,grok-3-mini",
+  },
 ];
+
+type FormState = {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  models: string;
+};
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  baseUrl: "",
+  apiKey: "",
+  models: "",
+};
+
+function parseModels(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
 
 export function ProviderForm() {
   const { providers, loadProviders } = useAppStore();
   const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [models, setModels] = useState("");
+  const [showPresets, setShowPresets] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
-  const applyPreset = (preset: typeof PRESETS[0]) => {
-    setName(preset.name);
-    setBaseUrl(preset.baseUrl);
-    setModels(preset.models);
-    setShowForm(true);
-  };
+  function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !baseUrl.trim() || !apiKey.trim()) return;
-    const modelList = models
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-    await api.createProvider(name.trim(), baseUrl.trim(), apiKey.trim(), modelList);
-    await loadProviders();
+  function resetForm(): void {
+    setForm(EMPTY_FORM);
     setShowForm(false);
-    setName("");
-    setBaseUrl("");
-    setApiKey("");
-    setModels("");
-  };
+    setShowPresets(false);
+    setShowKey(false);
+    setError(null);
+  }
 
-  const handleDelete = async (id: string) => {
+  function applyPreset(preset: Preset): void {
+    setForm({
+      name: preset.name,
+      baseUrl: preset.baseUrl,
+      apiKey: "",
+      models: preset.models,
+    });
+    setShowForm(true);
+    setShowPresets(false);
+  }
+
+  async function handleSubmit(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+
+    const name = form.name.trim();
+    const baseUrl = form.baseUrl.trim();
+    const apiKey = form.apiKey.trim();
+
+    if (!name || !baseUrl || !apiKey) {
+      setError("Name, base URL, and API key are required.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await api.createProvider(name, baseUrl, apiKey, parseModels(form.models));
+      await loadProviders();
+      resetForm();
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save provider. Check the endpoint and try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(id: string): Promise<void> {
     await api.deleteProvider(id);
     await loadProviders();
-  };
+  }
 
-  const handleSetDefault = async (id: string) => {
+  async function handleSetDefault(id: string): Promise<void> {
     await api.setDefaultProvider(id);
     await loadProviders();
-  };
+  }
 
   return (
-    <div>
-      <h3 className="text-sm font-medium text-zinc-300 mb-3">Model Providers</h3>
-
-      {/* Existing providers */}
-      <div className="space-y-2 mb-4">
-        {providers.map((p: Provider) => (
-          <div
-            key={p.id}
-            className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2.5"
-          >
-            <div className="flex items-center gap-2">
-              {p.is_default && <Star size={12} className="text-amber-400 fill-amber-400" />}
-              <div>
-                <span className="text-sm text-zinc-200">{p.name}</span>
-                <span className="text-xs text-zinc-500 ml-2">{p.models.join(", ")}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {!p.is_default && (
-                <button
-                  onClick={() => handleSetDefault(p.id)}
-                  className="text-zinc-500 hover:text-amber-400 p-1"
-                  title="Set as default"
-                >
-                  <Star size={14} />
-                </button>
-              )}
-              <button
-                onClick={() => handleDelete(p.id)}
-                className="text-zinc-500 hover:text-red-400 p-1"
-                title="Delete"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
+    <SettingsSection
+      title="Model Providers"
+      footer="Add OpenAI-compatible endpoints. Keys are stored locally and are only sent to the endpoint you choose."
+    >
+      {providers.length === 0 && !showForm && !showPresets ? (
+        <div className="pt-settings-row">
+          <div className="pt-settings-row__copy">
+            <p className="pt-settings-row__title">No providers yet</p>
+            <p className="pt-settings-row__detail">
+              Create one from a preset or enter a custom endpoint.
+            </p>
           </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
 
-      {/* Preset buttons */}
-      {!showForm && (
-        <div className="space-y-2">
-          <div className="flex gap-2">
-            {PRESETS.map((preset) => (
+      {providers.map((provider) => (
+        <div key={provider.id} className="pt-settings-row">
+          <div className="pt-settings-row__copy">
+            <div className="pt-settings-row__title-line">
+              <p className="pt-settings-row__title">{provider.name}</p>
+              {provider.is_default ? (
+                <span className="pt-badge">
+                  <Star size={10} className="fill-current" />
+                  Default
+                </span>
+              ) : null}
+            </div>
+            <p className="pt-settings-row__detail">
+              {provider.base_url} · {provider.models.length} model
+              {provider.models.length === 1 ? "" : "s"}
+            </p>
+          </div>
+
+          <div className="pt-settings-row__actions">
+            {!provider.is_default ? (
               <button
-                key={preset.name}
-                onClick={() => applyPreset(preset)}
-                className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition-colors"
+                type="button"
+                className="pt-row-icon"
+                onClick={() => void handleSetDefault(provider.id)}
+                aria-label={`Set ${provider.name} as default`}
+                title="Set as default"
               >
-                + {preset.name}
+                <Star size={14} />
               </button>
-            ))}
+            ) : null}
+
             <button
-              onClick={() => setShowForm(true)}
-              className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg text-zinc-300 transition-colors"
+              type="button"
+              className="pt-row-icon pt-row-icon--danger"
+              onClick={() => void handleDelete(provider.id)}
+              aria-label={`Delete ${provider.name}`}
+              title="Delete provider"
             >
-              + Custom
+              <Trash2 size={14} />
             </button>
           </div>
         </div>
-      )}
+      ))}
 
-      {/* Add form */}
-      {showForm && (
-        <form onSubmit={handleSubmit} className="space-y-3 bg-zinc-800 rounded-lg p-3">
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-zinc-900 text-zinc-200 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-zinc-500"
-              placeholder="e.g. OpenAI"
-            />
+      {!showForm ? (
+        <button
+          type="button"
+          className="pt-settings-row pt-settings-row--interactive"
+          onClick={() => setShowPresets((value) => !value)}
+        >
+          <div className="pt-settings-row__copy">
+            <div className="pt-settings-row__title-line">
+              <p className="pt-settings-row__title">Add Provider</p>
+              <ChevronDown
+                size={16}
+                className={`pt-row-chevron${showPresets ? " is-open" : ""}`}
+              />
+            </div>
+            <p className="pt-settings-row__detail">
+              Use a preset or enter a custom endpoint.
+            </p>
           </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Base URL</label>
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              className="w-full bg-zinc-900 text-zinc-200 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-zinc-500"
-              placeholder="https://api.openai.com/v1"
-            />
+        </button>
+      ) : null}
+
+      {showPresets && !showForm ? (
+        <div className="pt-settings-expand">
+          <div className="pt-chip-row">
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.name}
+                type="button"
+                className={buttonStyles.chip}
+                onClick={() => applyPreset(preset)}
+              >
+                <Plus size={13} />
+                {preset.name}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={buttonStyles.chip}
+              onClick={() => {
+                setShowForm(true);
+                setShowPresets(false);
+              }}
+            >
+              <Plus size={13} />
+              Custom
+            </button>
           </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">API Key</label>
-            <div className="relative">
+        </div>
+      ) : null}
+
+      {showForm ? (
+        <form className="pt-settings-expand pt-settings-form" onSubmit={handleSubmit}>
+          <TextField
+            label="Name"
+            value={form.name}
+            onChange={(event) => updateField("name", event.target.value)}
+            placeholder="OpenAI"
+          />
+
+          <TextField
+            label="Base URL"
+            value={form.baseUrl}
+            onChange={(event) => updateField("baseUrl", event.target.value)}
+            placeholder="https://api.openai.com/v1"
+          />
+
+          <Field label="API Key">
+            <div className="pt-input-wrap">
               <input
                 type={showKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full bg-zinc-900 text-zinc-200 rounded-lg px-3 py-2 pr-10 text-sm outline-none border border-zinc-700 focus:border-zinc-500"
+                value={form.apiKey}
+                onChange={(event) => updateField("apiKey", event.target.value)}
+                className="pt-input pt-input--with-action"
                 placeholder="sk-..."
               />
               <button
                 type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                className="pt-input-wrap__action"
+                onClick={() => setShowKey((value) => !value)}
+                aria-label={showKey ? "Hide API key" : "Show API key"}
               >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">
-              Models (comma-separated)
-            </label>
-            <input
-              value={models}
-              onChange={(e) => setModels(e.target.value)}
-              className="w-full bg-zinc-900 text-zinc-200 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-zinc-500"
-              placeholder="gpt-4o, gpt-4o-mini"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
-            >
-              Save
+          </Field>
+
+          <TextField
+            label="Models (comma-separated)"
+            value={form.models}
+            onChange={(event) => updateField("models", event.target.value)}
+            placeholder="gpt-5.4, gpt-5.4-mini"
+          />
+
+          <FormError message={error} />
+
+          <div className="pt-settings-form__actions">
+            <button type="button" className={buttonStyles.secondary} onClick={resetForm}>
+              Cancel
             </button>
             <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm rounded-lg transition-colors"
+              type="submit"
+              className={buttonStyles.primary}
+              disabled={submitting}
             >
-              Cancel
+              {submitting ? "Saving..." : "Save Provider"}
             </button>
           </div>
         </form>
-      )}
-    </div>
+      ) : null}
+    </SettingsSection>
   );
 }

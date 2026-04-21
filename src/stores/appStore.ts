@@ -1,8 +1,34 @@
 import { create } from "zustand";
-import type { Conversation, Message, Provider } from "../lib/types";
 import * as api from "../lib/tauri";
+import type { Conversation, Message, Provider } from "../lib/types";
 
 type View = "chat" | "settings";
+
+function updateConversationPreview(
+  conversations: Conversation[],
+  message: Message,
+): Conversation[] {
+  const match = conversations.find(
+    (conversation) => conversation.id === message.conversation_id,
+  );
+
+  if (!match) {
+    return conversations;
+  }
+
+  const nextConversation: Conversation = {
+    ...match,
+    preview: message.content,
+    updated_at: message.created_at,
+  };
+
+  return [
+    nextConversation,
+    ...conversations.filter(
+      (conversation) => conversation.id !== message.conversation_id,
+    ),
+  ];
+}
 
 interface AppState {
   // UI
@@ -14,6 +40,7 @@ interface AppState {
   currentConversationId: string | null;
   loadConversations: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
+  clearConversationSelection: () => void;
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
@@ -22,7 +49,6 @@ interface AppState {
   messages: Message[];
   loadMessages: (conversationId: string) => Promise<void>;
   addMessage: (msg: Message) => void;
-  updateLastAssistantContent: (content: string) => void;
   clearStreamingContent: () => void;
 
   // Streaming
@@ -55,23 +81,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   conversations: [],
   currentConversationId: null,
   loadConversations: async () => {
-    const conversations = await api.listConversations();
-    set({ conversations });
+    set({ conversations: await api.listConversations() });
   },
   selectConversation: async (id) => {
     set({ currentConversationId: id, view: "chat" });
     await get().loadMessages(id);
   },
+  clearConversationSelection: () => {
+    set({
+      currentConversationId: null,
+      messages: [],
+      view: "chat",
+      isStreaming: false,
+      streamingContent: "",
+    });
+  },
   createConversation: async () => {
     const conv = await api.createConversation();
     await get().loadConversations();
-    set({ currentConversationId: conv.id, messages: [], view: "chat" });
+    set({
+      currentConversationId: conv.id,
+      messages: [],
+      view: "chat",
+    });
     return conv.id;
   },
   deleteConversation: async (id) => {
     await api.deleteConversation(id);
-    const { currentConversationId } = get();
-    if (currentConversationId === id) {
+    if (get().currentConversationId === id) {
       set({ currentConversationId: null, messages: [] });
     }
     await get().loadConversations();
@@ -84,19 +121,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Messages
   messages: [],
   loadMessages: async (conversationId) => {
-    const messages = await api.getMessages(conversationId);
-    set({ messages });
+    set({ messages: await api.getMessages(conversationId) });
   },
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
-  updateLastAssistantContent: (content) =>
-    set((s) => {
-      const msgs = [...s.messages];
-      const lastIdx = msgs.length - 1;
-      if (lastIdx >= 0 && msgs[lastIdx].role === "assistant") {
-        msgs[lastIdx] = { ...msgs[lastIdx], content };
-      }
-      return { messages: msgs };
-    }),
+  addMessage: (msg) =>
+    set((state) => ({
+      messages: [...state.messages, msg],
+      conversations: updateConversationPreview(state.conversations, msg),
+    })),
   clearStreamingContent: () => set({ streamingContent: "" }),
 
   // Streaming
@@ -112,26 +143,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedModel: null,
   loadProviders: async () => {
     const providers = await api.listProviders();
-    set({ providers });
-    // Auto-select default provider
-    const defaultProvider = providers.find((p) => p.is_default);
-    if (defaultProvider) {
-      set({
-        selectedProviderId: defaultProvider.id,
-        selectedModel: defaultProvider.models[0] || null,
-      });
-    } else if (providers.length > 0) {
-      set({
-        selectedProviderId: providers[0].id,
-        selectedModel: providers[0].models[0] || null,
-      });
-    }
+    // Prefer the default provider, otherwise fall back to the first one.
+    const active = providers.find((p) => p.is_default) ?? providers[0];
+    set({
+      providers,
+      selectedProviderId: active?.id ?? null,
+      selectedModel: active?.models[0] ?? null,
+    });
   },
   setSelectedProvider: (id) => {
     const provider = get().providers.find((p) => p.id === id);
     set({
       selectedProviderId: id,
-      selectedModel: provider?.models[0] || null,
+      selectedModel: provider?.models[0] ?? null,
     });
   },
   setSelectedModel: (model) => set({ selectedModel: model }),

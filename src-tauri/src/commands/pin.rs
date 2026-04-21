@@ -1,88 +1,88 @@
-use crate::db::DbState;
+use crate::db::{query_optional, DbState};
 use crate::pin;
+use rusqlite::{params, Connection};
 use tauri::State;
 
-#[tauri::command]
-pub fn is_pin_enabled(db: State<DbState>) -> Result<bool, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let result = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'pin_enabled'",
-        [],
-        |row| row.get::<_, String>(0),
-    );
-    match result {
-        Ok(val) => Ok(val == "true"),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn verify_pin_cmd(db: State<DbState>, input_pin: String) -> Result<bool, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let result = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'pin_hash'",
-        [],
-        |row| row.get::<_, String>(0),
-    );
-    match result {
-        Ok(hash) => Ok(pin::verify_pin(&input_pin, &hash)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn enable_pin(db: State<DbState>, new_pin: String) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let hash = pin::hash_pin(&new_pin);
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_hash', ?1)",
-        rusqlite::params![hash],
+fn get_setting_value(conn: &Connection, key: &str) -> Result<Option<String>, String> {
+    query_optional(
+        conn,
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
     )
-    .map_err(|e| e.to_string())?;
+}
+
+fn upsert_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
     conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_enabled', 'true')",
-        [],
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
+fn delete_setting(conn: &Connection, key: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
-pub fn disable_pin(db: State<DbState>, current_pin: String) -> Result<bool, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let result = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'pin_hash'",
-        [],
-        |row| row.get::<_, String>(0),
-    );
-    match result {
-        Ok(hash) => {
-            if !pin::verify_pin(&current_pin, &hash) {
-                return Ok(false);
-            }
-            conn.execute("DELETE FROM settings WHERE key = 'pin_hash'", [])
-                .map_err(|e| e.to_string())?;
-            conn.execute("DELETE FROM settings WHERE key = 'pin_enabled'", [])
-                .map_err(|e| e.to_string())?;
-            Ok(true)
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(true),
-        Err(e) => Err(e.to_string()),
+pub fn is_pin_enabled(db: State<DbState>) -> Result<bool, String> {
+    let conn = db.lock()?;
+    Ok(get_setting_value(&conn, "pin_enabled")?.as_deref() == Some("true"))
+}
+
+#[tauri::command]
+pub fn get_pin_length(db: State<DbState>) -> Result<Option<usize>, String> {
+    let conn = db.lock()?;
+    get_setting_value(&conn, "pin_length")?
+        .map(|raw| raw.parse::<usize>().map_err(|e| e.to_string()))
+        .transpose()
+}
+
+#[tauri::command]
+pub fn verify_pin_cmd(db: State<DbState>, input_pin: String) -> Result<bool, String> {
+    let conn = db.lock()?;
+    match get_setting_value(&conn, "pin_hash")? {
+        Some(hash) => Ok(pin::verify_pin(&input_pin, &hash)),
+        None => Ok(false),
     }
 }
 
 #[tauri::command]
+pub fn enable_pin(db: State<DbState>, new_pin: String) -> Result<(), String> {
+    let conn = db.lock()?;
+    upsert_setting(&conn, "pin_hash", &pin::hash_pin(&new_pin))?;
+    upsert_setting(&conn, "pin_enabled", "true")?;
+    upsert_setting(&conn, "pin_length", &new_pin.len().to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn disable_pin(db: State<DbState>, current_pin: String) -> Result<bool, String> {
+    let conn = db.lock()?;
+    let Some(hash) = get_setting_value(&conn, "pin_hash")? else {
+        // No PIN stored — treat as already disabled.
+        return Ok(true);
+    };
+    if !pin::verify_pin(&current_pin, &hash) {
+        return Ok(false);
+    }
+    delete_setting(&conn, "pin_hash")?;
+    delete_setting(&conn, "pin_enabled")?;
+    delete_setting(&conn, "pin_length")?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn reset_all_data(db: State<DbState>) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.lock()?;
     conn.execute_batch(
-        "
-        DELETE FROM messages;
-        DELETE FROM conversations;
-        DELETE FROM providers;
-        DELETE FROM settings;
-        ",
+        "DELETE FROM messages;
+         DELETE FROM conversations;
+         DELETE FROM providers;
+         DELETE FROM settings;",
     )
     .map_err(|e| e.to_string())?;
     Ok(())

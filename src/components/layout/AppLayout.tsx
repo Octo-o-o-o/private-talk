@@ -1,17 +1,59 @@
-import { Sidebar } from "./Sidebar";
+import { useAppStore } from "../../stores/appStore";
 import { ChatView } from "../chat/ChatView";
 import { SettingsPage } from "../settings/SettingsPage";
-import { useAppStore } from "../../stores/appStore";
+import { Sidebar } from "./Sidebar";
+import { useLayoutMode } from "./useLayoutMode";
 
 export function AppLayout() {
+  const layout = useLayoutMode();
   const view = useAppStore((s) => s.view);
+  const currentConversationId = useAppStore((s) => s.currentConversationId);
+  const clearConversationSelection = useAppStore(
+    (s) => s.clearConversationSelection,
+  );
+  const setView = useAppStore((s) => s.setView);
+
+  const isPhone = layout === "phone";
+  const showDetail = isPhone && (view === "settings" || !!currentConversationId);
+  const showSettings = view === "settings";
 
   return (
-    <div className="flex h-full bg-zinc-900 text-zinc-100">
-      <Sidebar />
-      <div className="flex-1 h-full overflow-hidden">
-        {view === "settings" ? <SettingsPage /> : <ChatView />}
-      </div>
+    <div
+      className={`app-shell${showDetail ? " is-detail-visible" : ""}`}
+      data-layout={layout}
+    >
+      <aside className="app-sidebar-pane">
+        <div className="app-panel app-panel--sidebar">
+          <Sidebar layout={layout} />
+        </div>
+      </aside>
+
+      <main className="app-main-pane">
+        <div className="app-panel app-panel--main">
+          <div className="app-view-stack">
+            <section
+              className={`app-view-layer${showSettings ? "" : " is-active"}`}
+              aria-hidden={showSettings}
+            >
+              <ChatView
+                layout={layout}
+                onBack={clearConversationSelection}
+                onOpenSettings={() => setView("settings")}
+              />
+            </section>
+
+            <section
+              className={`app-view-layer${showSettings ? " is-active" : ""}`}
+              aria-hidden={!showSettings}
+            >
+              <SettingsPage
+                layout={layout}
+                onBack={() => setView("chat")}
+              />
+            </section>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

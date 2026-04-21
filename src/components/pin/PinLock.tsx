@@ -1,102 +1,157 @@
-import { useState } from "react";
+import { Delete, Lock } from "lucide-react";
+import { useEffect, useState } from "react";
 import * as api from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
-import { Lock, Delete } from "lucide-react";
+
+const PIN_LENGTH = 6;
+const MIN_VERIFY_LENGTH = 4;
+const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+
+function dotClass(filled: boolean, isError: boolean): string {
+  if (!filled) {
+    return "pt-pin-lock__dot";
+  }
+
+  return `pt-pin-lock__dot is-filled${isError ? " is-error" : ""}`;
+}
 
 export function PinLock() {
+  const setLocked = useAppStore((s) => s.setLocked);
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [shake, setShake] = useState(false);
-  const setLocked = useAppStore((s) => s.setLocked);
+  const [pinLength, setPinLength] = useState(PIN_LENGTH);
 
-  const handleDigit = (digit: string) => {
-    if (pin.length >= 6) return;
-    const newPin = pin + digit;
-    setPin(newPin);
-    setError(false);
+  useEffect(() => {
+    let cancelled = false;
 
-    // Auto-verify when 4+ digits
-    if (newPin.length >= 4) {
-      api.verifyPin(newPin).then((ok) => {
-        if (ok) {
-          setLocked(false);
+    void api
+      .getPinLength()
+      .then((length) => {
+        if (!cancelled && length && length >= MIN_VERIFY_LENGTH) {
+          setPinLength(length);
         }
+      })
+      .catch((err) => {
+        console.warn("Unable to read PIN length:", err);
       });
-    }
-  };
 
-  const handleDelete = () => {
-    setPin(pin.slice(0, -1));
-    setError(false);
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const handleSubmit = async () => {
-    if (pin.length < 4) return;
-    const ok = await api.verifyPin(pin);
+  async function tryVerify(candidate: string): Promise<boolean> {
+    const ok = await api.verifyPin(candidate);
     if (ok) {
       setLocked(false);
-    } else {
-      setError(true);
-      setShake(true);
-      setTimeout(() => {
-        setShake(false);
-        setPin("");
-      }, 500);
     }
-  };
+    return ok;
+  }
+
+  function failVerification(): void {
+    setError(true);
+    setShake(true);
+    window.setTimeout(() => {
+      setShake(false);
+      setPin("");
+    }, 500);
+  }
+
+  function handleDigit(digit: string): void {
+    if (pin.length >= pinLength) {
+      return;
+    }
+
+    const next = pin + digit;
+    setPin(next);
+    setError(false);
+
+    if (next.length >= MIN_VERIFY_LENGTH) {
+      void (async () => {
+        const ok = await tryVerify(next);
+        if (!ok && next.length === pinLength) {
+          failVerification();
+        }
+      })();
+    }
+  }
+
+  function handleDelete(): void {
+    setPin((current) => current.slice(0, -1));
+    setError(false);
+  }
+
+  async function handleSubmit(): Promise<void> {
+    if (pin.length < MIN_VERIFY_LENGTH) {
+      return;
+    }
+
+    const ok = await tryVerify(pin);
+    if (ok) {
+      return;
+    }
+    failVerification();
+  }
 
   return (
-    <div className="h-full flex flex-col items-center justify-center bg-zinc-950">
-      <div className="flex flex-col items-center">
-        <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center mb-6">
-          <Lock size={24} className="text-zinc-400" />
+    <div className="pt-pin-lock-shell">
+      <div className="pt-pin-lock-card">
+        <div className="pt-pin-lock__badge">
+          <Lock size={22} />
         </div>
 
-        <h2 className="text-lg font-medium text-zinc-200 mb-8">Enter PIN</h2>
+        <h1 className="pt-pin-lock__title">Enter Passcode</h1>
+        <p className="pt-pin-lock__copy">
+          Unlock Private Talk on this device.
+        </p>
 
-        {/* PIN dots */}
         <div
-          className={`flex gap-3 mb-8 ${shake ? "animate-[shake_0.5s_ease-in-out]" : ""}`}
+          className={`pt-pin-lock__dots${shake ? " is-shaking" : ""}`}
+          role="status"
+          aria-label={`${pin.length} of ${pinLength} digits entered`}
         >
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className={`w-3 h-3 rounded-full transition-colors ${
-                i < pin.length
-                  ? error
-                    ? "bg-red-500"
-                    : "bg-blue-500"
-                  : "bg-zinc-700"
-              }`}
+          {Array.from({ length: pinLength }, (_, index) => (
+            <span
+              key={index}
+              className={dotClass(index < pin.length, error)}
             />
           ))}
         </div>
 
-        {error && (
-          <p className="text-sm text-red-400 mb-4">Incorrect PIN</p>
-        )}
+        <div className="pt-pin-lock__error">
+          {error ? <span>Incorrect PIN</span> : null}
+        </div>
 
-        {/* Numpad */}
-        <div className="grid grid-cols-3 gap-3">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+        <div className="pt-pin-lock__keypad">
+          {DIGITS.map((digit) => (
             <button
               key={digit}
+              type="button"
+              className="pt-pin-lock__key"
               onClick={() => handleDigit(digit)}
-              className="w-16 h-16 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xl font-light transition-colors active:scale-95"
+              aria-label={`Digit ${digit}`}
             >
               {digit}
             </button>
           ))}
-          <div /> {/* empty spacer */}
+
+          <div className="pt-pin-lock__key pt-pin-lock__key--spacer" />
+
           <button
+            type="button"
+            className="pt-pin-lock__key"
             onClick={() => handleDigit("0")}
-            className="w-16 h-16 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xl font-light transition-colors active:scale-95"
+            aria-label="Digit 0"
           >
             0
           </button>
+
           <button
-            onClick={pin.length > 0 ? handleDelete : handleSubmit}
-            className="w-16 h-16 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 flex items-center justify-center transition-colors active:scale-95"
+            type="button"
+            className="pt-pin-lock__action"
+            onClick={pin.length > 0 ? handleDelete : () => void handleSubmit()}
+            aria-label={pin.length > 0 ? "Delete" : "Submit PIN"}
           >
             <Delete size={20} />
           </button>

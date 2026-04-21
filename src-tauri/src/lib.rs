@@ -13,18 +13,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Initialize SQLite database in app data directory
-            let app_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to get app data dir");
-            std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
-            let db_path = app_dir.join("private-talk.db");
+            let app_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_dir)?;
 
-            let conn = Connection::open(&db_path)
-                .expect("Failed to open database");
-            db::schema::init_db(&conn).expect("Failed to initialize database");
-
+            let conn = Connection::open(app_dir.join("private-talk.db"))?;
+            db::schema::init_db(&conn)?;
             app.manage(DbState(Mutex::new(conn)));
             Ok(())
         })
@@ -41,9 +34,11 @@ pub fn run() {
             commands::provider::set_default_provider,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::preview::get_preview_bootstrap,
             commands::chat::send_message,
             commands::chat::stop_generation,
             commands::pin::is_pin_enabled,
+            commands::pin::get_pin_length,
             commands::pin::verify_pin_cmd,
             commands::pin::enable_pin,
             commands::pin::disable_pin,

@@ -23,8 +23,6 @@ pub struct ChatChunk {
 #[derive(Debug, Deserialize)]
 pub struct ChunkChoice {
     pub delta: Delta,
-    #[serde(default)]
-    pub finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

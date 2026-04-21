@@ -1,0 +1,22 @@
+# devyard project configuration
+# Docs: https://github.com/Octo-o-o-o/devyard
+
+name: private-talk
+description: ""
+
+# Optional deploy command (preferred over auto-detection)
+deploy:
+  command: ""  # e.g. bash scripts/deploy.sh
+
+# Application services
+services:
+  app:
+    command: pnpm dev
+    port: 5173
+
+# Endpoints shown after startup
+endpoints:
+  app:
+    label: App
+    port: 5173
+    url: http://localhost:5173

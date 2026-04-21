@@ -1,74 +1,117 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, Provider } from "./types";
+import type {
+  Conversation,
+  Message,
+  PreviewBootstrap,
+  Provider,
+} from "./types";
+
+// Thin wrapper around `invoke` to keep the public API consistent.
+function cmd<T>(name: string, args?: Record<string, unknown>): Promise<T> {
+  return invoke<T>(name, args);
+}
+
+export function getPreviewBootstrap(): Promise<PreviewBootstrap> {
+  return cmd("get_preview_bootstrap");
+}
 
 // Conversation commands
-export const listConversations = () =>
-  invoke<Conversation[]>("list_conversations");
+export function listConversations(): Promise<Conversation[]> {
+  return cmd("list_conversations");
+}
 
-export const createConversation = (title?: string) =>
-  invoke<Conversation>("create_conversation", { title });
+export function createConversation(title?: string): Promise<Conversation> {
+  return cmd("create_conversation", { title });
+}
 
-export const deleteConversation = (id: string) =>
-  invoke<void>("delete_conversation", { id });
+export function deleteConversation(id: string): Promise<void> {
+  return cmd("delete_conversation", { id });
+}
 
-export const renameConversation = (id: string, title: string) =>
-  invoke<void>("rename_conversation", { id, title });
+export function renameConversation(id: string, title: string): Promise<void> {
+  return cmd("rename_conversation", { id, title });
+}
 
-export const getMessages = (conversationId: string) =>
-  invoke<Message[]>("get_messages", { conversationId });
+export function getMessages(conversationId: string): Promise<Message[]> {
+  return cmd("get_messages", { conversationId });
+}
 
 // Provider commands
-export const listProviders = () => invoke<Provider[]>("list_providers");
+export function listProviders(): Promise<Provider[]> {
+  return cmd("list_providers");
+}
 
-export const createProvider = (
+export function createProvider(
   name: string,
   baseUrl: string,
   apiKey: string,
-  models: string[]
-) => invoke<Provider>("create_provider", { name, baseUrl, apiKey, models });
+  models: string[],
+): Promise<Provider> {
+  return cmd("create_provider", { name, baseUrl, apiKey, models });
+}
 
-export const updateProvider = (
+export function updateProvider(
   id: string,
   name?: string,
   baseUrl?: string,
   apiKey?: string,
-  models?: string[]
-) => invoke<void>("update_provider", { id, name, baseUrl, apiKey, models });
+  models?: string[],
+): Promise<void> {
+  return cmd("update_provider", { id, name, baseUrl, apiKey, models });
+}
 
-export const deleteProvider = (id: string) =>
-  invoke<void>("delete_provider", { id });
+export function deleteProvider(id: string): Promise<void> {
+  return cmd("delete_provider", { id });
+}
 
-export const setDefaultProvider = (id: string) =>
-  invoke<void>("set_default_provider", { id });
+export function setDefaultProvider(id: string): Promise<void> {
+  return cmd("set_default_provider", { id });
+}
 
 // Chat commands
-export const sendMessage = (
+export function sendMessage(
   conversationId: string,
   content: string,
   providerId: string,
-  model: string
-) =>
-  invoke<void>("send_message", { conversationId, content, providerId, model });
+  model: string,
+): Promise<void> {
+  return cmd("send_message", { conversationId, content, providerId, model });
+}
 
-export const stopGeneration = () => invoke<void>("stop_generation");
+export function stopGeneration(): Promise<void> {
+  return cmd("stop_generation");
+}
 
 // Settings commands
-export const getSetting = (key: string) =>
-  invoke<string | null>("get_setting", { key });
+export function getSetting(key: string): Promise<string | null> {
+  return cmd("get_setting", { key });
+}
 
-export const setSetting = (key: string, value: string) =>
-  invoke<void>("set_setting", { key, value });
+export function setSetting(key: string, value: string): Promise<void> {
+  return cmd("set_setting", { key, value });
+}
 
 // PIN commands
-export const isPinEnabled = () => invoke<boolean>("is_pin_enabled");
+export function isPinEnabled(): Promise<boolean> {
+  return cmd("is_pin_enabled");
+}
 
-export const verifyPin = (inputPin: string) =>
-  invoke<boolean>("verify_pin_cmd", { inputPin });
+export function getPinLength(): Promise<number | null> {
+  return cmd("get_pin_length");
+}
 
-export const enablePin = (newPin: string) =>
-  invoke<void>("enable_pin", { newPin });
+export function verifyPin(inputPin: string): Promise<boolean> {
+  return cmd("verify_pin_cmd", { inputPin });
+}
 
-export const disablePin = (currentPin: string) =>
-  invoke<boolean>("disable_pin", { currentPin });
+export function enablePin(newPin: string): Promise<void> {
+  return cmd("enable_pin", { newPin });
+}
 
-export const resetAllData = () => invoke<void>("reset_all_data");
+export function disablePin(currentPin: string): Promise<boolean> {
+  return cmd("disable_pin", { currentPin });
+}
+
+export function resetAllData(): Promise<void> {
+  return cmd("reset_all_data");
+}

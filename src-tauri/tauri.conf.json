@@ -15,8 +15,10 @@
         "title": "Private Talk",
         "width": 1200,
         "height": 800,
-        "minWidth": 800,
-        "minHeight": 600
+        "minWidth": 768,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

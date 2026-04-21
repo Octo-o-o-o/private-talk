@@ -1,6 +1,9 @@
+export type Role = "system" | "user" | "assistant";
+
 export interface Conversation {
   id: string;
   title: string;
+  preview: string;
   created_at: string;
   updated_at: string;
 }
@@ -8,7 +11,7 @@ export interface Conversation {
 export interface Message {
   id: string;
   conversation_id: string;
-  role: "system" | "user" | "assistant";
+  role: Role;
   content: string;
   created_at: string;
 }
@@ -38,4 +41,9 @@ export interface StreamDonePayload {
 export interface StreamErrorPayload {
   conversation_id: string;
   error: string;
+}
+
+export interface PreviewBootstrap {
+  screen?: string | null;
+  dataset?: string | null;
 }

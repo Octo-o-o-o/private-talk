@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Tooling artifacts
+.codex-artifacts/
+.playwright-mcp/
+
+# Local design/demo scratch files
+demo.html
+after-*.png
+
+# Xcode per-user caches (gen/apple has its own .gitignore for build/Externals)
+**/xcuserdata/
