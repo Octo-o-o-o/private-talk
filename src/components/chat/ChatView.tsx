@@ -5,9 +5,11 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import type {
+  Attachment,
   Provider,
   StreamChunkPayload,
   StreamDonePayload,
@@ -15,7 +17,7 @@ import type {
 } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "../layout/useLayoutMode";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type ChatInputSubmission } from "./ChatInput";
 import { MessageItem } from "./MessageItem";
 
 interface ChatViewProps {
@@ -25,6 +27,7 @@ interface ChatViewProps {
 }
 
 export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
+  const { t } = useI18n();
   const {
     messages,
     conversations,
@@ -38,6 +41,7 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
     selectedProviderId,
     selectedModel,
     providers,
+    imageGenConfig,
     createConversation,
     setSelectedProvider,
     setSelectedModel,
@@ -46,6 +50,25 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const isPhone = layout === "phone";
+  const [isImageGenerating, setIsImageGenerating] = useState(false);
+  const imageEnabled =
+    imageGenConfig.enabled &&
+    imageGenConfig.provider_id.trim().length > 0 &&
+    imageGenConfig.model.trim().length > 0;
+
+  function normalizeImageContent(content: string): string {
+    return content.trim().startsWith("/img") ? content.trim() : `/img ${content.trim()}`;
+  }
+
+  function attachmentSummary(attachments: Attachment[]): string {
+    if (attachments.length === 1) {
+      return t(
+        `已附加文件：${attachments[0]?.file_name ?? "未命名文件"}`,
+        `Attached file: ${attachments[0]?.file_name ?? "Untitled file"}`,
+      );
+    }
+    return t(`已附加 ${attachments.length} 个文件`, `Attached ${attachments.length} files`);
+  }
 
   useEffect(() => {
     if (!autoScrollRef.current || !scrollRef.current) {
@@ -54,6 +77,41 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
 
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, streamingContent]);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      return;
+    }
+
+    const fallbackProvider =
+      providers.find((provider) => provider.is_default) ?? providers[0];
+
+    if (!selectedProviderId) {
+      setSelectedProvider(fallbackProvider.id);
+      return;
+    }
+
+    const activeProvider =
+      providers.find((provider) => provider.id === selectedProviderId) ?? null;
+
+    if (!activeProvider) {
+      setSelectedProvider(fallbackProvider.id);
+      return;
+    }
+
+    if (!selectedModel || !activeProvider.models.includes(selectedModel)) {
+      const nextModel = activeProvider.models[0] ?? null;
+      if (nextModel) {
+        setSelectedModel(nextModel);
+      }
+    }
+  }, [
+    providers,
+    selectedModel,
+    selectedProviderId,
+    setSelectedModel,
+    setSelectedProvider,
+  ]);
 
   useEffect(() => {
     if (!currentConversationId) {
@@ -82,6 +140,7 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
           conversation_id: event.payload.conversation_id,
           role: "assistant",
           content: event.payload.full_content,
+          attachments: [],
           created_at: new Date().toISOString(),
         });
         clearStreamingContent();
@@ -94,6 +153,7 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
 
         setStreaming(false);
         clearStreamingContent();
+        setIsImageGenerating(false);
         console.error("Stream error:", event.payload.error);
       }),
     ];
@@ -121,36 +181,142 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
       element.scrollHeight - element.scrollTop - element.clientHeight < 100;
   }
 
-  async function handleSend(content: string): Promise<void> {
-    if (!selectedProviderId || !selectedModel) {
+  async function handleSend(submission: ChatInputSubmission): Promise<void> {
+    const rawContent = submission.content.trim();
+    const isImageRequest = submission.mode === "image" || rawContent.startsWith("/img");
+    const fallbackProvider =
+      providers.find((provider) => provider.is_default) ?? providers[0];
+    const activeProvider =
+      providers.find((provider) => provider.id === selectedProviderId) ?? fallbackProvider;
+    const activeProviderId = activeProvider?.id ?? null;
+    const activeModel =
+      activeProvider?.models.includes(selectedModel ?? "")
+        ? selectedModel
+        : activeProvider?.models[0] ?? null;
+
+    if (isImageRequest && !imageEnabled) {
+      const conversationId = currentConversationId ?? (await createConversation());
+      addMessage({
+        id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        role: "assistant",
+        content: t(
+          "图片生成当前还没有配置完成。先去 Settings > Image Generation 里启用并选择服务商，再继续发送 /img 请求。",
+          "Image generation is not configured yet. Enable it in Settings > Image Generation and choose a provider before sending /img requests.",
+        ),
+        attachments: [],
+        created_at: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (!isImageRequest && (!activeProviderId || !activeModel)) {
       console.error("No provider/model selected");
       return;
     }
 
     const conversationId = currentConversationId ?? (await createConversation());
+    const userMessageId = crypto.randomUUID();
+    const optimisticAttachments: Attachment[] = submission.attachments.map((attachment, index) => ({
+      id: `pending-${index}`,
+      message_id: userMessageId,
+      file_type:
+        attachment.mime_type === "application/pdf"
+          ? "pdf"
+          : attachment.mime_type.startsWith("text/") || attachment.mime_type === "application/json"
+            ? "text_file"
+            : attachment.mime_type.startsWith("image/")
+              ? "image"
+              : "file",
+      file_name: attachment.file_name,
+      file_path: "",
+      mime_type: attachment.mime_type,
+      file_size: Math.round((attachment.data_base64.length * 3) / 4),
+      created_at: new Date().toISOString(),
+    }));
+    const normalizedImagePrompt =
+      rawContent ||
+      t("按参考图生成一张图片", "Generate an image from the reference image");
+    const effectiveReferenceImage =
+      submission.referenceImage ??
+      (() => {
+        const imageAttachment = submission.attachments.find((attachment) =>
+          attachment.mime_type.startsWith("image/"),
+        );
+        return imageAttachment
+          ? {
+              name: imageAttachment.file_name,
+              mimeType: imageAttachment.mime_type,
+              base64: imageAttachment.data_base64,
+            }
+          : null;
+      })();
+    const displayAttachments = isImageRequest ? [] : optimisticAttachments;
+    const userContent = isImageRequest
+      ? `🖼 ${normalizedImagePrompt}`
+      : rawContent || attachmentSummary(optimisticAttachments);
 
     addMessage({
-      id: crypto.randomUUID(),
+      id: userMessageId,
       conversation_id: conversationId,
       role: "user",
-      content,
+      content: userContent,
+      attachments: displayAttachments,
       created_at: new Date().toISOString(),
     });
 
-    setStreaming(true);
     clearStreamingContent();
     autoScrollRef.current = true;
 
     try {
+      if (isImageRequest) {
+        setIsImageGenerating(true);
+        const assistantMessage = await api.generateImageMessage(
+          conversationId,
+          normalizeImageContent(normalizedImagePrompt),
+          userContent,
+          effectiveReferenceImage?.base64,
+          effectiveReferenceImage?.mimeType,
+        );
+        addMessage({
+          ...assistantMessage,
+          role: "assistant",
+          attachments: [],
+        });
+        setIsImageGenerating(false);
+        clearStreamingContent();
+        return;
+      }
+
+      setStreaming(true);
       await api.sendMessage(
         conversationId,
-        content,
-        selectedProviderId,
-        selectedModel,
+        rawContent,
+        userContent,
+        activeProviderId!,
+        activeModel!,
+        userMessageId,
+        submission.attachments,
       );
     } catch (error) {
       setStreaming(false);
+      setIsImageGenerating(false);
       clearStreamingContent();
+      const message =
+        error instanceof Error
+          ? error.message
+          : t("请求失败，请检查当前服务商配置。", "Request failed. Check the current provider configuration.");
+      addMessage({
+        id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        role: "assistant",
+        content: t(
+          `请求失败：${message}`,
+          `Request failed: ${message}`,
+        ),
+        attachments: [],
+        created_at: new Date().toISOString(),
+      });
       console.error("Send failed:", error);
     }
   }
@@ -165,25 +331,34 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
   const currentProvider = providers.find(
     (provider) => provider.id === selectedProviderId,
   );
+  const effectiveProvider =
+    currentProvider ??
+    providers.find((provider) => provider.is_default) ??
+    providers[0];
+  const effectiveProviderId = effectiveProvider?.id ?? null;
+  const effectiveModel =
+    effectiveProvider?.models.includes(selectedModel ?? "")
+      ? selectedModel
+      : effectiveProvider?.models[0] ?? null;
   const currentConversation = conversations.find(
     (conversation) => conversation.id === currentConversationId,
   );
   const hasConversation = !!currentConversationId;
   const title = hasConversation
-    ? currentConversation?.title.trim() || "New Conversation"
+    ? currentConversation?.title.trim() || t("新对话", "New Conversation")
     : "Private Talk";
   const subtitle = hasConversation
-    ? selectedModel ?? currentProvider?.name ?? "Choose a model"
+    ? effectiveModel ?? effectiveProvider?.name ?? t("选择模型", "Choose a model")
     : providers.length > 0
-      ? "Everything stays on this device."
-      : "Add a provider to begin.";
+      ? t("一切都只保留在当前设备。", "Everything stays on this device.")
+      : t("先添加服务商，再开始使用。", "Add a provider to begin.");
 
   return (
     <div className={`pt-chat pt-chat--${layout}`}>
       {isPhone ? (
         <MobileChatHeader
-          title={hasConversation ? title : "New Chat"}
-          subtitle={hasConversation ? subtitle : "Private, on-device threads"}
+          title={hasConversation ? title : t("新建聊天", "New Chat")}
+          subtitle={hasConversation ? subtitle : t("私密、本地优先的对话", "Private, on-device threads")}
           canGoBack={hasConversation}
           onBack={handleBack}
           onOpenSettings={onOpenSettings}
@@ -193,9 +368,9 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
           title={title}
           subtitle={subtitle}
           providers={providers}
-          currentProvider={currentProvider}
-          selectedProviderId={selectedProviderId}
-          selectedModel={selectedModel}
+          currentProvider={effectiveProvider}
+          selectedProviderId={effectiveProviderId}
+          selectedModel={effectiveModel}
           onProviderChange={setSelectedProvider}
           onModelChange={setSelectedModel}
         />
@@ -205,9 +380,9 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
         <ProviderSelectBar
           layout={layout}
           providers={providers}
-          currentProvider={currentProvider}
-          selectedProviderId={selectedProviderId}
-          selectedModel={selectedModel}
+          currentProvider={effectiveProvider}
+          selectedProviderId={effectiveProviderId}
+          selectedModel={effectiveModel}
           onProviderChange={setSelectedProvider}
           onModelChange={setSelectedModel}
         />
@@ -230,6 +405,7 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
                   key={message.id}
                   role={message.role}
                   content={message.content}
+                  attachments={message.attachments}
                 />
               ))}
 
@@ -237,11 +413,12 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
                 <MessageItem
                   role="assistant"
                   content={streamingContent}
+                  attachments={[]}
                   isStreaming
                 />
               ) : null}
 
-              {isStreaming && !streamingContent ? <TypingIndicator /> : null}
+              {(isStreaming && !streamingContent) || isImageGenerating ? <TypingIndicator /> : null}
             </>
           ) : (
             <WelcomePanel
@@ -253,7 +430,15 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
         </div>
       </div>
 
-      <ChatInput layout={layout} onSend={handleSend} onStop={api.stopGeneration} />
+      <ChatInput
+        layout={layout}
+        onSend={handleSend}
+        onStop={api.stopGeneration}
+        isBusy={isImageGenerating}
+        showStop={isStreaming}
+        canSendOverride={providers.length > 0 && !!effectiveProviderId && !!effectiveModel}
+        imageEnabled={imageEnabled}
+      />
     </div>
   );
 }
@@ -311,6 +496,7 @@ function MobileChatHeader({
   onBack: () => void;
   onOpenSettings: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <header className="pt-pane-header pt-pane-header--mobile">
       {canGoBack ? (
@@ -318,7 +504,7 @@ function MobileChatHeader({
           type="button"
           className="pt-icon-button"
           onClick={onBack}
-          aria-label="Back"
+          aria-label={t("返回", "Back")}
         >
           <ArrowLeft size={20} />
         </button>
@@ -335,7 +521,7 @@ function MobileChatHeader({
         type="button"
         className="pt-icon-button"
         onClick={onOpenSettings}
-        aria-label="Open settings"
+        aria-label={t("打开设置", "Open settings")}
       >
         <Settings2 size={18} />
       </button>
@@ -392,8 +578,9 @@ function ProviderControls({
   onModelChange: (model: string) => void;
   compact?: boolean;
 }) {
+  const { t } = useI18n();
   if (providers.length === 0) {
-    return <span className="pt-status-pill">No provider</span>;
+    return <span className="pt-status-pill">{t("没有服务商", "No provider")}</span>;
   }
 
   return (
@@ -402,7 +589,7 @@ function ProviderControls({
         value={selectedProviderId ?? ""}
         onChange={(event) => onProviderChange(event.target.value)}
         className="pt-select"
-        aria-label="Provider"
+        aria-label={t("服务商", "Provider")}
       >
         {providers.map((provider) => (
           <option key={provider.id} value={provider.id}>
@@ -416,7 +603,7 @@ function ProviderControls({
           value={selectedModel ?? ""}
           onChange={(event) => onModelChange(event.target.value)}
           className="pt-select"
-          aria-label="Model"
+          aria-label={t("模型", "Model")}
         >
           {currentProvider.models.map((model) => (
             <option key={model} value={model}>
@@ -438,27 +625,36 @@ function WelcomePanel({
   onCreateConversation: () => void;
   onOpenSettings: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="pt-welcome">
       <div className="pt-welcome__icon">
         {hasProviders ? <MessageSquarePlus size={28} /> : <Sparkles size={28} />}
       </div>
       <h2 className="pt-welcome__title">
-        {hasProviders ? "Start a private conversation" : "Add a model provider"}
+        {hasProviders
+          ? t("开始一段私密对话", "Start a private conversation")
+          : t("添加一个模型服务商", "Add a model provider")}
       </h2>
       <p className="pt-welcome__copy">
         {hasProviders
-          ? "Create a thread and your next message becomes the first turn."
-          : "Private Talk keeps conversations local, but it still needs an endpoint you trust before it can send messages."}
+          ? t(
+              "创建一个线程，你的下一条消息会成为这段对话的第一轮。",
+              "Create a thread and your next message becomes the first turn.",
+            )
+          : t(
+              "Private Talk 会把对话保留在本地，但在发送消息前仍然需要你信任的模型端点。",
+              "Private Talk keeps conversations local, but it still needs an endpoint you trust before it can send messages.",
+            )}
       </p>
       <div className="pt-welcome__actions">
         {hasProviders ? (
           <button type="button" className="pt-btn pt-btn--primary" onClick={onCreateConversation}>
-            New Chat
+            {t("新建聊天", "New Chat")}
           </button>
         ) : (
           <button type="button" className="pt-btn pt-btn--primary" onClick={onOpenSettings}>
-            Open Settings
+            {t("打开设置", "Open Settings")}
           </button>
         )}
       </div>
@@ -467,15 +663,19 @@ function WelcomePanel({
 }
 
 function ConversationStarterCard() {
+  const { t } = useI18n();
   return (
     <section className="pt-helper-card">
       <div className="pt-helper-card__icon">
         <MessageSquarePlus size={20} />
       </div>
       <div>
-        <p className="pt-helper-card__title">Ask anything to begin</p>
+        <p className="pt-helper-card__title">{t("从任意问题开始", "Ask anything to begin")}</p>
         <p className="pt-helper-card__copy">
-          Your next message becomes the first turn in this conversation.
+          {t(
+            "你的下一条消息会成为这段对话的第一轮。",
+            "Your next message becomes the first turn in this conversation.",
+          )}
         </p>
       </div>
     </section>

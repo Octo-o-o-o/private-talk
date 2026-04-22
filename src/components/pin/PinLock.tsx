@@ -1,5 +1,6 @@
 import { Delete, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
 
@@ -16,6 +17,7 @@ function dotClass(filled: boolean, isError: boolean): string {
 }
 
 export function PinLock() {
+  const { t } = useI18n();
   const setLocked = useAppStore((s) => s.setLocked);
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
@@ -101,15 +103,18 @@ export function PinLock() {
           <Lock size={22} />
         </div>
 
-        <h1 className="pt-pin-lock__title">Enter Passcode</h1>
+        <h1 className="pt-pin-lock__title">{t("输入 PIN 码", "Enter Passcode")}</h1>
         <p className="pt-pin-lock__copy">
-          Unlock Private Talk on this device.
+          {t("在当前设备上解锁 Private Talk。", "Unlock Private Talk on this device.")}
         </p>
 
         <div
           className={`pt-pin-lock__dots${shake ? " is-shaking" : ""}`}
           role="status"
-          aria-label={`${pin.length} of ${pinLength} digits entered`}
+          aria-label={t(
+            `已输入 ${pin.length} / ${pinLength} 位`,
+            `${pin.length} of ${pinLength} digits entered`,
+          )}
         >
           {Array.from({ length: pinLength }, (_, index) => (
             <span
@@ -120,7 +125,7 @@ export function PinLock() {
         </div>
 
         <div className="pt-pin-lock__error">
-          {error ? <span>Incorrect PIN</span> : null}
+          {error ? <span>{t("PIN 错误", "Incorrect PIN")}</span> : null}
         </div>
 
         <div className="pt-pin-lock__keypad">
@@ -130,7 +135,7 @@ export function PinLock() {
               type="button"
               className="pt-pin-lock__key"
               onClick={() => handleDigit(digit)}
-              aria-label={`Digit ${digit}`}
+              aria-label={t(`数字 ${digit}`, `Digit ${digit}`)}
             >
               {digit}
             </button>
@@ -142,7 +147,7 @@ export function PinLock() {
             type="button"
             className="pt-pin-lock__key"
             onClick={() => handleDigit("0")}
-            aria-label="Digit 0"
+            aria-label={t("数字 0", "Digit 0")}
           >
             0
           </button>
@@ -151,7 +156,7 @@ export function PinLock() {
             type="button"
             className="pt-pin-lock__action"
             onClick={pin.length > 0 ? handleDelete : () => void handleSubmit()}
-            aria-label={pin.length > 0 ? "Delete" : "Submit PIN"}
+            aria-label={pin.length > 0 ? t("删除", "Delete") : t("提交 PIN", "Submit PIN")}
           >
             <Delete size={20} />
           </button>

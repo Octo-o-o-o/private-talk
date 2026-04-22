@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import type { Conversation } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "./useLayoutMode";
@@ -17,37 +18,41 @@ function stop(event: React.MouseEvent): void {
   event.stopPropagation();
 }
 
-function formatConversationTime(timestamp: string): string {
+function formatConversationTime(
+  timestamp: string,
+  locale: "zh-CN" | "en",
+  fallbackLabel: string,
+): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) {
-    return "Recently updated";
+    return fallbackLabel;
   }
 
   const now = new Date();
   const isSameYear = date.getFullYear() === now.getFullYear();
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN" : "en-US", {
     month: "short",
     day: "numeric",
     ...(isSameYear ? {} : { year: "numeric" }),
   }).format(date);
 }
 
-function conversationTitle(title: string): string {
-  return title.trim() || "New Conversation";
+function conversationTitle(title: string, fallbackLabel: string): string {
+  return title.trim() || fallbackLabel;
 }
 
-function conversationPreview(preview: string): string {
+function conversationPreview(preview: string, emptyLabel: string): string {
   const normalized = preview
     .replace(/```[\s\S]*?```/g, "Code snippet")
     .replace(/\s+/g, " ")
     .trim();
 
-  return normalized || "No messages yet.";
+  return normalized || emptyLabel;
 }
 
-function conversationAvatar(title: string): string {
-  const normalized = conversationTitle(title)
+function conversationAvatar(title: string, fallbackLabel: string): string {
+  const normalized = conversationTitle(title, fallbackLabel)
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -58,6 +63,7 @@ function conversationAvatar(title: string): string {
 }
 
 export function Sidebar({ layout }: { layout: LayoutMode }) {
+  const { t } = useI18n();
   const conversations = useAppStore((s) => s.conversations);
   const providers = useAppStore((s) => s.providers);
   const view = useAppStore((s) => s.view);
@@ -71,7 +77,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
       <header className={`pt-sidebar__header${isPhone ? "" : " pt-drag"}`}>
         <div>
           <p className="pt-sidebar__eyebrow">Private Talk</p>
-          <h1 className="pt-sidebar__title">Chats</h1>
+          <h1 className="pt-sidebar__title">{t("聊天", "Chats")}</h1>
         </div>
 
         {isPhone ? (
@@ -79,7 +85,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
             type="button"
             className={`pt-icon-button${view === "settings" ? " is-active" : ""}`}
             onClick={() => setView("settings")}
-            aria-label="Open settings"
+            aria-label={t("打开设置", "Open settings")}
           >
             <Settings size={18} />
           </button>
@@ -95,10 +101,14 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
               <Sparkles size={16} />
             </div>
             <div>
-              <p className="pt-sidebar__notice-title">Add a model provider</p>
+              <p className="pt-sidebar__notice-title">
+                {t("添加模型服务商", "Add a model provider")}
+              </p>
               <p className="pt-sidebar__notice-copy">
-                Configure an OpenAI-compatible endpoint in Settings before you
-                send your first message.
+                {t(
+                  "先在设置中配置一个 OpenAI 兼容端点，再开始发送第一条消息。",
+                  "Configure an OpenAI-compatible endpoint in Settings before you send your first message.",
+                )}
               </p>
             </div>
           </section>
@@ -106,7 +116,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
 
         <div className="pt-sidebar__section">
           <div className="pt-sidebar__section-header">
-            <span className="pt-sidebar__section-title">Recent</span>
+            <span className="pt-sidebar__section-title">{t("最近", "Recent")}</span>
             <span className="pt-sidebar__section-count">
               {conversations.length}
             </span>
@@ -121,7 +131,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
           onClick={() => void createConversation()}
         >
           <Plus size={17} strokeWidth={2.6} />
-          New Chat
+          {t("新建聊天", "New Chat")}
         </button>
       </div>
 
@@ -131,10 +141,10 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
             type="button"
             className={`pt-nav-button${view === "settings" ? " is-active" : ""}`}
             onClick={() => setView("settings")}
-            aria-label="Open settings"
+            aria-label={t("打开设置", "Open settings")}
           >
             <Settings size={16} />
-            <span>Settings</span>
+            <span>{t("设置", "Settings")}</span>
           </button>
         </footer>
       ) : null}
@@ -143,6 +153,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
 }
 
 function ConversationList() {
+  const { t, locale } = useI18n();
   const {
     conversations,
     currentConversationId,
@@ -156,7 +167,7 @@ function ConversationList() {
 
   function beginRename(conversation: Conversation): void {
     setEditingId(conversation.id);
-    setEditTitle(conversationTitle(conversation.title));
+    setEditTitle(conversationTitle(conversation.title, t("新对话", "New Conversation")));
   }
 
   function cancelRename(): void {
@@ -180,7 +191,7 @@ function ConversationList() {
     return (
       <div className="pt-sidebar__empty">
         <MessageSquare size={20} />
-        <p>No conversations yet.</p>
+        <p>{t("还没有对话。", "No conversations yet.")}</p>
       </div>
     );
   }
@@ -202,6 +213,14 @@ function ConversationList() {
           onConfirmRename={() => void confirmRename()}
           onCancelRename={cancelRename}
           onDelete={() => void deleteConversation(conversation.id)}
+          locale={locale}
+          untitledLabel={t("新对话", "New Conversation")}
+          emptyPreviewLabel={t("还没有消息。", "No messages yet.")}
+          recentlyUpdatedLabel={t("最近更新", "Recently updated")}
+          renameLabel={t("重命名对话", "Rename conversation")}
+          deleteLabel={t("删除对话", "Delete conversation")}
+          confirmRenameLabel={t("确认重命名", "Confirm rename")}
+          cancelRenameLabel={t("取消重命名", "Cancel rename")}
         />
       ))}
     </div>
@@ -219,6 +238,14 @@ interface ConversationRowProps {
   onConfirmRename: () => void;
   onCancelRename: () => void;
   onDelete: () => void;
+  locale: "zh-CN" | "en";
+  untitledLabel: string;
+  emptyPreviewLabel: string;
+  recentlyUpdatedLabel: string;
+  renameLabel: string;
+  deleteLabel: string;
+  confirmRenameLabel: string;
+  cancelRenameLabel: string;
 }
 
 function ConversationRow({
@@ -232,6 +259,14 @@ function ConversationRow({
   onConfirmRename,
   onCancelRename,
   onDelete,
+  locale,
+  untitledLabel,
+  emptyPreviewLabel,
+  recentlyUpdatedLabel,
+  renameLabel,
+  deleteLabel,
+  confirmRenameLabel,
+  cancelRenameLabel,
 }: ConversationRowProps) {
   return (
     <div
@@ -253,7 +288,7 @@ function ConversationRow({
       }
     >
       <div className="pt-conversation-row__avatar">
-        <span>{conversationAvatar(conversation.title)}</span>
+        <span>{conversationAvatar(conversation.title, untitledLabel)}</span>
       </div>
 
       <div className="pt-conversation-row__body">
@@ -285,7 +320,7 @@ function ConversationRow({
                   stop(event);
                   onConfirmRename();
                 }}
-                aria-label="Confirm rename"
+                aria-label={confirmRenameLabel}
               >
                 <Check size={14} />
               </button>
@@ -296,7 +331,7 @@ function ConversationRow({
                   stop(event);
                   onCancelRename();
                 }}
-                aria-label="Cancel rename"
+                aria-label={cancelRenameLabel}
               >
                 <X size={14} />
               </button>
@@ -306,14 +341,18 @@ function ConversationRow({
           <>
             <div className="pt-conversation-row__title-line">
               <p className="pt-conversation-row__title">
-                {conversationTitle(conversation.title)}
+                {conversationTitle(conversation.title, untitledLabel)}
               </p>
               <span className="pt-conversation-row__time">
-                {formatConversationTime(conversation.updated_at)}
+                {formatConversationTime(
+                  conversation.updated_at,
+                  locale,
+                  recentlyUpdatedLabel,
+                )}
               </span>
             </div>
             <p className="pt-conversation-row__preview">
-              {conversationPreview(conversation.preview)}
+              {conversationPreview(conversation.preview, emptyPreviewLabel)}
             </p>
           </>
         )}
@@ -328,7 +367,7 @@ function ConversationRow({
               stop(event);
               onStartRename();
             }}
-            aria-label="Rename conversation"
+            aria-label={renameLabel}
           >
             <Pencil size={13} />
           </button>
@@ -339,7 +378,7 @@ function ConversationRow({
               stop(event);
               onDelete();
             }}
-            aria-label="Delete conversation"
+            aria-label={deleteLabel}
           >
             <Trash2 size={13} />
           </button>

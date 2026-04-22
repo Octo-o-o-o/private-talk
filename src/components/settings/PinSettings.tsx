@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
 import { SettingsSection } from "./SettingsPage";
@@ -12,12 +13,18 @@ function sanitizeDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-function validatePin(pin: string): string | null {
+function validatePin(
+  pin: string,
+  t: (zh: string, en: string) => string,
+): string | null {
   if (pin.length < PIN_MIN || pin.length > PIN_MAX) {
-    return `PIN must be ${PIN_MIN}-${PIN_MAX} digits.`;
+    return t(
+      `PIN 需要 ${PIN_MIN}-${PIN_MAX} 位数字。`,
+      `PIN must be ${PIN_MIN}-${PIN_MAX} digits.`,
+    );
   }
   if (!/^\d+$/.test(pin)) {
-    return "PIN must contain numbers only.";
+    return t("PIN 只能包含数字。", "PIN must contain numbers only.");
   }
   return null;
 }
@@ -27,6 +34,7 @@ export function PinSettings() {
 }
 
 export function PinSettingsSection() {
+  const { t } = useI18n();
   const { pinEnabled, checkPinStatus, loadConversations, loadProviders } =
     useAppStore();
   const [expanded, setExpanded] = useState(false);
@@ -49,14 +57,14 @@ export function PinSettingsSection() {
   async function handleEnable(event: React.FormEvent): Promise<void> {
     event.preventDefault();
 
-    const validationError = validatePin(pin);
+    const validationError = validatePin(pin, t);
     if (validationError) {
       setError(validationError);
       return;
     }
 
     if (pin !== confirmPin) {
-      setError("PINs do not match.");
+      setError(t("PIN 不一致。", "PINs do not match."));
       return;
     }
 
@@ -66,7 +74,7 @@ export function PinSettingsSection() {
       closePanel();
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Failed to enable PIN.",
+        error instanceof Error ? error.message : t("启用 PIN 失败。", "Failed to enable PIN."),
       );
     }
   }
@@ -78,7 +86,7 @@ export function PinSettingsSection() {
     try {
       const ok = await api.disablePin(pin);
       if (!ok) {
-        setError("Incorrect PIN.");
+        setError(t("PIN 错误。", "Incorrect PIN."));
         return;
       }
 
@@ -86,7 +94,7 @@ export function PinSettingsSection() {
       closePanel();
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Failed to disable PIN.",
+        error instanceof Error ? error.message : t("关闭 PIN 失败。", "Failed to disable PIN."),
       );
     }
   }
@@ -101,7 +109,7 @@ export function PinSettingsSection() {
       closePanel();
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Failed to reset local data.",
+        error instanceof Error ? error.message : t("重置本地数据失败。", "Failed to reset local data."),
       );
     }
   }
@@ -116,11 +124,17 @@ export function PinSettingsSection() {
   return (
     <>
       <SettingsSection
-        title="Security"
+        title={t("安全", "Security")}
         footer={
           pinEnabled
-            ? "The PIN is checked before anything is unlocked. Forgetting it means resetting the app."
-            : "Enable a PIN to require verification every time Private Talk opens on this device."
+            ? t(
+                "在解锁任何内容之前都会先校验 PIN。如果忘记 PIN，就只能重置应用。",
+                "The PIN is checked before anything is unlocked. Forgetting it means resetting the app.",
+              )
+            : t(
+                "启用 PIN 后，每次打开 Private Talk 都需要先验证。",
+                "Enable a PIN to require verification every time Private Talk opens on this device.",
+              )
         }
       >
         <button
@@ -134,11 +148,11 @@ export function PinSettingsSection() {
           }}
         >
           <div className="pt-settings-row__copy">
-            <p className="pt-settings-row__title">PIN Lock</p>
+            <p className="pt-settings-row__title">{t("PIN 锁", "PIN Lock")}</p>
             <p className="pt-settings-row__detail">
               {pinEnabled
-                ? "Required on every launch"
-                : "Anyone with this device can open the app"}
+                ? t("每次启动都需要验证", "Required on every launch")
+                : t("任何拿到这台设备的人都能直接打开应用", "Anyone with this device can open the app")}
             </p>
           </div>
 
@@ -155,7 +169,7 @@ export function PinSettingsSection() {
             {pinEnabled ? (
               <form className="pt-settings-form" onSubmit={handleDisable}>
                 <TextField
-                  label="Current PIN"
+                  label={t("当前 PIN", "Current PIN")}
                   {...inputProps}
                   value={pin}
                   onChange={(event) =>
@@ -172,17 +186,17 @@ export function PinSettingsSection() {
                     className={buttonStyles.secondary}
                     onClick={closePanel}
                   >
-                    Cancel
+                    {t("取消", "Cancel")}
                   </button>
                   <button type="submit" className={buttonStyles.primary}>
-                    Disable PIN
+                    {t("关闭 PIN", "Disable PIN")}
                   </button>
                 </div>
               </form>
             ) : (
               <form className="pt-settings-form" onSubmit={handleEnable}>
                 <TextField
-                  label={`New PIN (${PIN_MIN}-${PIN_MAX} digits)`}
+                  label={t(`新 PIN（${PIN_MIN}-${PIN_MAX} 位）`, `New PIN (${PIN_MIN}-${PIN_MAX} digits)`)}
                   {...inputProps}
                   value={pin}
                   onChange={(event) =>
@@ -192,7 +206,7 @@ export function PinSettingsSection() {
                 />
 
                 <TextField
-                  label="Confirm PIN"
+                  label={t("确认 PIN", "Confirm PIN")}
                   {...inputProps}
                   value={confirmPin}
                   onChange={(event) =>
@@ -209,10 +223,10 @@ export function PinSettingsSection() {
                     className={buttonStyles.secondary}
                     onClick={closePanel}
                   >
-                    Cancel
+                    {t("取消", "Cancel")}
                   </button>
                   <button type="submit" className={buttonStyles.primary}>
-                    Enable PIN
+                    {t("启用 PIN", "Enable PIN")}
                   </button>
                 </div>
               </form>
@@ -222,13 +236,19 @@ export function PinSettingsSection() {
       </SettingsSection>
 
       <SettingsSection
-        title="Data"
-        footer="Resetting removes all conversations, providers, and PIN settings from this device. This action cannot be undone."
+        title={t("数据", "Data")}
+        footer={t(
+          "重置会从当前设备删除所有对话、服务商和 PIN 设置。这个操作不能撤销。",
+          "Resetting removes all conversations, providers, and PIN settings from this device. This action cannot be undone.",
+        )}
       >
         {showReset ? (
           <div className="pt-settings-expand">
             <p className="pt-settings-warning">
-              This will permanently erase all local data on this device.
+              {t(
+                "这会永久抹掉当前设备上的全部本地数据。",
+                "This will permanently erase all local data on this device.",
+              )}
             </p>
             <div className="pt-settings-form__actions">
               <button
@@ -236,14 +256,14 @@ export function PinSettingsSection() {
                 className={buttonStyles.secondary}
                 onClick={() => setShowReset(false)}
               >
-                Cancel
+                {t("取消", "Cancel")}
               </button>
               <button
                 type="button"
                 className={buttonStyles.danger}
                 onClick={() => void handleReset()}
               >
-                Reset Everything
+                {t("重置全部数据", "Reset Everything")}
               </button>
             </div>
           </div>
@@ -254,7 +274,7 @@ export function PinSettingsSection() {
             onClick={() => setShowReset(true)}
           >
             <div className="pt-settings-row__copy">
-              <p className="pt-settings-row__title">Reset All Local Data</p>
+              <p className="pt-settings-row__title">{t("重置全部本地数据", "Reset All Local Data")}</p>
             </div>
           </button>
         )}

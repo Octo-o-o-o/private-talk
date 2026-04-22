@@ -21,6 +21,39 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_messages_conversation
             ON messages(conversation_id, created_at);
 
+        CREATE TABLE IF NOT EXISTS attachments (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            metadata TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_attachments_message
+            ON attachments(message_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS usage_records (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            conversation_title TEXT NOT NULL,
+            request_preview TEXT NOT NULL,
+            model TEXT NOT NULL,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_usage_records_conversation
+            ON usage_records(conversation_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_usage_records_created_at
+            ON usage_records(created_at);
+
         CREATE TABLE IF NOT EXISTS providers (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,

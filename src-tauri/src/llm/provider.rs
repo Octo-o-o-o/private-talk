@@ -1,9 +1,14 @@
-use super::types::{ChatChunk, ChatMessage, ChatRequest};
+use super::types::{ChatChunk, ChatMessage, ChatRequest, StreamOptions, Usage};
 use futures::StreamExt;
 use reqwest::Client;
 use tokio::sync::mpsc;
 
 const CHANNEL_CAPACITY: usize = 64;
+
+pub enum StreamItem {
+    Content(String),
+    Usage(Usage),
+}
 
 /// Stream chat completions from an OpenAI-compatible endpoint, emitting content
 /// text chunks via the returned channel.
@@ -13,13 +18,16 @@ pub async fn stream_chat(
     model: &str,
     messages: Vec<ChatMessage>,
     temperature: Option<f64>,
-) -> Result<mpsc::Receiver<Result<String, String>>, String> {
+) -> Result<mpsc::Receiver<Result<StreamItem, String>>, String> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let request = ChatRequest {
         model: model.to_string(),
         messages,
         stream: true,
         temperature,
+        stream_options: Some(StreamOptions {
+            include_usage: true,
+        }),
     };
 
     let response = Client::new()
@@ -70,11 +78,20 @@ pub async fn stream_chat(
                     Ok(chunk) => {
                         for choice in &chunk.choices {
                             if let Some(content) = choice.delta.content.as_deref() {
-                                if !content.is_empty()
-                                    && tx.send(Ok(content.to_string())).await.is_err()
-                                {
-                                    return;
+                                if !content.is_empty() {
+                                    if tx
+                                        .send(Ok(StreamItem::Content(content.to_string())))
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
                                 }
+                            }
+                        }
+                        if let Some(usage) = chunk.usage {
+                            if tx.send(Ok(StreamItem::Usage(usage))).await.is_err() {
+                                return;
                             }
                         }
                     }

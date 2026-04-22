@@ -1,7 +1,7 @@
 use crate::db::{collect_rows, now_timestamp, DbState};
 use rusqlite::params;
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Debug, Serialize)]
 pub struct Conversation {
@@ -18,6 +18,7 @@ pub struct Message {
     pub conversation_id: String,
     pub role: String,
     pub content: String,
+    pub attachments: Vec<crate::attachments::Attachment>,
     pub created_at: String,
 }
 
@@ -80,17 +81,52 @@ pub fn create_conversation(
 }
 
 #[tauri::command]
-pub fn delete_conversation(db: State<DbState>, id: String) -> Result<(), String> {
+pub fn delete_conversation(
+    app: tauri::AppHandle,
+    db: State<DbState>,
+    id: String,
+) -> Result<(), String> {
     let conn = db.lock()?;
-    // Messages are deleted explicitly because `PRAGMA foreign_keys` may not cascade
-    // on every connection.
+    let message_ids = collect_rows(
+        &conn,
+        "SELECT id FROM messages WHERE conversation_id = ?1",
+        params![id.clone()],
+        |row| row.get::<_, String>(0),
+    )?;
+    if !message_ids.is_empty() {
+        let attachments = crate::attachments::get_attachments_for_messages(&conn, &message_ids)?;
+        crate::attachments::delete_attachment_files(&attachments);
+        conn.execute(
+            "DELETE FROM attachments WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?1)",
+            params![id.clone()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    conn.execute(
+        "DELETE FROM usage_records WHERE conversation_id = ?1",
+        params![id.clone()],
+    )
+    .map_err(|e| e.to_string())?;
     conn.execute(
         "DELETE FROM messages WHERE conversation_id = ?1",
-        params![id],
+        params![id.clone()],
     )
     .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
+
+    let generated_images_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("generated-images")
+        .join(&id);
+    if let Err(error) = std::fs::remove_dir_all(&generated_images_dir) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error.to_string());
+        }
+    }
+
     Ok(())
 }
 
@@ -102,13 +138,18 @@ pub fn rename_conversation(db: State<DbState>, id: String, title: String) -> Res
         params![title, now_timestamp(), id],
     )
     .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE usage_records SET conversation_title = ?1 WHERE conversation_id = ?2",
+        params![title, id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<Message>, String> {
     let conn = db.lock()?;
-    collect_rows(
+    let mut messages = collect_rows(
         &conn,
         "SELECT id, conversation_id, role, content, created_at FROM messages \
          WHERE conversation_id = ?1 ORDER BY created_at ASC",
@@ -119,8 +160,25 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
                 conversation_id: row.get(1)?,
                 role: row.get(2)?,
                 content: row.get(3)?,
+                attachments: vec![],
                 created_at: row.get(4)?,
             })
         },
-    )
+    )?;
+
+    let message_ids = messages
+        .iter()
+        .map(|message| message.id.clone())
+        .collect::<Vec<_>>();
+    let attachments = crate::attachments::get_attachments_for_messages(&conn, &message_ids)?;
+    for attachment in attachments {
+        if let Some(message) = messages
+            .iter_mut()
+            .find(|message| message.id == attachment.message_id)
+        {
+            message.attachments.push(attachment);
+        }
+    }
+
+    Ok(messages)
 }

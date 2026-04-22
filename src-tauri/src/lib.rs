@@ -1,5 +1,7 @@
+mod attachments;
 mod commands;
 mod db;
+mod image_generation;
 mod llm;
 mod pin;
 
@@ -34,9 +36,17 @@ pub fn run() {
             commands::provider::set_default_provider,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::stt::stt_transcribe,
+            commands::tts::tts_synthesize,
+            commands::image_gen::generate_image_message,
             commands::preview::get_preview_bootstrap,
             commands::chat::send_message,
             commands::chat::stop_generation,
+            commands::usage::get_usage_by_conversation,
+            commands::usage::get_usage_by_date,
+            commands::config_io::export_config_data,
+            commands::config_io::validate_backup_data,
+            commands::config_io::import_config_data,
             commands::pin::is_pin_enabled,
             commands::pin::get_pin_length,
             commands::pin::verify_pin_cmd,

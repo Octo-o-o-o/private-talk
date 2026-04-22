@@ -1,6 +1,11 @@
 pub mod chat;
+pub mod config_io;
 pub mod conversation;
+pub mod image_gen;
 pub mod pin;
 pub mod preview;
 pub mod provider;
 pub mod settings;
+pub mod stt;
+pub mod tts;
+pub mod usage;

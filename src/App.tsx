@@ -16,9 +16,19 @@ function App() {
   const currentConversationId = useAppStore((s) => s.currentConversationId);
   const conversationCount = useAppStore((s) => s.conversations.length);
   const providerCount = useAppStore((s) => s.providers.length);
+  const selectedProviderId = useAppStore((s) => s.selectedProviderId);
+  const selectedModel = useAppStore((s) => s.selectedModel);
 
   useEffect(() => {
-    const { checkPinStatus, loadConversations, loadProviders } =
+    const {
+      checkPinStatus,
+      loadConversations,
+      loadProviders,
+      loadUiPreferences,
+      loadChatSettings,
+      loadImageGenConfig,
+      loadSpeechSettings,
+    } =
       useAppStore.getState();
     void (async () => {
       const browserPreview = readBrowserPreviewBootstrap();
@@ -37,8 +47,12 @@ function App() {
 
       try {
         await checkPinStatus();
+        await loadUiPreferences();
+        await loadChatSettings();
         await loadConversations();
         await loadProviders();
+        await loadImageGenConfig();
+        await loadSpeechSettings();
       } catch (error) {
         console.warn("App bootstrap unavailable outside Tauri:", error);
       }
@@ -57,6 +71,8 @@ function App() {
         currentConversationId,
         conversationCount,
         providerCount,
+        selectedProviderId,
+        selectedModel,
         pinEnabled,
         isLocked,
       })
@@ -69,6 +85,8 @@ function App() {
     isLocked,
     pinEnabled,
     providerCount,
+    selectedModel,
+    selectedProviderId,
     view,
   ]);
 

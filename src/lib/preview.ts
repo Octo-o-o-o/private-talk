@@ -1,6 +1,7 @@
 import { useAppStore } from "../stores/appStore";
 import type {
   Conversation,
+  ImageGenConfig,
   Message,
   PreviewBootstrap,
   Provider,
@@ -51,6 +52,7 @@ const PREVIEW_MESSAGES: Message[] = [
     conversation_id: PREVIEW_CONVERSATIONS[0].id,
     role: "user",
     content: "我刚在 iPad 横屏上看了一遍，想把聊天页的 chrome 再收紧一点。",
+    attachments: [],
     created_at: timestamp(24),
   },
   {
@@ -59,6 +61,7 @@ const PREVIEW_MESSAGES: Message[] = [
     role: "assistant",
     content:
       "可以，先把问题拆成 3 块：\n\n- 顶部导航和安全区\n- 消息列最大宽度\n- 输入区在横屏和分屏下的底部留白",
+    attachments: [],
     created_at: timestamp(23),
   },
   {
@@ -66,6 +69,7 @@ const PREVIEW_MESSAGES: Message[] = [
     conversation_id: PREVIEW_CONVERSATIONS[0].id,
     role: "user",
     content: "顺便检查一下 markdown 卡片和代码块在窄宽度下会不会撑破。",
+    attachments: [],
     created_at: timestamp(22),
   },
   {
@@ -74,6 +78,7 @@ const PREVIEW_MESSAGES: Message[] = [
     role: "assistant",
     content:
       "我会按以下规则收口：\n\n```ts\nconst maxWidth = layout === \"tablet\" ? \"72ch\" : \"64ch\";\nconst bottomInset = safeArea.bottom + 16;\n```\n\n> 目标是让 iPhone、iPad 竖屏和横屏都保持同一套触控节奏。",
+    attachments: [],
     created_at: timestamp(21),
   },
 ];
@@ -88,9 +93,21 @@ interface PreviewRuntimeState {
   currentConversationId: string | null;
   conversationCount: number;
   providerCount: number;
+  selectedProviderId: string | null;
+  selectedModel: string | null;
   pinEnabled: boolean;
   isLocked: boolean;
 }
+
+const PREVIEW_IMAGE_GEN_CONFIG: ImageGenConfig = {
+  enabled: true,
+  provider_id: PREVIEW_PROVIDER.id,
+  model: "gpt-image-1",
+  default_aspect_ratio: "1:1",
+  default_quality: "standard",
+  default_background: "auto",
+  max_images_per_request: 4,
+};
 
 export function readBrowserPreviewBootstrap(): PreviewBootstrap | null {
   if (typeof window === "undefined") {
@@ -133,7 +150,10 @@ export function browserPreviewNeedsBootstrap(
     return (
       state.view !== "settings" ||
       (expectsSeededContent &&
-        (state.providerCount === 0 || state.conversationCount === 0))
+        (state.providerCount === 0 ||
+          state.conversationCount === 0 ||
+          !state.selectedProviderId ||
+          !state.selectedModel))
     );
   }
 
@@ -141,7 +161,9 @@ export function browserPreviewNeedsBootstrap(
     return (
       state.view !== "chat" ||
       !state.currentConversationId ||
-      state.providerCount === 0
+      state.providerCount === 0 ||
+      !state.selectedProviderId ||
+      !state.selectedModel
     );
   }
 
@@ -182,9 +204,50 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
     providers,
     selectedProviderId: providers[0]?.id ?? null,
     selectedModel: providers[0]?.models[0] ?? null,
+    contextMaxMessages: 50,
+    sttProviderId: providers[0]?.id ?? null,
+    sttModel: "whisper-1",
+    ttsProviderId: providers[0]?.id ?? null,
+    ttsModel: "tts-1",
+    ttsVoice: "alloy",
+    imageGenConfig: PREVIEW_IMAGE_GEN_CONFIG,
     pinEnabled: screen === "pin",
     isLocked: screen === "pin",
   });
 
   return true;
+}
+
+export function previewSettingValue(key: string): string | null {
+  const preview = readBrowserPreviewBootstrap();
+  if (!preview) {
+    return null;
+  }
+
+  switch (key) {
+    case "ui_language":
+      return "zh-CN";
+    case "assistant_preset":
+      return "default";
+    case "assistant_language":
+      return "auto";
+    case "assistant_custom_prompt":
+      return "";
+    case "context_max_messages":
+      return "50";
+    case "stt_provider_id":
+      return PREVIEW_PROVIDER.id;
+    case "stt_model":
+      return "whisper-1";
+    case "tts_provider_id":
+      return PREVIEW_PROVIDER.id;
+    case "tts_model":
+      return "tts-1";
+    case "tts_voice":
+      return "alloy";
+    case "image_gen_config":
+      return JSON.stringify(PREVIEW_IMAGE_GEN_CONFIG);
+    default:
+      return null;
+  }
 }

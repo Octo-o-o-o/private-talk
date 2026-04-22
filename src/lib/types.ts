@@ -13,6 +13,32 @@ export interface Message {
   conversation_id: string;
   role: Role;
   content: string;
+  attachments: Attachment[];
+  created_at: string;
+}
+
+export interface Attachment {
+  id: string;
+  message_id: string;
+  file_type: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  file_size: number;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AttachmentUpload {
+  file_name: string;
+  mime_type: string;
+  data_base64: string;
+}
+
+export interface GeneratedAssistantMessage {
+  id: string;
+  conversation_id: string;
+  content: string;
   created_at: string;
 }
 
@@ -25,6 +51,21 @@ export interface Provider {
   models: string[];
   is_default: boolean;
   created_at: string;
+}
+
+export interface ImageGenConfig {
+  enabled: boolean;
+  provider_id: string;
+  model: string;
+  default_aspect_ratio: string;
+  default_quality: string;
+  default_background: string;
+  max_images_per_request: number;
+}
+
+export interface TtsResult {
+  audio_base64: string;
+  content_type: string;
 }
 
 export interface StreamChunkPayload {
@@ -46,4 +87,45 @@ export interface StreamErrorPayload {
 export interface PreviewBootstrap {
   screen?: string | null;
   dataset?: string | null;
+}
+
+export interface ExportConfigResult {
+  file_name: string;
+  data: number[];
+  providers: number;
+  settings: number;
+}
+
+export interface ImportConfigResult {
+  providers: number;
+  settings: number;
+}
+
+export interface ValidateBackupResult {
+  providers: number;
+  settings: number;
+  has_local_config: boolean;
+}
+
+export interface ModelUsage {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface ConversationUsage {
+  conversation_id: string;
+  conversation_title: string;
+  first_message_preview: string;
+  latest_at: string;
+  total_requests: number;
+  model_usages: ModelUsage[];
+}
+
+export interface DailyUsage {
+  date: string;
+  conversation_count: number;
+  model_usages: ModelUsage[];
 }

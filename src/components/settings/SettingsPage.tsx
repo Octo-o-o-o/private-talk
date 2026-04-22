@@ -1,8 +1,18 @@
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
+import { useI18n } from "../../lib/i18n";
 import type { LayoutMode } from "../layout/useLayoutMode";
+import { AssistantSettingsSection } from "./AssistantSettings";
+import { BackupSettingsSection } from "./BackupSettingsSection";
+import { ImageGenerationSettingsSection } from "./ImageGenerationSettings";
+import { LanguageSettingsSection } from "./LanguageSettings";
+import { MemorySettingsSection } from "./MemorySettings";
+import { ModelRoutingSettingsSection } from "./ModelRoutingSettings";
 import { PinSettingsSection } from "./PinSettings";
 import { ProviderForm } from "./ProviderForm";
+import { SpeechSettingsSection } from "./SpeechSettings";
+import { UsageSettingsSection } from "./UsageSettingsSection";
+import { VoiceOutputSettingsSection } from "./VoiceOutputSettings";
 
 interface SettingsPageProps {
   layout: LayoutMode;
@@ -11,6 +21,7 @@ interface SettingsPageProps {
 
 export function SettingsPage({ layout, onBack }: SettingsPageProps) {
   const isPhone = layout === "phone";
+  const { t } = useI18n();
 
   return (
     <div className={`pt-settings pt-settings--${layout}`}>
@@ -24,7 +35,7 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
             type="button"
             className="pt-icon-button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t("返回", "Back")}
           >
             <ArrowLeft size={20} />
           </button>
@@ -33,9 +44,12 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
         )}
 
         <div className={`pt-pane-header__copy${isPhone ? " pt-pane-header__copy--center" : ""}`}>
-          <p className="pt-pane-header__title">Settings</p>
+          <p className="pt-pane-header__title">{t("设置", "Settings")}</p>
           <p className="pt-pane-header__subtitle">
-            Providers, security, and local device controls
+            {t(
+              "模型、助手与本地安全设置",
+              "Models, assistant, and local security",
+            )}
           </p>
         </div>
 
@@ -44,7 +58,16 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
 
       <div className="pt-settings__scroll">
         <div className="pt-settings__column">
+          <LanguageSettingsSection />
+          <AssistantSettingsSection />
+          <ModelRoutingSettingsSection />
+          <ImageGenerationSettingsSection />
+          <MemorySettingsSection />
+          <SpeechSettingsSection />
+          <VoiceOutputSettingsSection />
           <ProviderForm />
+          <UsageSettingsSection />
+          <BackupSettingsSection />
           <PinSettingsSection />
           <AboutSection />
         </div>
@@ -74,14 +97,19 @@ export function SettingsSection({
 }
 
 function AboutSection() {
+  const { t } = useI18n();
+
   return (
     <SettingsSection
-      title="About"
-      footer="Private Talk is a local AI chat client. Conversations, providers, and PIN settings stay on this device unless you explicitly send content to a configured model endpoint."
+      title={t("关于", "About")}
+      footer={t(
+        "Private Talk 是本地优先的 AI 聊天客户端。除非你主动把内容发送到已配置的模型端点，否则对话、服务商和 PIN 设置都会留在当前设备。",
+        "Private Talk is a local AI chat client. Conversations, providers, and PIN settings stay on this device unless you explicitly send content to a configured model endpoint.",
+      )}
     >
       <div className="pt-settings-row">
         <div className="pt-settings-row__copy">
-          <p className="pt-settings-row__title">Version</p>
+          <p className="pt-settings-row__title">{t("版本", "Version")}</p>
         </div>
         <span className="pt-settings-row__value">0.1.0</span>
       </div>

@@ -1,7 +1,7 @@
 use crate::db::{query_optional, DbState};
 use crate::pin;
 use rusqlite::{params, Connection};
-use tauri::State;
+use tauri::{Manager, State};
 
 fn get_setting_value(conn: &Connection, key: &str) -> Result<Option<String>, String> {
     query_optional(
@@ -76,14 +76,35 @@ pub fn disable_pin(db: State<DbState>, current_pin: String) -> Result<bool, Stri
 }
 
 #[tauri::command]
-pub fn reset_all_data(db: State<DbState>) -> Result<(), String> {
+pub fn reset_all_data(app: tauri::AppHandle, db: State<DbState>) -> Result<(), String> {
     let conn = db.lock()?;
+    let message_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM messages")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
+    if !message_ids.is_empty() {
+        let attachments = crate::attachments::get_attachments_for_messages(&conn, &message_ids)?;
+        crate::attachments::delete_attachment_files(&attachments);
+    }
     conn.execute_batch(
         "DELETE FROM messages;
+         DELETE FROM attachments;
+         DELETE FROM usage_records;
          DELETE FROM conversations;
          DELETE FROM providers;
          DELETE FROM settings;",
     )
     .map_err(|e| e.to_string())?;
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        let _ = std::fs::remove_dir_all(app_dir.join("attachments"));
+        let _ = std::fs::remove_dir_all(app_dir.join("generated-images"));
+    }
     Ok(())
 }
