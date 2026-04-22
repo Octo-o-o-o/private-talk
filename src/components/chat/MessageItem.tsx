@@ -134,22 +134,23 @@ function AssistantMessage({
       const audio = new Audio(url);
       audioRef.current = audio;
       audioUrlRef.current = url;
-      audio.onended = () => {
+      const teardown = () => {
         URL.revokeObjectURL(url);
-        setIsSpeaking(false);
         audioRef.current = null;
         audioUrlRef.current = null;
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
         setIsSpeaking(false);
-        audioRef.current = null;
-        audioUrlRef.current = null;
       };
-      await audio.play();
+      audio.onended = teardown;
+      audio.onerror = teardown;
+      try {
+        await audio.play();
+      } catch (playError) {
+        teardown();
+        console.warn("TTS playback failed:", playError);
+      }
     } catch (error) {
       setIsSpeaking(false);
-      console.warn("Failed to synthesize speech:", error);
+      console.warn("TTS synthesis failed:", error);
     }
   }
 

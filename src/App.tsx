@@ -18,6 +18,7 @@ import {
   readBrowserPreviewBootstrap,
 } from "./lib/preview";
 import * as api from "./lib/tauri";
+import { installViewportTracker } from "./lib/viewport";
 import { useAppStore } from "./stores/appStore";
 
 function App() {
@@ -155,6 +156,8 @@ function App() {
       window.removeEventListener("languagechange", handleLanguageChange);
     };
   }, []);
+
+  useEffect(() => installViewportTracker(), []);
 
   useEffect(() => {
     let cancelled = false;

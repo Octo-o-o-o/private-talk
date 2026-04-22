@@ -17,6 +17,7 @@ export function AppLayout() {
   const clearConversationSelection = useAppStore(
     (s) => s.clearConversationSelection,
   );
+  const createConversation = useAppStore((s) => s.createConversation);
   const setView = useAppStore((s) => s.setView);
   const openSettings = useAppStore((s) => s.openSettings);
 
@@ -29,6 +30,11 @@ export function AppLayout() {
   function handleRequestNewConversation(): void {
     if (!hasTextProviders) {
       openSettings("models", providers.length === 0 ? "create-provider" : "repair-chat");
+      return;
+    }
+
+    if (isPhone) {
+      void createConversation(null);
       return;
     }
 

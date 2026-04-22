@@ -369,18 +369,22 @@ export function ChatView({
       setStreaming(false);
       setIsImageGenerating(false);
       setStreamingContent("");
-      const message =
+      const rawMessage =
         error instanceof Error
-          ? error.message
-          : t("请求失败，请检查当前服务商配置。", "Request failed. Check the current provider configuration.");
+          ? error.message.trim()
+          : typeof error === "string"
+            ? error.trim()
+            : "";
+      const fallback = t(
+        "请求失败，请检查当前服务商配置。",
+        "Request failed. Check the current provider configuration.",
+      );
+      const content = rawMessage || fallback;
       addMessage({
         id: crypto.randomUUID(),
         conversation_id: conversationId,
         role: "assistant",
-        content: t(
-          `请求失败：${message}`,
-          `Request failed: ${message}`,
-        ),
+        content,
         attachments: [],
         created_at: new Date().toISOString(),
       });
