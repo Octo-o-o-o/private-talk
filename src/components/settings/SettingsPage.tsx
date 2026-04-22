@@ -1,6 +1,17 @@
-import { ArrowLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  ArrowLeft,
+  BookOpen,
+  Bot,
+  ChevronRight,
+  Languages,
+  Mic,
+  Shield,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "../../lib/i18n";
+import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "../layout/useLayoutMode";
 import { AssistantSettingsSection } from "./AssistantSettings";
 import { AppearanceSettingsSection } from "./AppearanceSettings";
@@ -21,10 +32,160 @@ interface SettingsPageProps {
   onBack: () => void;
 }
 
+export type SettingsGroupId =
+  | "general"
+  | "assistants"
+  | "models"
+  | "media"
+  | "data"
+  | "about";
+
+type SettingsGroup = {
+  id: SettingsGroupId;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  content: ReactNode;
+};
+
 export function SettingsPage({ layout, onBack }: SettingsPageProps) {
   const isPhone = layout === "phone";
   const { t } = useI18n();
+  const settingsTargetGroupId = useAppStore((state) => state.settingsTargetGroupId);
+  const clearSettingsTargetGroup = useAppStore(
+    (state) => state.clearSettingsTargetGroup,
+  );
   const desktopDragProps = !isPhone ? { "data-tauri-drag-region": true } : {};
+  const [selectedGroupId, setSelectedGroupId] = useState<SettingsGroupId | null>(
+    isPhone ? settingsTargetGroupId : settingsTargetGroupId ?? "general",
+  );
+
+  const groups: SettingsGroup[] = [
+    {
+      id: "general",
+      title: t("通用", "General"),
+      description: t(
+        "语言、外观和界面缩放。",
+        "Language, appearance, and interface zoom.",
+      ),
+      icon: Languages,
+      content: (
+        <>
+          <LanguageSettingsSection />
+          <AppearanceSettingsSection />
+        </>
+      ),
+    },
+    {
+      id: "assistants",
+      title: t("助手", "Assistants"),
+      description: t(
+        "全局助手偏好与自定义助手库。",
+        "Global assistant defaults and custom assistant library.",
+      ),
+      icon: Sparkles,
+      content: (
+        <>
+          <AssistantSettingsSection />
+          <ConversationAssistantsSection />
+        </>
+      ),
+    },
+    {
+      id: "models",
+      title: t("模型与服务商", "Models & Providers"),
+      description: t(
+        "文本路由、模型用途与服务商端点。",
+        "Text routing, model purposes, and provider endpoints.",
+      ),
+      icon: Bot,
+      content: (
+        <>
+          <ModelRoutingSettingsSection />
+          <ProviderForm />
+          <MemorySettingsSection />
+        </>
+      ),
+    },
+    {
+      id: "media",
+      title: t("语音与图片", "Speech & Images"),
+      description: t(
+        "语音转写、语音输出和图片生成。",
+        "Speech-to-text, voice output, and image generation.",
+      ),
+      icon: Mic,
+      content: (
+        <>
+          <SpeechSettingsSection />
+          <VoiceOutputSettingsSection />
+          <ImageGenerationSettingsSection />
+        </>
+      ),
+    },
+    {
+      id: "data",
+      title: t("数据与安全", "Data & Security"),
+      description: t(
+        "用量、备份、PIN 与本地数据重置。",
+        "Usage, backup, PIN, and local data reset.",
+      ),
+      icon: Shield,
+      content: (
+        <>
+          <UsageSettingsSection />
+          <BackupSettingsSection />
+          <PinSettingsSection />
+        </>
+      ),
+    },
+    {
+      id: "about",
+      title: t("关于", "About"),
+      description: t(
+        "应用版本与本地优先边界说明。",
+        "Version info and local-first product boundaries.",
+      ),
+      icon: BookOpen,
+      content: <AboutSection />,
+    },
+  ];
+
+  useEffect(() => {
+    if (!isPhone) {
+      setSelectedGroupId((current) => current ?? "general");
+    }
+  }, [isPhone]);
+
+  useEffect(() => {
+    if (!settingsTargetGroupId) {
+      return;
+    }
+
+    setSelectedGroupId(settingsTargetGroupId);
+    clearSettingsTargetGroup();
+  }, [clearSettingsTargetGroup, settingsTargetGroupId]);
+
+  const selectedGroup =
+    groups.find((group) => group.id === selectedGroupId) ?? groups[0];
+  const headerTitle =
+    isPhone && selectedGroupId ? selectedGroup.title : t("设置", "Settings");
+  const headerSubtitle =
+    isPhone && selectedGroupId
+      ? selectedGroup.description
+      : t(
+          "按分组管理模型、助手与本地安全设置",
+          "Manage models, assistants, and local security by group.",
+        );
+
+  function handleBack(): void {
+    if (isPhone && selectedGroupId) {
+      setSelectedGroupId(null);
+      return;
+    }
+
+    onBack();
+  }
 
   return (
     <div className={`pt-settings pt-settings--${layout}`}>
@@ -38,7 +199,7 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
           <button
             type="button"
             className="pt-icon-button"
-            onClick={onBack}
+            onClick={handleBack}
             aria-label={t("返回", "Back")}
           >
             <ArrowLeft size={20} />
@@ -52,13 +213,10 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
           {...desktopDragProps}
         >
           <p className="pt-pane-header__title" {...desktopDragProps}>
-            {t("设置", "Settings")}
+            {headerTitle}
           </p>
           <p className="pt-pane-header__subtitle" {...desktopDragProps}>
-            {t(
-              "模型、助手与本地安全设置",
-              "Models, assistant, and local security",
-            )}
+            {headerSubtitle}
           </p>
         </div>
 
@@ -69,24 +227,90 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
       </header>
 
       <div className="pt-settings__scroll">
-        <div className="pt-settings__column">
-          <LanguageSettingsSection />
-          <AppearanceSettingsSection />
-          <AssistantSettingsSection />
-          <ConversationAssistantsSection />
-          <ModelRoutingSettingsSection />
-          <ImageGenerationSettingsSection />
-          <MemorySettingsSection />
-          <SpeechSettingsSection />
-          <VoiceOutputSettingsSection />
-          <ProviderForm />
-          <UsageSettingsSection />
-          <BackupSettingsSection />
-          <PinSettingsSection />
-          <AboutSection />
-        </div>
+        {isPhone && !selectedGroupId ? (
+          <div className="pt-settings__column">
+            <section className="pt-settings-section">
+              <p className="pt-settings-section__title">{t("分组", "Groups")}</p>
+              <div className="pt-settings-menu-card">
+                {groups.map((group) => (
+                  <SettingsMenuButton
+                    key={group.id}
+                    group={group}
+                    active={false}
+                    onClick={() => setSelectedGroupId(group.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className={`pt-settings-shell${isPhone ? " is-phone-detail" : ""}`}>
+            {!isPhone ? (
+              <aside className="pt-settings-menu">
+                <div className="pt-settings-menu-card">
+                  {groups.map((group) => (
+                    <SettingsMenuButton
+                      key={group.id}
+                      group={group}
+                      active={group.id === selectedGroup.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                    />
+                  ))}
+                </div>
+              </aside>
+            ) : null}
+
+            <section className="pt-settings-panel">
+              {!isPhone ? (
+                <div className="pt-settings-panel__header">
+                  <p className="pt-settings-panel__eyebrow">
+                    {t("当前分组", "Current Group")}
+                  </p>
+                  <p className="pt-settings-panel__title">{selectedGroup.title}</p>
+                  <p className="pt-settings-panel__detail">
+                    {selectedGroup.description}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="pt-settings__column pt-settings__column--group">
+                {selectedGroup.content}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function SettingsMenuButton({
+  group,
+  active,
+  onClick,
+}: {
+  group: SettingsGroup;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = group.icon;
+
+  return (
+    <button
+      type="button"
+      className={`pt-settings-menu-button${active ? " is-active" : ""}`}
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+    >
+      <div className="pt-settings-menu-button__icon">
+        <Icon size={16} />
+      </div>
+      <div className="pt-settings-menu-button__copy">
+        <p className="pt-settings-menu-button__title">{group.title}</p>
+        <p className="pt-settings-menu-button__detail">{group.description}</p>
+      </div>
+      <ChevronRight size={16} className="pt-settings-menu-button__chevron" />
+    </button>
   );
 }
 

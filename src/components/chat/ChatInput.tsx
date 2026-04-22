@@ -1,6 +1,7 @@
 import { ArrowUp, FileUp, ImageIcon, Loader2, Mic, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { getProvidersForPurpose } from "../../lib/providerModels";
 import * as api from "../../lib/tauri";
 import type { AttachmentUpload } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
@@ -30,6 +31,8 @@ interface ChatInputProps {
   canSendOverride?: boolean;
   imageEnabled?: boolean;
 }
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 function resizeTextarea(element: HTMLTextAreaElement | null): void {
   if (!element) {
@@ -98,6 +101,8 @@ export function ChatInput({
   const isStreaming = useAppStore((s) => s.isStreaming);
   const selectedProviderId = useAppStore((s) => s.selectedProviderId);
   const selectedModel = useAppStore((s) => s.selectedModel);
+  const providers = useAppStore((s) => s.providers);
+  const providerModelRegistry = useAppStore((s) => s.providerModelRegistry);
   const currentConversationId = useAppStore((s) => s.currentConversationId);
   const sttProviderId = useAppStore((s) => s.sttProviderId);
 
@@ -109,6 +114,8 @@ export function ChatInput({
   const busy = isBusy || isStreaming;
   const hasAttachments = attachments.length > 0;
   const hasSendPayload = !!trimmed || hasAttachments || !!referenceImage;
+  const hasTextProviders =
+    getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
   const sendDisabled =
     !shouldShowStop && (!hasSendPayload || !canSend || isRecording || isTranscribing || busy);
   const placeholder = mode === "image"
@@ -117,7 +124,12 @@ export function ChatInput({
         "Describe the image you want, or keep using --ratio / --quality / --count / --bg flags",
       )
     : !canSend
-      ? t("先去设置里添加模型服务商，再开始聊天", "Add a provider in Settings to start chatting")
+      ? hasTextProviders
+        ? t("先选择一个文本模型，再开始聊天", "Choose a text model before chatting")
+        : t(
+            "先去设置里的“模型与服务商”配置一个文本模型，再开始聊天",
+            "Configure a text model in Settings > Models & Providers before chatting",
+          )
       : currentConversationId
         ? t("给 Private Talk 发消息", "Message Private Talk")
         : t("开始一个新对话", "Start a new conversation");
@@ -191,6 +203,13 @@ export function ChatInput({
       return;
     }
 
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setTranscriptionError(
+        t("参考图不能超过 20 MB。", "Reference image must be 20 MB or smaller."),
+      );
+      return;
+    }
+
     try {
       const base64 = await blobToBase64(file);
       setReferenceImage({
@@ -219,9 +238,19 @@ export function ChatInput({
       return;
     }
 
+    const acceptedFiles = files.filter((file) => file.size <= MAX_ATTACHMENT_BYTES);
+    const oversizedCount = files.length - acceptedFiles.length;
+
+    if (acceptedFiles.length === 0) {
+      setTranscriptionError(
+        t("附件不能超过 20 MB。", "Attachments must be 20 MB or smaller."),
+      );
+      return;
+    }
+
     try {
       const nextAttachments = await Promise.all(
-        files.map(async (file) => ({
+        acceptedFiles.map(async (file) => ({
           file_name: file.name,
           mime_type: file.type || "application/octet-stream",
           data_base64: await blobToBase64(file),
@@ -234,7 +263,14 @@ export function ChatInput({
         }
         return Array.from(deduped.values());
       });
-      setTranscriptionError(null);
+      setTranscriptionError(
+        oversizedCount > 0
+          ? t(
+              `已跳过 ${oversizedCount} 个超过 20 MB 的附件。`,
+              `Skipped ${oversizedCount} attachment(s) over 20 MB.`,
+            )
+          : null,
+      );
     } catch (error) {
       setTranscriptionError(
         error instanceof Error

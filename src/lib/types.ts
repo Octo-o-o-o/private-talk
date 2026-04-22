@@ -65,6 +65,15 @@ export interface Provider {
   created_at: string;
 }
 
+export type ModelPurpose = "chat" | "stt" | "tts" | "image";
+
+export interface ProviderModelProfile {
+  id: string;
+  purposes: ModelPurpose[];
+}
+
+export type ProviderModelRegistry = Record<string, ProviderModelProfile[]>;
+
 export interface ImageGenConfig {
   enabled: boolean;
   provider_id: string;

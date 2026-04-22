@@ -6,57 +6,107 @@ import {
   Plus,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import {
+  getProviderModelProfiles,
+  providerPurposeCounts,
+  serializeProviderModelRegistry,
+} from "../../lib/providerModels";
 import * as api from "../../lib/tauri";
+import type { ModelPurpose, ProviderModelProfile } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
-import { SettingsSection } from "./SettingsPage";
 import { Field, FormError, TextField, buttonStyles } from "./formControls";
+import { SettingsSection } from "./SettingsPage";
+
+const PROVIDER_MODEL_REGISTRY_SETTING_KEY = "provider_model_registry";
+const CHAT_PROVIDER_SETTING_KEY = "chat_provider_id";
+const CHAT_MODEL_SETTING_KEY = "chat_model";
+const STT_PROVIDER_SETTING_KEY = "stt_provider_id";
+const STT_MODEL_SETTING_KEY = "stt_model";
+const TTS_PROVIDER_SETTING_KEY = "tts_provider_id";
+const TTS_MODEL_SETTING_KEY = "tts_model";
 
 type Preset = {
   name: string;
   baseUrl: string;
-  models: string;
+  models: ProviderModelProfile[];
 };
 
 const PRESETS: Preset[] = [
   {
     name: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
-    models: "gpt-5.4,gpt-5.4-mini,o4-mini",
+    models: [
+      { id: "gpt-5.4", purposes: ["chat"] },
+      { id: "gpt-5.4-mini", purposes: ["chat"] },
+      { id: "o4-mini", purposes: ["chat"] },
+      { id: "whisper-1", purposes: ["stt"] },
+      { id: "tts-1", purposes: ["tts"] },
+      { id: "gpt-image-1", purposes: ["image"] },
+    ],
   },
   {
     name: "Grok (xAI)",
     baseUrl: "https://api.x.ai/v1",
-    models: "grok-3,grok-3-mini",
+    models: [
+      { id: "grok-3", purposes: ["chat"] },
+      { id: "grok-3-mini", purposes: ["chat"] },
+    ],
   },
+];
+
+const PURPOSE_OPTIONS: Array<{
+  value: ModelPurpose;
+  zh: string;
+  en: string;
+}> = [
+  { value: "chat", zh: "文本", en: "Text" },
+  { value: "stt", zh: "转写", en: "STT" },
+  { value: "tts", zh: "语音", en: "TTS" },
+  { value: "image", zh: "图片", en: "Image" },
 ];
 
 type FormState = {
   name: string;
   baseUrl: string;
   apiKey: string;
-  models: string;
+  models: ProviderModelProfile[];
 };
+
+function createEmptyModel(): ProviderModelProfile {
+  return {
+    id: "",
+    purposes: ["chat"],
+  };
+}
 
 const EMPTY_FORM: FormState = {
   name: "",
   baseUrl: "",
   apiKey: "",
-  models: "",
+  models: [createEmptyModel()],
 };
 
-function parseModels(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+function nextFormState(form: FormState): FormState {
+  return {
+    ...form,
+    models: form.models.map((model) => ({
+      id: model.id,
+      purposes: [...model.purposes],
+    })),
+  };
 }
 
 export function ProviderForm() {
   const { t } = useI18n();
-  const { providers, loadProviders } = useAppStore();
+  const providers = useAppStore((state) => state.providers);
+  const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
+  const loadProviders = useAppStore((state) => state.loadProviders);
+  const loadSpeechSettings = useAppStore((state) => state.loadSpeechSettings);
+  const loadImageGenConfig = useAppStore((state) => state.loadImageGenConfig);
   const [showForm, setShowForm] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -69,8 +119,49 @@ export function ProviderForm() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updateModel(
+    index: number,
+    updater: (model: ProviderModelProfile) => ProviderModelProfile,
+  ): void {
+    setForm((current) => ({
+      ...current,
+      models: current.models.map((model, modelIndex) =>
+        modelIndex === index ? updater(model) : model,
+      ),
+    }));
+  }
+
+  function addModel(): void {
+    setForm((current) => ({
+      ...current,
+      models: [...current.models, createEmptyModel()],
+    }));
+  }
+
+  function removeModel(index: number): void {
+    setForm((current) => ({
+      ...current,
+      models:
+        current.models.length > 1
+          ? current.models.filter((_, modelIndex) => modelIndex !== index)
+          : [createEmptyModel()],
+    }));
+  }
+
+  function toggleModelPurpose(index: number, purpose: ModelPurpose): void {
+    updateModel(index, (model) => {
+      const purposes = model.purposes.includes(purpose)
+        ? model.purposes.filter((value) => value !== purpose)
+        : [...model.purposes, purpose];
+      return {
+        ...model,
+        purposes,
+      };
+    });
+  }
+
   function resetForm(): void {
-    setForm(EMPTY_FORM);
+    setForm(nextFormState(EMPTY_FORM));
     setShowForm(false);
     setShowPresets(false);
     setShowKey(false);
@@ -83,11 +174,23 @@ export function ProviderForm() {
       name: preset.name,
       baseUrl: preset.baseUrl,
       apiKey: "",
-      models: preset.models,
+      models: preset.models.map((model) => ({
+        id: model.id,
+        purposes: [...model.purposes],
+      })),
     });
     setShowForm(true);
     setShowPresets(false);
     setEditingId(null);
+  }
+
+  function beginCustomCreate(): void {
+    setForm(nextFormState(EMPTY_FORM));
+    setShowForm(true);
+    setShowPresets(false);
+    setEditingId(null);
+    setShowKey(false);
+    setError(null);
   }
 
   function beginEdit(id: string): void {
@@ -96,17 +199,82 @@ export function ProviderForm() {
       return;
     }
 
+    const profiles = getProviderModelProfiles(provider, providerModelRegistry);
+
     setEditingId(id);
     setForm({
       name: provider.name,
       baseUrl: provider.base_url,
       apiKey: provider.api_key,
-      models: provider.models.join(", "),
+      models: profiles.length > 0 ? profiles : [createEmptyModel()],
     });
     setShowForm(true);
     setShowPresets(false);
     setShowKey(false);
     setError(null);
+  }
+
+  async function seedPurposeDefaults(
+    providerId: string,
+    profiles: ProviderModelProfile[],
+  ): Promise<void> {
+    const chatModel = profiles.find((profile) => profile.purposes.includes("chat"))?.id ?? "";
+    const sttModel = profiles.find((profile) => profile.purposes.includes("stt"))?.id ?? "";
+    const ttsModel = profiles.find((profile) => profile.purposes.includes("tts"))?.id ?? "";
+    const imageModel = profiles.find((profile) => profile.purposes.includes("image"))?.id ?? "";
+
+    const [
+      storedChatProviderId,
+      storedChatModel,
+      storedSttProviderId,
+      storedSttModel,
+      storedTtsProviderId,
+      storedTtsModel,
+      imageGenConfig,
+    ] = await Promise.all([
+      api.getSetting(CHAT_PROVIDER_SETTING_KEY),
+      api.getSetting(CHAT_MODEL_SETTING_KEY),
+      api.getSetting(STT_PROVIDER_SETTING_KEY),
+      api.getSetting(STT_MODEL_SETTING_KEY),
+      api.getSetting(TTS_PROVIDER_SETTING_KEY),
+      api.getSetting(TTS_MODEL_SETTING_KEY),
+      api.getImageGenConfig(),
+    ]);
+
+    const tasks: Promise<unknown>[] = [];
+
+    if (chatModel && (!storedChatProviderId?.trim() || !storedChatModel?.trim())) {
+      tasks.push(api.setSetting(CHAT_PROVIDER_SETTING_KEY, providerId));
+      tasks.push(api.setSetting(CHAT_MODEL_SETTING_KEY, chatModel));
+    }
+
+    if (sttModel && !storedSttProviderId?.trim()) {
+      tasks.push(api.setSetting(STT_PROVIDER_SETTING_KEY, providerId));
+    }
+    if (sttModel && !storedSttModel?.trim()) {
+      tasks.push(api.setSetting(STT_MODEL_SETTING_KEY, sttModel));
+    }
+
+    if (ttsModel && !storedTtsProviderId?.trim()) {
+      tasks.push(api.setSetting(TTS_PROVIDER_SETTING_KEY, providerId));
+    }
+    if (ttsModel && !storedTtsModel?.trim()) {
+      tasks.push(api.setSetting(TTS_MODEL_SETTING_KEY, ttsModel));
+    }
+
+    if (imageModel && !imageGenConfig.provider_id.trim() && !imageGenConfig.model.trim()) {
+      tasks.push(
+        api.setImageGenConfig({
+          ...imageGenConfig,
+          provider_id: providerId,
+          model: imageModel,
+        }),
+      );
+    }
+
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
@@ -115,7 +283,11 @@ export function ProviderForm() {
     const name = form.name.trim();
     const baseUrl = form.baseUrl.trim();
     const apiKey = form.apiKey.trim();
-    const models = parseModels(form.models);
+    const normalizedModels = form.models.map((model) => ({
+      id: model.id.trim(),
+      purposes: Array.from(new Set(model.purposes)),
+    }));
+    const modelNames = normalizedModels.map((model) => model.id);
 
     if (!name || !baseUrl) {
       setError(
@@ -124,21 +296,60 @@ export function ProviderForm() {
       return;
     }
 
+    if (normalizedModels.some((model) => !model.id)) {
+      setError(
+        t("每个模型都需要填写名称。", "Every model needs a name."),
+      );
+      return;
+    }
+
+    if (normalizedModels.some((model) => model.purposes.length === 0)) {
+      setError(
+        t(
+          "请为每个模型至少选择一个用途。",
+          "Choose at least one purpose for every model.",
+        ),
+      );
+      return;
+    }
+
+    if (new Set(modelNames).size !== modelNames.length) {
+      setError(
+        t("模型名称不能重复。", "Model names must be unique."),
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
+      const providerId = editingId
+        ? editingId
+        : (await api.createProvider(name, baseUrl, apiKey, modelNames)).id;
+
       if (editingId) {
-        await api.updateProvider(editingId, name, baseUrl, apiKey, models);
-      } else {
-        await api.createProvider(name, baseUrl, apiKey, models);
+        await api.updateProvider(editingId, name, baseUrl, apiKey, modelNames);
       }
+
+      const nextRegistry = {
+        ...providerModelRegistry,
+        [providerId]: normalizedModels,
+      };
+
+      await api.setSetting(
+        PROVIDER_MODEL_REGISTRY_SETTING_KEY,
+        serializeProviderModelRegistry(nextRegistry),
+      );
+      await seedPurposeDefaults(providerId, normalizedModels);
       await loadProviders();
+      await loadSpeechSettings();
+      await loadImageGenConfig();
       resetForm();
-    } catch (error) {
+    } catch (saveError) {
       setError(
-        error instanceof Error
-          ? error.message
+        saveError instanceof Error
+          ? saveError.message
           : t(
               "保存服务商失败，请检查端点后重试。",
               "Failed to save provider. Check the endpoint and try again.",
@@ -151,13 +362,23 @@ export function ProviderForm() {
 
   async function handleDelete(id: string): Promise<void> {
     setError(null);
+
     try {
+      const nextRegistry = { ...providerModelRegistry };
+      delete nextRegistry[id];
+
       await api.deleteProvider(id);
+      await api.setSetting(
+        PROVIDER_MODEL_REGISTRY_SETTING_KEY,
+        serializeProviderModelRegistry(nextRegistry),
+      );
       await loadProviders();
-    } catch (error) {
+      await loadSpeechSettings();
+      await loadImageGenConfig();
+    } catch (deleteError) {
       setError(
-        error instanceof Error
-          ? error.message
+        deleteError instanceof Error
+          ? deleteError.message
           : t("删除服务商失败。", "Failed to delete provider."),
       );
     }
@@ -168,10 +389,10 @@ export function ProviderForm() {
     try {
       await api.setDefaultProvider(id);
       await loadProviders();
-    } catch (error) {
+    } catch (setDefaultError) {
       setError(
-        error instanceof Error
-          ? error.message
+        setDefaultError instanceof Error
+          ? setDefaultError.message
           : t("设置默认服务商失败。", "Failed to set the default provider."),
       );
     }
@@ -181,8 +402,8 @@ export function ProviderForm() {
     <SettingsSection
       title={t("模型服务商", "Model Providers")}
       footer={t(
-        "Key 只保存在本地，并且只会发送给你选中的端点。",
-        "Keys stay local and are only sent to the endpoint you choose.",
+        "服务商只负责端点与密钥，模型用途映射只保存在本地，用来决定哪些模型用于文本、转写、语音和图片。",
+        "Providers store endpoints and keys. Model purpose mapping stays local and decides which models are used for text, transcription, voice, and image generation.",
       )}
     >
       {providers.length === 0 && !showForm && !showPresets ? (
@@ -191,66 +412,79 @@ export function ProviderForm() {
             <p className="pt-settings-row__title">{t("还没有服务商", "No providers yet")}</p>
             <p className="pt-settings-row__detail">
               {t(
-                "可以从预设开始，或者手动输入一个自定义端点。",
-                "Create one from a preset or enter a custom endpoint.",
+                "添加服务商时，顺手把模型用途标好，后面的文本、语音和图片路由就能直接复用。",
+                "Add a provider and tag what each model is for so text, voice, and image routing can reuse it.",
               )}
             </p>
           </div>
         </div>
       ) : null}
 
-      {providers.map((provider) => (
-        <div key={provider.id} className="pt-settings-row">
-          <div className="pt-settings-row__copy">
-            <div className="pt-settings-row__title-line">
-              <p className="pt-settings-row__title">{provider.name}</p>
-              {provider.is_default ? (
-                <span className="pt-badge">
-                  <Star size={10} className="fill-current" />
-                  {t("默认", "Default")}
-                </span>
-              ) : null}
+      {providers.map((provider) => {
+        const counts = providerPurposeCounts(provider, providerModelRegistry);
+        const summary = [
+          counts.chat > 0 ? t(`${counts.chat} 个文本`, `${counts.chat} text`) : null,
+          counts.stt > 0 ? t(`${counts.stt} 个转写`, `${counts.stt} STT`) : null,
+          counts.tts > 0 ? t(`${counts.tts} 个语音`, `${counts.tts} TTS`) : null,
+          counts.image > 0 ? t(`${counts.image} 个图片`, `${counts.image} image`) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        return (
+          <div key={provider.id} className="pt-settings-row">
+            <div className="pt-settings-row__copy">
+              <div className="pt-settings-row__title-line">
+                <p className="pt-settings-row__title">{provider.name}</p>
+                {provider.is_default ? (
+                  <span className="pt-badge">
+                    <Star size={10} className="fill-current" />
+                    {t("默认", "Default")}
+                  </span>
+                ) : null}
+              </div>
+              <p className="pt-settings-row__detail">
+                {provider.base_url}
+                {summary ? ` · ${summary}` : ""}
+              </p>
             </div>
-            <p className="pt-settings-row__detail">
-              {provider.base_url} · {provider.models.length} {provider.models.length === 1 ? t("个模型", "model") : t("个模型", "models")}
-            </p>
-          </div>
 
-          <div className="pt-settings-row__actions">
-            <button
-              type="button"
-              className="pt-row-icon"
-              onClick={() => beginEdit(provider.id)}
-              aria-label={t(`编辑 ${provider.name}`, `Edit ${provider.name}`)}
-              title={t("编辑服务商", "Edit provider")}
-            >
-              <Pencil size={14} />
-            </button>
-
-            {!provider.is_default ? (
+            <div className="pt-settings-row__actions">
               <button
                 type="button"
                 className="pt-row-icon"
-                onClick={() => void handleSetDefault(provider.id)}
-                aria-label={t(`将 ${provider.name} 设为默认`, `Set ${provider.name} as default`)}
-                title={t("设为默认", "Set as default")}
+                onClick={() => beginEdit(provider.id)}
+                aria-label={t(`编辑 ${provider.name}`, `Edit ${provider.name}`)}
+                title={t("编辑服务商", "Edit provider")}
               >
-                <Star size={14} />
+                <Pencil size={14} />
               </button>
-            ) : null}
 
-            <button
-              type="button"
-              className="pt-row-icon pt-row-icon--danger"
-              onClick={() => void handleDelete(provider.id)}
-              aria-label={t(`删除 ${provider.name}`, `Delete ${provider.name}`)}
-              title={t("删除服务商", "Delete provider")}
-            >
-              <Trash2 size={14} />
-            </button>
+              {!provider.is_default ? (
+                <button
+                  type="button"
+                  className="pt-row-icon"
+                  onClick={() => void handleSetDefault(provider.id)}
+                  aria-label={t(`将 ${provider.name} 设为默认`, `Set ${provider.name} as default`)}
+                  title={t("设为默认", "Set as default")}
+                >
+                  <Star size={14} />
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                className="pt-row-icon pt-row-icon--danger"
+                onClick={() => void handleDelete(provider.id)}
+                aria-label={t(`删除 ${provider.name}`, `Delete ${provider.name}`)}
+                title={t("删除服务商", "Delete provider")}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {!showForm ? (
         <button
@@ -268,8 +502,8 @@ export function ProviderForm() {
             </div>
             <p className="pt-settings-row__detail">
               {t(
-                "使用预设，或者输入一个自定义端点。",
-                "Use a preset or enter a custom endpoint.",
+                "使用预设，或者输入一个自定义端点并逐个标记模型用途。",
+                "Use a preset or enter a custom endpoint and tag each model's purpose.",
               )}
             </p>
           </div>
@@ -293,11 +527,7 @@ export function ProviderForm() {
             <button
               type="button"
               className={buttonStyles.chip}
-              onClick={() => {
-                setShowForm(true);
-                setShowPresets(false);
-                setEditingId(null);
-              }}
+              onClick={beginCustomCreate}
             >
               <Plus size={13} />
               {t("自定义", "Custom")}
@@ -342,12 +572,68 @@ export function ProviderForm() {
             </div>
           </Field>
 
-          <TextField
-            label={t("模型列表（逗号分隔）", "Models (comma-separated)")}
-            value={form.models}
-            onChange={(event) => updateField("models", event.target.value)}
-            placeholder="gpt-5.4, gpt-5.4-mini"
-          />
+          <Field label={t("模型与用途", "Models & Purposes")}>
+            <div className="pt-provider-model-list">
+              {form.models.map((model, index) => (
+                <div key={`${editingId ?? "new"}-${index}`} className="pt-provider-model-card">
+                  <div className="pt-provider-model-card__header">
+                    <input
+                      className="pt-input"
+                      value={model.id}
+                      onChange={(event) =>
+                        updateModel(index, (current) => ({
+                          ...current,
+                          id: event.target.value,
+                        }))
+                      }
+                      placeholder={t("模型名，例如 gpt-5.4", "Model name, for example gpt-5.4")}
+                    />
+
+                    {form.models.length > 1 ? (
+                      <button
+                        type="button"
+                        className="pt-row-icon"
+                        onClick={() => removeModel(index)}
+                        aria-label={t("删除模型", "Remove model")}
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="pt-chip-row pt-provider-model-card__purposes">
+                    {PURPOSE_OPTIONS.map((option) => {
+                      const active = model.purposes.includes(option.value);
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`${buttonStyles.chip}${active ? " is-active" : ""}`}
+                          onClick={() => toggleModelPurpose(index, option.value)}
+                        >
+                          {t(option.zh, option.en)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Field>
+
+          <div className="pt-settings-form__actions pt-settings-form__actions--start">
+            <button type="button" className={buttonStyles.secondary} onClick={addModel}>
+              <Plus size={14} />
+              {t("添加模型", "Add Model")}
+            </button>
+          </div>
+
+          <p className="pt-settings-help">
+            {t(
+              "文本模型会出现在新建聊天和聊天头部；转写、语音和图片模型会在对应设置页里自动过滤出来。",
+              "Text models appear in new chat and the chat header. Transcription, voice, and image models are filtered into their matching settings automatically.",
+            )}
+          </p>
 
           <FormError message={error} />
 

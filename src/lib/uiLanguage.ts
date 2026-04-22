@@ -1,6 +1,19 @@
 export type UiLanguage = "auto" | "zh-CN" | "en";
 export type ResolvedUiLanguage = "zh-CN" | "en";
 
+function readPreferredLocale(): string {
+  if (typeof navigator === "undefined") {
+    return "";
+  }
+
+  const preferredLocale =
+    navigator.languages.find((locale) => locale && locale.trim()) ??
+    navigator.language ??
+    "";
+
+  return preferredLocale.trim().toLowerCase();
+}
+
 export function normalizeUiLanguage(value: string | null | undefined): UiLanguage {
   if (value === "zh-CN" || value === "en") {
     return value;
@@ -13,13 +26,9 @@ export function resolveUiLanguage(language: UiLanguage): ResolvedUiLanguage {
     return language;
   }
 
-  if (typeof navigator !== "undefined") {
-    const locale = navigator.language.toLowerCase();
-    if (locale.startsWith("zh")) {
-      return "zh-CN";
-    }
+  if (readPreferredLocale().startsWith("zh")) {
+    return "zh-CN";
   }
 
   return "en";
 }
-

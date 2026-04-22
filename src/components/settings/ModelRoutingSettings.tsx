@@ -1,17 +1,23 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { getProviderModelsForPurpose, getProvidersForPurpose } from "../../lib/providerModels";
 import { useAppStore } from "../../stores/appStore";
 import { buttonStyles, Field } from "./formControls";
 import { SettingsSection } from "./SettingsPage";
 
-function currentSummary(providerName: string | null, model: string | null): string {
+function currentSummary(
+  providerName: string | null,
+  model: string | null,
+  emptyLabel: string,
+  unavailableLabel: string,
+): string {
   if (!providerName) {
-    return "Add a provider to choose a default text model.";
+    return emptyLabel;
   }
 
   if (!model) {
-    return `${providerName} · No model available`;
+    return `${providerName} · ${unavailableLabel}`;
   }
 
   return `${providerName} · ${model}`;
@@ -20,6 +26,7 @@ function currentSummary(providerName: string | null, model: string | null): stri
 export function ModelRoutingSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
+  const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
   const selectedProviderId = useAppStore((state) => state.selectedProviderId);
   const selectedModel = useAppStore((state) => state.selectedModel);
   const setSelectedProvider = useAppStore((state) => state.setSelectedProvider);
@@ -28,14 +35,19 @@ export function ModelRoutingSettingsSection() {
   const [draftProviderId, setDraftProviderId] = useState("");
   const [draftModel, setDraftModel] = useState("");
 
+  const chatProviders = useMemo(
+    () => getProvidersForPurpose(providers, providerModelRegistry, "chat"),
+    [providerModelRegistry, providers],
+  );
+
   const currentProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedProviderId),
-    [providers, selectedProviderId],
+    () => chatProviders.find((provider) => provider.id === selectedProviderId),
+    [chatProviders, selectedProviderId],
   );
 
   const draftProvider = useMemo(
-    () => providers.find((provider) => provider.id === draftProviderId) ?? null,
-    [draftProviderId, providers],
+    () => chatProviders.find((provider) => provider.id === draftProviderId) ?? null,
+    [chatProviders, draftProviderId],
   );
 
   useEffect(() => {
@@ -50,9 +62,13 @@ export function ModelRoutingSettingsSection() {
 
   function handleProviderChange(nextProviderId: string): void {
     const nextProvider =
-      providers.find((provider) => provider.id === nextProviderId) ?? null;
+      chatProviders.find((provider) => provider.id === nextProviderId) ?? null;
     setDraftProviderId(nextProviderId);
-    setDraftModel(nextProvider?.models[0] ?? "");
+    setDraftModel(
+      nextProvider
+        ? getProviderModelsForPurpose(nextProvider, providerModelRegistry, "chat")[0] ?? ""
+        : "",
+    );
   }
 
   function handleSave(event: React.FormEvent): void {
@@ -70,7 +86,7 @@ export function ModelRoutingSettingsSection() {
   }
 
   return (
-    <SettingsSection title={t("模型路由", "Model Routing")}>
+    <SettingsSection title={t("文本路由", "Text Routing")}>
       <button
         type="button"
         className="pt-settings-row pt-settings-row--interactive"
@@ -92,13 +108,21 @@ export function ModelRoutingSettingsSection() {
             />
           </div>
           <p className="pt-settings-row__detail">
-            {currentSummary(currentProvider?.name ?? null, selectedModel)}
+            {currentSummary(
+              currentProvider?.name ?? null,
+              selectedModel,
+              t(
+                "先添加服务商并标记文本模型。",
+                "Add a provider and mark a text model first.",
+              ),
+              t("没有可用模型", "No model available"),
+            )}
           </p>
         </div>
       </button>
 
       {expanded ? (
-        providers.length > 0 ? (
+        chatProviders.length > 0 ? (
           <form className="pt-settings-expand pt-settings-form" onSubmit={handleSave}>
             <Field label={t("默认服务商", "Default Provider")}>
               <select
@@ -106,7 +130,7 @@ export function ModelRoutingSettingsSection() {
                 value={draftProviderId}
                 onChange={(event) => handleProviderChange(event.target.value)}
               >
-                {providers.map((provider) => (
+                {chatProviders.map((provider) => (
                   <option key={provider.id} value={provider.id}>
                     {provider.name}
                   </option>
@@ -120,7 +144,10 @@ export function ModelRoutingSettingsSection() {
                 value={draftModel}
                 onChange={(event) => setDraftModel(event.target.value)}
               >
-                {(draftProvider?.models ?? []).map((model) => (
+                {(draftProvider
+                  ? getProviderModelsForPurpose(draftProvider, providerModelRegistry, "chat")
+                  : []
+                ).map((model) => (
                   <option key={model} value={model}>
                     {model}
                   </option>
@@ -154,10 +181,15 @@ export function ModelRoutingSettingsSection() {
         ) : (
           <div className="pt-settings-expand">
             <p className="pt-settings-help">
-              {t(
-                "先添加一个服务商，然后你就可以设置新聊天默认使用的文本模型。",
-                "Add a provider first. Then you can choose the default text model used when a new chat starts.",
-              )}
+              {providers.length === 0
+                ? t(
+                    "先添加一个服务商，再为至少一个模型标记“文本”用途。",
+                    "Add a provider first, then tag at least one model with the text purpose.",
+                  )
+                : t(
+                    "当前还没有可用的文本模型。去下面的服务商表单里，把一个模型标记成“文本”。",
+                    "There is no text model available yet. Mark one model as text in the provider form below.",
+                  )}
             </p>
           </div>
         )

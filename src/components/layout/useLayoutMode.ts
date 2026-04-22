@@ -38,7 +38,10 @@ export function useLayoutProfile(): LayoutProfile {
 
   useEffect(() => {
     const update = (): void => {
-      setProfile({ mode: readLayoutMode() });
+      const nextMode = readLayoutMode();
+      setProfile((current) =>
+        current.mode === nextMode ? current : { mode: nextMode },
+      );
     };
 
     update();

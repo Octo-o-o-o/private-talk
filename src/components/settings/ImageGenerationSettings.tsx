@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { getProviderModelsForPurpose, getProvidersForPurpose } from "../../lib/providerModels";
 import type { ImageGenConfig } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import { buttonStyles, Field } from "./formControls";
@@ -19,6 +20,7 @@ const DEFAULT_CONFIG: ImageGenConfig = {
 export function ImageGenerationSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
+  const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
   const savedConfig = useAppStore((state) => state.imageGenConfig);
   const loadImageGenConfig = useAppStore((state) => state.loadImageGenConfig);
   const setImageGenConfig = useAppStore((state) => state.setImageGenConfig);
@@ -36,10 +38,32 @@ export function ImageGenerationSettingsSection() {
     setDraftConfig(savedConfig);
   }, [savedConfig]);
 
+  const imageProviders = useMemo(
+    () => getProvidersForPurpose(providers, providerModelRegistry, "image"),
+    [providerModelRegistry, providers],
+  );
+
   const currentProvider = useMemo(
     () => providers.find((provider) => provider.id === savedConfig.provider_id) ?? null,
     [providers, savedConfig.provider_id],
   );
+  const draftProvider = useMemo(
+    () => providers.find((provider) => provider.id === draftConfig.provider_id) ?? null,
+    [draftConfig.provider_id, providers],
+  );
+  const availableDraftModels = useMemo(
+    () =>
+      draftProvider
+        ? getProviderModelsForPurpose(draftProvider, providerModelRegistry, "image")
+        : [],
+    [draftProvider, providerModelRegistry],
+  );
+  const resolvedDraftModel =
+    availableDraftModels.length > 0
+      ? availableDraftModels.includes(draftConfig.model)
+        ? draftConfig.model
+        : availableDraftModels[0] ?? ""
+      : draftConfig.model;
 
   function restoreSaved(): void {
     setDraftConfig(savedConfig);
@@ -54,7 +78,7 @@ export function ImageGenerationSettingsSection() {
         setError(t("请选择图片生成服务商。", "Choose an image generation provider."));
         return;
       }
-      if (!draftConfig.model.trim()) {
+      if (!resolvedDraftModel.trim()) {
         setError(t("请输入图片生成模型。", "Enter an image generation model."));
         return;
       }
@@ -62,7 +86,7 @@ export function ImageGenerationSettingsSection() {
 
     const nextConfig = {
       ...draftConfig,
-      model: draftConfig.model.trim(),
+      model: resolvedDraftModel.trim(),
     };
     await setImageGenConfig(nextConfig);
     setError(null);
@@ -130,11 +154,25 @@ export function ImageGenerationSettingsSection() {
                 setDraftConfig((current) => ({
                   ...current,
                   provider_id: event.target.value,
+                  model:
+                    (() => {
+                      const nextProvider =
+                        providers.find((provider) => provider.id === event.target.value) ?? null;
+                      const nextModels = nextProvider
+                        ? getProviderModelsForPurpose(nextProvider, providerModelRegistry, "image")
+                        : [];
+                      if (nextModels.length === 0) {
+                        return current.model;
+                      }
+                      return nextModels.includes(current.model)
+                        ? current.model
+                        : nextModels[0] ?? current.model;
+                    })(),
                 }))
               }
             >
               <option value="">{t("选择服务商", "Select a provider")}</option>
-              {providers.map((provider) => (
+              {imageProviders.map((provider) => (
                 <option key={provider.id} value={provider.id}>
                   {provider.name}
                 </option>
@@ -143,17 +181,36 @@ export function ImageGenerationSettingsSection() {
           </Field>
 
           <Field label={t("图片模型", "Image Model")}>
-            <input
-              className="pt-input"
-              value={draftConfig.model}
-              onChange={(event) =>
-                setDraftConfig((current) => ({
-                  ...current,
-                  model: event.target.value,
-                }))
-              }
-              placeholder="gpt-image-1"
-            />
+            {availableDraftModels.length > 0 ? (
+              <select
+                className="pt-select"
+                value={resolvedDraftModel}
+                onChange={(event) =>
+                  setDraftConfig((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+              >
+                {availableDraftModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="pt-input"
+                value={draftConfig.model}
+                onChange={(event) =>
+                  setDraftConfig((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+                placeholder="gpt-image-1"
+              />
+            )}
           </Field>
 
           <div className="pt-settings-form__split">

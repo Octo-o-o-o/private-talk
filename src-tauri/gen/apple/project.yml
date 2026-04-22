@@ -41,6 +41,7 @@ targets:
       path: private-talk_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
+        CFBundleDisplayName: Private Talk
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:

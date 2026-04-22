@@ -1,6 +1,8 @@
-import { MessageSquarePlus, Sparkles, X } from "lucide-react";
+import { MessageSquarePlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { AssistantIconGlyph } from "../assistant/assistantIcons";
 import { useI18n } from "../../lib/i18n";
+import { getProvidersForPurpose } from "../../lib/providerModels";
 import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "./useLayoutMode";
 
@@ -16,12 +18,19 @@ export function NewConversationPicker({
   const { t } = useI18n();
   const assistants = useAppStore((state) => state.assistants);
   const createConversation = useAppStore((state) => state.createConversation);
+  const providers = useAppStore((state) => state.providers);
+  const providerModelRegistry = useAppStore(
+    (state) => state.providerModelRegistry,
+  );
+  const openSettings = useAppStore((state) => state.openSettings);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   const sortedAssistants = useMemo(
     () => assistants.slice().sort((left, right) => Number(right.is_preset) - Number(left.is_preset)),
     [assistants],
   );
+  const hasTextProviders =
+    getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
 
   if (!open) {
     return null;
@@ -57,54 +66,85 @@ export function NewConversationPicker({
         </div>
 
         <div className="pt-assistant-picker">
-          <button
-            type="button"
-            className="pt-assistant-picker__item"
-            onClick={() => void handleCreate(null)}
-            disabled={submittingId !== null}
-          >
-            <div className="pt-assistant-picker__icon">
-              <MessageSquarePlus size={16} />
-            </div>
-            <div className="pt-assistant-picker__copy">
-              <p className="pt-settings-row__title">{t("自由对话", "Free Chat")}</p>
-              <p className="pt-settings-row__detail">
-                {t(
-                  "不绑定额外系统提示词，直接按当前全局偏好开始。",
-                  "Start without an attached conversation assistant and use the current global defaults.",
-                )}
-              </p>
-            </div>
-            <span className="pt-status-pill">
-              {submittingId === "__free__" ? t("创建中...", "Creating...") : t("开始", "Start")}
-            </span>
-          </button>
+          {hasTextProviders ? (
+            <>
+              <button
+                type="button"
+                className="pt-assistant-picker__item"
+                onClick={() => void handleCreate(null)}
+                disabled={submittingId !== null}
+              >
+                <div className="pt-assistant-picker__icon">
+                  <MessageSquarePlus size={16} />
+                </div>
+                <div className="pt-assistant-picker__copy">
+                  <p className="pt-settings-row__title">{t("自由对话", "Free Chat")}</p>
+                  <p className="pt-settings-row__detail">
+                    {t(
+                      "不绑定额外系统提示词，直接按当前全局偏好开始。",
+                      "Start without an attached conversation assistant and use the current global defaults.",
+                    )}
+                  </p>
+                </div>
+                <span className="pt-status-pill">
+                  {submittingId === "__free__" ? t("创建中...", "Creating...") : t("开始", "Start")}
+                </span>
+              </button>
 
-          {sortedAssistants.map((assistant) => (
+              {sortedAssistants.map((assistant) => (
+                <button
+                  key={assistant.id}
+                  type="button"
+                  className="pt-assistant-picker__item"
+                  onClick={() => void handleCreate(assistant.id)}
+                  disabled={submittingId !== null}
+                >
+                  <div className="pt-assistant-picker__icon">
+                    <AssistantIconGlyph name={assistant.icon} size={16} />
+                  </div>
+                  <div className="pt-assistant-picker__copy">
+                    <div className="pt-settings-row__title-line">
+                      <p className="pt-settings-row__title">{assistant.name}</p>
+                      {assistant.is_preset ? <span className="pt-badge">{t("预设", "Preset")}</span> : null}
+                    </div>
+                    <p className="pt-settings-row__detail">
+                      {assistant.description || t("这个助手没有描述。", "This assistant has no description.")}
+                    </p>
+                  </div>
+                  <span className="pt-status-pill">
+                    {submittingId === assistant.id ? t("创建中...", "Creating...") : t("使用", "Use")}
+                  </span>
+                </button>
+              ))}
+            </>
+          ) : (
             <button
-              key={assistant.id}
               type="button"
               className="pt-assistant-picker__item"
-              onClick={() => void handleCreate(assistant.id)}
-              disabled={submittingId !== null}
+              onClick={() => {
+                onClose();
+                openSettings("models");
+              }}
             >
               <div className="pt-assistant-picker__icon">
-                <Sparkles size={16} />
+                <MessageSquarePlus size={16} />
               </div>
               <div className="pt-assistant-picker__copy">
-                <div className="pt-settings-row__title-line">
-                  <p className="pt-settings-row__title">{assistant.name}</p>
-                  {assistant.is_preset ? <span className="pt-badge">{t("预设", "Preset")}</span> : null}
-                </div>
+                <p className="pt-settings-row__title">
+                  {t("先配置文本模型", "Configure a text model first")}
+                </p>
                 <p className="pt-settings-row__detail">
-                  {assistant.description || t("这个助手没有描述。", "This assistant has no description.")}
+                  {t(
+                    "已有服务商但没有可聊天的文本模型时，直接跳到“模型与服务商”分组。",
+                    "If there is no text model for chat yet, jump straight to the Models & Providers group.",
+                  )}
                 </p>
               </div>
               <span className="pt-status-pill">
-                {submittingId === assistant.id ? t("创建中...", "Creating...") : t("使用", "Use")}
+                {t("去设置", "Open")}
               </span>
             </button>
-          ))}
+          )}
         </div>
       </div>
     </div>

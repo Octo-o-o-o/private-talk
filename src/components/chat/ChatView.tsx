@@ -7,10 +7,15 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import {
+  getProviderModelsForPurpose,
+  getProvidersForPurpose,
+} from "../../lib/providerModels";
 import * as api from "../../lib/tauri";
 import type {
   Attachment,
   Assistant,
+  ProviderModelRegistry,
   Provider,
   StreamChunkPayload,
   StreamDonePayload,
@@ -29,6 +34,7 @@ interface ChatViewProps {
 }
 
 type Unlisten = () => void;
+const EMPTY_ATTACHMENTS: Attachment[] = [];
 
 export function ChatView({
   layout,
@@ -37,36 +43,47 @@ export function ChatView({
   onRequestNewConversation,
 }: ChatViewProps) {
   const { t } = useI18n();
-  const {
-    messages,
-    conversations,
-    currentConversationId,
-    currentAssistantId,
-    isStreaming,
-    streamingContent,
-    setStreaming,
-    appendStreamingContent,
-    clearStreamingContent,
-    addMessage,
-    selectedProviderId,
-    selectedModel,
-    providers,
-    assistants,
-    imageGenConfig,
-    createConversation,
-    selectAssistant,
-    setSelectedProvider,
-    setSelectedModel,
-  } = useAppStore();
+  const messages = useAppStore((state) => state.messages);
+  const conversations = useAppStore((state) => state.conversations);
+  const currentConversationId = useAppStore(
+    (state) => state.currentConversationId,
+  );
+  const currentAssistantId = useAppStore((state) => state.currentAssistantId);
+  const isStreaming = useAppStore((state) => state.isStreaming);
+  const setStreaming = useAppStore((state) => state.setStreaming);
+  const addMessage = useAppStore((state) => state.addMessage);
+  const selectedProviderId = useAppStore((state) => state.selectedProviderId);
+  const selectedModel = useAppStore((state) => state.selectedModel);
+  const providers = useAppStore((state) => state.providers);
+  const providerModelRegistry = useAppStore(
+    (state) => state.providerModelRegistry,
+  );
+  const assistants = useAppStore((state) => state.assistants);
+  const imageGenConfig = useAppStore((state) => state.imageGenConfig);
+  const createConversation = useAppStore((state) => state.createConversation);
+  const selectAssistant = useAppStore((state) => state.selectAssistant);
+  const openSettings = useAppStore((state) => state.openSettings);
+  const setSelectedProvider = useAppStore(
+    (state) => state.setSelectedProvider,
+  );
+  const setSelectedModel = useAppStore((state) => state.setSelectedModel);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const scrollFrameRef = useRef<number | null>(null);
   const isPhone = layout === "phone";
   const [isImageGenerating, setIsImageGenerating] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
   const imageEnabled =
     imageGenConfig.enabled &&
     imageGenConfig.provider_id.trim().length > 0 &&
     imageGenConfig.model.trim().length > 0;
+  const textProviders = getProvidersForPurpose(
+    providers,
+    providerModelRegistry,
+    "chat",
+  );
+  const hasTextProviders = textProviders.length > 0;
 
   function normalizeImageContent(content: string): string {
     return content.trim().startsWith("/img") ? content.trim() : `/img ${content.trim()}`;
@@ -82,21 +99,45 @@ export function ChatView({
     return t(`已附加 ${attachments.length} 个文件`, `Attached ${attachments.length} files`);
   }
 
+  function scheduleAutoScroll(): void {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const element = scrollRef.current;
+      if (!element || !autoScrollRef.current) {
+        return;
+      }
+
+      element.scrollTop = element.scrollHeight;
+    });
+  }
+
   useEffect(() => {
     if (!autoScrollRef.current || !scrollRef.current) {
       return;
     }
 
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    scheduleAutoScroll();
   }, [messages, streamingContent]);
 
   useEffect(() => {
-    if (providers.length === 0) {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (textProviders.length === 0) {
       return;
     }
 
     const fallbackProvider =
-      providers.find((provider) => provider.is_default) ?? providers[0];
+      textProviders.find((provider) => provider.is_default) ?? textProviders[0];
 
     if (!selectedProviderId) {
       setSelectedProvider(fallbackProvider.id);
@@ -104,26 +145,39 @@ export function ChatView({
     }
 
     const activeProvider =
-      providers.find((provider) => provider.id === selectedProviderId) ?? null;
+      textProviders.find((provider) => provider.id === selectedProviderId) ?? null;
 
     if (!activeProvider) {
       setSelectedProvider(fallbackProvider.id);
       return;
     }
 
-    if (!selectedModel || !activeProvider.models.includes(selectedModel)) {
-      const nextModel = activeProvider.models[0] ?? null;
+    const availableModels = getProviderModelsForPurpose(
+      activeProvider,
+      providerModelRegistry,
+      "chat",
+    );
+
+    if (!selectedModel || !availableModels.includes(selectedModel)) {
+      const nextModel = availableModels[0] ?? null;
       if (nextModel) {
         setSelectedModel(nextModel);
       }
     }
   }, [
-    providers,
+    providerModelRegistry,
     selectedModel,
     selectedProviderId,
     setSelectedModel,
     setSelectedProvider,
+    textProviders,
   ]);
+
+  useEffect(() => {
+    setStreamingContent("");
+    setIsImageGenerating(false);
+    autoScrollRef.current = true;
+  }, [currentConversationId]);
 
   useEffect(() => {
     if (!currentConversationId) {
@@ -139,7 +193,7 @@ export function ChatView({
         if (!matchesConversation(event.payload)) {
           return;
         }
-        appendStreamingContent(event.payload.content);
+        setStreamingContent((current) => current + event.payload.content);
       }),
       listen<StreamDonePayload>("chat-stream-done", (event) => {
         if (!matchesConversation(event.payload)) {
@@ -155,7 +209,7 @@ export function ChatView({
           attachments: [],
           created_at: new Date().toISOString(),
         });
-        clearStreamingContent();
+        setStreamingContent("");
         autoScrollRef.current = true;
       }),
       listen<StreamErrorPayload>("chat-stream-error", (event) => {
@@ -164,7 +218,7 @@ export function ChatView({
         }
 
         setStreaming(false);
-        clearStreamingContent();
+        setStreamingContent("");
         setIsImageGenerating(false);
         console.error("Stream error:", event.payload.error);
       }),
@@ -177,8 +231,6 @@ export function ChatView({
     };
   }, [
     addMessage,
-    appendStreamingContent,
-    clearStreamingContent,
     currentConversationId,
     setStreaming,
   ]);
@@ -197,14 +249,17 @@ export function ChatView({
     const rawContent = submission.content.trim();
     const isImageRequest = submission.mode === "image" || rawContent.startsWith("/img");
     const fallbackProvider =
-      providers.find((provider) => provider.is_default) ?? providers[0];
+      textProviders.find((provider) => provider.is_default) ?? textProviders[0];
     const activeProvider =
-      providers.find((provider) => provider.id === selectedProviderId) ?? fallbackProvider;
+      textProviders.find((provider) => provider.id === selectedProviderId) ?? fallbackProvider;
     const activeProviderId = activeProvider?.id ?? null;
+    const availableTextModels = activeProvider
+      ? getProviderModelsForPurpose(activeProvider, providerModelRegistry, "chat")
+      : [];
     const activeModel =
-      activeProvider?.models.includes(selectedModel ?? "")
+      availableTextModels.includes(selectedModel ?? "")
         ? selectedModel
-        : activeProvider?.models[0] ?? null;
+        : availableTextModels[0] ?? null;
 
     if (isImageRequest && !imageEnabled) {
       const conversationId = currentConversationId ?? (await createConversation());
@@ -277,7 +332,7 @@ export function ChatView({
       created_at: new Date().toISOString(),
     });
 
-    clearStreamingContent();
+    setStreamingContent("");
     autoScrollRef.current = true;
 
     try {
@@ -296,7 +351,7 @@ export function ChatView({
           attachments: [],
         });
         setIsImageGenerating(false);
-        clearStreamingContent();
+        setStreamingContent("");
         return;
       }
 
@@ -313,7 +368,7 @@ export function ChatView({
     } catch (error) {
       setStreaming(false);
       setIsImageGenerating(false);
-      clearStreamingContent();
+      setStreamingContent("");
       const message =
         error instanceof Error
           ? error.message
@@ -340,18 +395,21 @@ export function ChatView({
     onBack?.();
   }
 
-  const currentProvider = providers.find(
+  const currentProvider = textProviders.find(
     (provider) => provider.id === selectedProviderId,
   );
   const effectiveProvider =
     currentProvider ??
-    providers.find((provider) => provider.is_default) ??
-    providers[0];
+    textProviders.find((provider) => provider.is_default) ??
+    textProviders[0];
   const effectiveProviderId = effectiveProvider?.id ?? null;
+  const effectiveProviderModels = effectiveProvider
+    ? getProviderModelsForPurpose(effectiveProvider, providerModelRegistry, "chat")
+    : [];
   const effectiveModel =
-    effectiveProvider?.models.includes(selectedModel ?? "")
+    effectiveProviderModels.includes(selectedModel ?? "")
       ? selectedModel
-      : effectiveProvider?.models[0] ?? null;
+      : effectiveProviderModels[0] ?? null;
   const currentConversation = conversations.find(
     (conversation) => conversation.id === currentConversationId,
   );
@@ -369,9 +427,14 @@ export function ChatView({
     ? [currentAssistant?.name, effectiveModel ?? effectiveProvider?.name ?? t("选择模型", "Choose a model")]
         .filter(Boolean)
         .join(" · ")
-    : providers.length > 0
+    : hasTextProviders
       ? t("一切都只保留在当前设备。", "Everything stays on this device.")
-      : t("先添加服务商，再开始使用。", "Add a provider to begin.");
+      : providers.length > 0
+        ? t(
+            "先去设置里把一个模型标记成文本用途。",
+            "Mark one model as text in Settings before you start.",
+          )
+        : t("先添加服务商，再开始使用。", "Add a provider to begin.");
 
   return (
     <div className={`pt-chat pt-chat--${layout}`}>
@@ -387,10 +450,11 @@ export function ChatView({
         <DesktopChatHeader
           title={title}
           subtitle={subtitle}
-          providers={providers}
+          providers={textProviders}
           currentProvider={effectiveProvider}
           selectedProviderId={effectiveProviderId}
           selectedModel={effectiveModel}
+          providerModelRegistry={providerModelRegistry}
           onProviderChange={setSelectedProvider}
           onModelChange={setSelectedModel}
         />
@@ -399,10 +463,11 @@ export function ChatView({
       {isPhone && hasConversation ? (
         <ProviderSelectBar
           layout={layout}
-          providers={providers}
+          providers={textProviders}
           currentProvider={effectiveProvider}
           selectedProviderId={effectiveProviderId}
           selectedModel={effectiveModel}
+          providerModelRegistry={providerModelRegistry}
           onProviderChange={setSelectedProvider}
           onModelChange={setSelectedModel}
         />
@@ -438,7 +503,7 @@ export function ChatView({
                 <MessageItem
                   role="assistant"
                   content={streamingContent}
-                  attachments={[]}
+                  attachments={EMPTY_ATTACHMENTS}
                   isStreaming
                 />
               ) : null}
@@ -450,10 +515,12 @@ export function ChatView({
               assistants={assistants}
               currentAssistant={currentAssistant}
               currentAssistantId={currentAssistantId}
-              hasProviders={providers.length > 0}
+              hasTextProviders={hasTextProviders}
               onSelectAssistant={selectAssistant}
               onCreateConversation={onRequestNewConversation}
-              onOpenSettings={onOpenSettings}
+              onOpenSettings={
+                hasTextProviders ? onOpenSettings : () => openSettings("models")
+              }
             />
           )}
         </div>
@@ -465,7 +532,7 @@ export function ChatView({
         onStop={api.stopGeneration}
         isBusy={isImageGenerating}
         showStop={isStreaming}
-        canSendOverride={providers.length > 0 && !!effectiveProviderId && !!effectiveModel}
+        canSendOverride={!!effectiveProviderId && !!effectiveModel}
         imageEnabled={imageEnabled}
       />
     </div>
@@ -479,6 +546,7 @@ function DesktopChatHeader({
   currentProvider,
   selectedProviderId,
   selectedModel,
+  providerModelRegistry,
   onProviderChange,
   onModelChange,
 }: {
@@ -488,6 +556,7 @@ function DesktopChatHeader({
   currentProvider: Provider | undefined;
   selectedProviderId: string | null;
   selectedModel: string | null;
+  providerModelRegistry: ProviderModelRegistry;
   onProviderChange: (id: string) => void;
   onModelChange: (model: string) => void;
 }) {
@@ -513,6 +582,7 @@ function DesktopChatHeader({
           currentProvider={currentProvider}
           selectedProviderId={selectedProviderId}
           selectedModel={selectedModel}
+          providerModelRegistry={providerModelRegistry}
           onProviderChange={onProviderChange}
           onModelChange={onModelChange}
         />
@@ -573,6 +643,7 @@ function ProviderSelectBar({
   currentProvider,
   selectedProviderId,
   selectedModel,
+  providerModelRegistry,
   onProviderChange,
   onModelChange,
 }: {
@@ -581,6 +652,7 @@ function ProviderSelectBar({
   currentProvider: Provider | undefined;
   selectedProviderId: string | null;
   selectedModel: string | null;
+  providerModelRegistry: ProviderModelRegistry;
   onProviderChange: (id: string) => void;
   onModelChange: (model: string) => void;
 }) {
@@ -591,6 +663,7 @@ function ProviderSelectBar({
         currentProvider={currentProvider}
         selectedProviderId={selectedProviderId}
         selectedModel={selectedModel}
+        providerModelRegistry={providerModelRegistry}
         onProviderChange={onProviderChange}
         onModelChange={onModelChange}
         compact
@@ -604,6 +677,7 @@ function ProviderControls({
   currentProvider,
   selectedProviderId,
   selectedModel,
+  providerModelRegistry,
   onProviderChange,
   onModelChange,
   compact = false,
@@ -612,13 +686,14 @@ function ProviderControls({
   currentProvider: Provider | undefined;
   selectedProviderId: string | null;
   selectedModel: string | null;
+  providerModelRegistry: ProviderModelRegistry;
   onProviderChange: (id: string) => void;
   onModelChange: (model: string) => void;
   compact?: boolean;
 }) {
   const { t } = useI18n();
   if (providers.length === 0) {
-    return <span className="pt-status-pill">{t("没有服务商", "No provider")}</span>;
+    return <span className="pt-status-pill">{t("没有文本模型", "No text model")}</span>;
   }
 
   return (
@@ -643,7 +718,11 @@ function ProviderControls({
           className="pt-select"
           aria-label={t("模型", "Model")}
         >
-          {currentProvider.models.map((model) => (
+          {getProviderModelsForPurpose(
+            currentProvider,
+            providerModelRegistry,
+            "chat",
+          ).map((model) => (
             <option key={model} value={model}>
               {model}
             </option>
@@ -658,7 +737,7 @@ function WelcomePanel({
   assistants,
   currentAssistant,
   currentAssistantId,
-  hasProviders,
+  hasTextProviders,
   onSelectAssistant,
   onCreateConversation,
   onOpenSettings,
@@ -666,7 +745,7 @@ function WelcomePanel({
   assistants: Assistant[];
   currentAssistant: Assistant | null;
   currentAssistantId: string | null;
-  hasProviders: boolean;
+  hasTextProviders: boolean;
   onSelectAssistant: (id: string | null) => void | Promise<void>;
   onCreateConversation: () => void;
   onOpenSettings: () => void;
@@ -675,26 +754,26 @@ function WelcomePanel({
   return (
     <section className="pt-welcome">
       <div className="pt-welcome__icon">
-        {hasProviders ? <MessageSquarePlus size={28} /> : <Sparkles size={28} />}
+        {hasTextProviders ? <MessageSquarePlus size={28} /> : <Sparkles size={28} />}
       </div>
       <h2 className="pt-welcome__title">
-        {hasProviders
+        {hasTextProviders
           ? t("开始一段私密对话", "Start a private conversation")
-          : t("添加一个模型服务商", "Add a model provider")}
+          : t("配置一个文本模型", "Configure a text model")}
       </h2>
       <p className="pt-welcome__copy">
-        {hasProviders
+        {hasTextProviders
           ? t(
               "创建一个线程，你的下一条消息会成为这段对话的第一轮。",
               "Create a thread and your next message becomes the first turn.",
             )
           : t(
-              "Private Talk 会把对话保留在本地，但在发送消息前仍然需要你信任的模型端点。",
-              "Private Talk keeps conversations local, but it still needs an endpoint you trust before it can send messages.",
+              "先到“模型与服务商”里添加服务商，并把至少一个模型标记为文本用途，聊天页才会出现可用路由。",
+              "Go to Models & Providers, add a provider, and mark at least one model as text before chat routing becomes available.",
             )}
       </p>
       <div className="pt-welcome__actions">
-        {hasProviders ? (
+        {hasTextProviders ? (
           <>
             <AssistantSelector
               assistants={assistants}

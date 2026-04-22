@@ -15,16 +15,28 @@ import {
   type ResolvedUiLanguage,
   type UiLanguage,
 } from "../lib/uiLanguage";
+import {
+  getProviderModelsForPurpose,
+  parseProviderModelRegistry,
+} from "../lib/providerModels";
 import * as api from "../lib/tauri";
 import type {
   Assistant,
   Conversation,
   ImageGenConfig,
   Message,
+  ProviderModelRegistry,
   Provider,
 } from "../lib/types";
 
 type View = "chat" | "settings";
+type SettingsTargetGroupId =
+  | "general"
+  | "assistants"
+  | "models"
+  | "media"
+  | "data"
+  | "about";
 
 const CHAT_PROVIDER_SETTING_KEY = "chat_provider_id";
 const CHAT_MODEL_SETTING_KEY = "chat_model";
@@ -37,6 +49,7 @@ const STT_MODEL_SETTING_KEY = "stt_model";
 const TTS_PROVIDER_SETTING_KEY = "tts_provider_id";
 const TTS_MODEL_SETTING_KEY = "tts_model";
 const TTS_VOICE_SETTING_KEY = "tts_voice";
+const PROVIDER_MODEL_REGISTRY_SETTING_KEY = "provider_model_registry";
 const DEFAULT_CONTEXT_MAX_MESSAGES = 50;
 const DEFAULT_STT_MODEL = "whisper-1";
 const DEFAULT_TTS_MODEL = "tts-1";
@@ -106,10 +119,14 @@ interface AppState {
   // UI
   view: View;
   setView: (view: View) => void;
+  settingsTargetGroupId: SettingsTargetGroupId | null;
+  openSettings: (groupId?: SettingsTargetGroupId | null) => void;
+  clearSettingsTargetGroup: () => void;
   uiLanguage: UiLanguage;
   resolvedLanguage: ResolvedUiLanguage;
   loadUiPreferences: () => Promise<void>;
   setUiLanguage: (language: UiLanguage) => Promise<void>;
+  refreshResolvedLanguage: () => void;
   appearanceMode: AppearanceMode;
   systemTheme: ResolvedAppearanceTheme;
   resolvedTheme: ResolvedAppearanceTheme;
@@ -137,16 +154,14 @@ interface AppState {
   messages: Message[];
   loadMessages: (conversationId: string) => Promise<void>;
   addMessage: (msg: Message) => void;
-  clearStreamingContent: () => void;
 
   // Streaming
   isStreaming: boolean;
-  streamingContent: string;
   setStreaming: (streaming: boolean) => void;
-  appendStreamingContent: (chunk: string) => void;
 
   // Providers
   providers: Provider[];
+  providerModelRegistry: ProviderModelRegistry;
   selectedProviderId: string | null;
   selectedModel: string | null;
   contextMaxMessages: number;
@@ -181,6 +196,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   // UI
   view: "chat",
   setView: (view) => set({ view }),
+  settingsTargetGroupId: null,
+  openSettings: (groupId) =>
+    set({
+      view: "settings",
+      settingsTargetGroupId: groupId ?? null,
+    }),
+  clearSettingsTargetGroup: () => set({ settingsTargetGroupId: null }),
   uiLanguage: "auto",
   resolvedLanguage: resolveUiLanguage("auto"),
   appearanceMode: DEFAULT_APPEARANCE_MODE,
@@ -203,6 +225,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       resolvedLanguage: resolveUiLanguage(nextLanguage),
     });
     await api.setSetting(UI_LANGUAGE_SETTING_KEY, nextLanguage);
+  },
+  refreshResolvedLanguage: () => {
+    set((state) => ({
+      resolvedLanguage: resolveUiLanguage(state.uiLanguage),
+    }));
   },
   loadAppearancePreferences: async () => {
     const [storedAppearanceMode, storedZoomFactor] = await Promise.all([
@@ -305,7 +332,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: [],
       view: "chat",
       isStreaming: false,
-      streamingContent: "",
     });
   },
   selectConversation: async (id) => {
@@ -322,7 +348,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: [],
       view: "chat",
       isStreaming: false,
-      streamingContent: "",
     });
   },
   createConversation: async (assistantId) => {
@@ -359,17 +384,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: [...state.messages, msg],
       conversations: updateConversationPreview(state.conversations, msg),
     })),
-  clearStreamingContent: () => set({ streamingContent: "" }),
 
   // Streaming
   isStreaming: false,
-  streamingContent: "",
   setStreaming: (streaming) => set({ isStreaming: streaming }),
-  appendStreamingContent: (chunk) =>
-    set((s) => ({ streamingContent: s.streamingContent + chunk })),
 
   // Providers
   providers: [],
+  providerModelRegistry: {},
   selectedProviderId: null,
   selectedModel: null,
   contextMaxMessages: DEFAULT_CONTEXT_MAX_MESSAGES,
@@ -380,21 +402,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   ttsVoice: DEFAULT_TTS_VOICE,
   imageGenConfig: DEFAULT_IMAGE_GEN_CONFIG,
   loadProviders: async () => {
-    const [providers, storedProviderId, storedModel] = await Promise.all([
+    const [providers, storedProviderId, storedModel, rawRegistry] = await Promise.all([
       api.listProviders(),
       api.getSetting(CHAT_PROVIDER_SETTING_KEY),
       api.getSetting(CHAT_MODEL_SETTING_KEY),
+      api.getSetting(PROVIDER_MODEL_REGISTRY_SETTING_KEY),
     ]);
+    const providerModelRegistry = parseProviderModelRegistry(rawRegistry);
+    const chatProviders = providers.filter(
+      (provider) =>
+        getProviderModelsForPurpose(provider, providerModelRegistry, "chat").length > 0,
+    );
     const active =
-      providers.find((provider) => provider.id === storedProviderId) ??
-      providers.find((provider) => provider.is_default) ??
-      providers[0];
-    const nextModel = active?.models.includes(storedModel ?? "")
+      chatProviders.find((provider) => provider.id === storedProviderId) ??
+      chatProviders.find((provider) => provider.is_default) ??
+      chatProviders[0] ??
+      null;
+    const availableChatModels = active
+      ? getProviderModelsForPurpose(active, providerModelRegistry, "chat")
+      : [];
+    const nextModel = availableChatModels.includes(storedModel ?? "")
       ? storedModel
-      : active?.models[0] ?? null;
+      : availableChatModels[0] ?? null;
 
     set({
       providers,
+      providerModelRegistry,
       selectedProviderId: active?.id ?? null,
       selectedModel: nextModel,
     });
@@ -440,7 +473,37 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   loadImageGenConfig: async () => {
     const config = await api.getImageGenConfig();
-    set({ imageGenConfig: config });
+    const { providers, providerModelRegistry } = get();
+    const provider =
+      providers.find((item) => item.id === config.provider_id) ?? null;
+    const availableModels = provider
+      ? getProviderModelsForPurpose(provider, providerModelRegistry, "image")
+      : [];
+
+    const nextConfig =
+      !provider
+        ? {
+            ...config,
+            enabled: false,
+            provider_id: "",
+            model: "",
+          }
+        : availableModels.length > 0
+        ? {
+            ...config,
+            provider_id: provider.id,
+            model:
+              availableModels.includes(config.model) ? config.model : availableModels[0] ?? "",
+          }
+        : config;
+
+    set({ imageGenConfig: nextConfig });
+
+    if (JSON.stringify(config) !== JSON.stringify(nextConfig)) {
+      void api.setImageGenConfig(nextConfig).catch((error) => {
+        console.warn("Failed to persist image generation config:", error);
+      });
+    }
   },
   setImageGenConfig: async (config) => {
     set({ imageGenConfig: config });
@@ -455,13 +518,68 @@ export const useAppStore = create<AppState>((set, get) => ({
       api.getSetting(TTS_MODEL_SETTING_KEY),
       api.getSetting(TTS_VOICE_SETTING_KEY),
     ]);
+    const { providers, providerModelRegistry } = get();
+    const sttProvider =
+      providers.find((provider) => provider.id === storedProviderId) ?? null;
+    const ttsProvider =
+      providers.find((provider) => provider.id === storedTtsProviderId) ?? null;
+    const availableSttModels = sttProvider
+      ? getProviderModelsForPurpose(sttProvider, providerModelRegistry, "stt")
+      : [];
+    const availableTtsModels = ttsProvider
+      ? getProviderModelsForPurpose(ttsProvider, providerModelRegistry, "tts")
+      : [];
+    const nextSttProviderId = sttProvider?.id ?? null;
+    const nextTtsProviderId = ttsProvider?.id ?? null;
+    const nextSttModel = nextSttProviderId
+      ? availableSttModels.length > 0
+        ? availableSttModels.includes(storedModel ?? "")
+          ? storedModel?.trim() || DEFAULT_STT_MODEL
+          : availableSttModels[0] ?? DEFAULT_STT_MODEL
+        : storedModel?.trim() || DEFAULT_STT_MODEL
+      : storedModel?.trim() || DEFAULT_STT_MODEL;
+    const nextTtsModel = nextTtsProviderId
+      ? availableTtsModels.length > 0
+        ? availableTtsModels.includes(storedTtsModel ?? "")
+          ? storedTtsModel?.trim() || DEFAULT_TTS_MODEL
+          : availableTtsModels[0] ?? DEFAULT_TTS_MODEL
+        : storedTtsModel?.trim() || DEFAULT_TTS_MODEL
+      : storedTtsModel?.trim() || DEFAULT_TTS_MODEL;
+    const nextTtsVoice = storedTtsVoice?.trim() || DEFAULT_TTS_VOICE;
+
     set({
-      sttProviderId: storedProviderId?.trim() ? storedProviderId : null,
-      sttModel: storedModel?.trim() || DEFAULT_STT_MODEL,
-      ttsProviderId: storedTtsProviderId?.trim() ? storedTtsProviderId : null,
-      ttsModel: storedTtsModel?.trim() || DEFAULT_TTS_MODEL,
-      ttsVoice: storedTtsVoice?.trim() || DEFAULT_TTS_VOICE,
+      sttProviderId: nextSttProviderId,
+      sttModel: nextSttModel,
+      ttsProviderId: nextTtsProviderId,
+      ttsModel: nextTtsModel,
+      ttsVoice: nextTtsVoice,
     });
+
+    if ((storedProviderId?.trim() || null) !== nextSttProviderId) {
+      void api.setSetting(STT_PROVIDER_SETTING_KEY, nextSttProviderId ?? "").catch((error) => {
+        console.warn("Failed to persist STT provider:", error);
+      });
+    }
+    if ((storedModel?.trim() || DEFAULT_STT_MODEL) !== nextSttModel) {
+      void api.setSetting(STT_MODEL_SETTING_KEY, nextSttModel).catch((error) => {
+        console.warn("Failed to persist STT model:", error);
+      });
+    }
+    if ((storedTtsProviderId?.trim() || null) !== nextTtsProviderId) {
+      void api.setSetting(TTS_PROVIDER_SETTING_KEY, nextTtsProviderId ?? "").catch((error) => {
+        console.warn("Failed to persist TTS provider:", error);
+      });
+    }
+    if ((storedTtsModel?.trim() || DEFAULT_TTS_MODEL) !== nextTtsModel) {
+      void api.setSetting(TTS_MODEL_SETTING_KEY, nextTtsModel).catch((error) => {
+        console.warn("Failed to persist TTS model:", error);
+      });
+    }
+    if ((storedTtsVoice?.trim() || DEFAULT_TTS_VOICE) !== nextTtsVoice) {
+      void api.setSetting(TTS_VOICE_SETTING_KEY, nextTtsVoice).catch((error) => {
+        console.warn("Failed to persist TTS voice:", error);
+      });
+    }
   },
   setSttProviderId: async (id) => {
     set({ sttProviderId: id });
@@ -487,8 +605,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await api.setSetting(TTS_VOICE_SETTING_KEY, nextVoice);
   },
   setSelectedProvider: (id) => {
-    const provider = get().providers.find((p) => p.id === id);
-    const nextModel = provider?.models[0] ?? null;
+    const { providers, providerModelRegistry } = get();
+    const provider = providers.find((p) => p.id === id);
+    const nextModel = provider
+      ? getProviderModelsForPurpose(provider, providerModelRegistry, "chat")[0] ?? null
+      : null;
 
     set({
       selectedProviderId: id,

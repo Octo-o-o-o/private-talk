@@ -208,7 +208,6 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
     currentConversationId,
     messages: screen === "chat" ? PREVIEW_MESSAGES : [],
     isStreaming: false,
-    streamingContent: "",
     providers,
     selectedProviderId: providers[0]?.id ?? null,
     selectedModel: providers[0]?.models[0] ?? null,

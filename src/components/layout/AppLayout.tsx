@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getProvidersForPurpose } from "../../lib/providerModels";
 import { useAppStore } from "../../stores/appStore";
 import { ChatView } from "../chat/ChatView";
 import { NewConversationPicker } from "./NewConversationPicker";
@@ -11,14 +12,28 @@ export function AppLayout() {
   const layout = useLayoutMode();
   const view = useAppStore((s) => s.view);
   const currentConversationId = useAppStore((s) => s.currentConversationId);
+  const providers = useAppStore((s) => s.providers);
+  const providerModelRegistry = useAppStore((s) => s.providerModelRegistry);
   const clearConversationSelection = useAppStore(
     (s) => s.clearConversationSelection,
   );
   const setView = useAppStore((s) => s.setView);
+  const openSettings = useAppStore((s) => s.openSettings);
 
   const isPhone = layout === "phone";
   const showDetail = isPhone && (view === "settings" || !!currentConversationId);
   const showSettings = view === "settings";
+  const hasTextProviders =
+    getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
+
+  function handleRequestNewConversation(): void {
+    if (!hasTextProviders) {
+      openSettings("models");
+      return;
+    }
+
+    setNewConversationPickerOpen(true);
+  }
 
   return (
     <div
@@ -29,7 +44,7 @@ export function AppLayout() {
         <div className="app-panel app-panel--sidebar">
           <Sidebar
             layout={layout}
-            onRequestNewConversation={() => setNewConversationPickerOpen(true)}
+            onRequestNewConversation={handleRequestNewConversation}
           />
         </div>
       </aside>
@@ -44,8 +59,8 @@ export function AppLayout() {
               <ChatView
                 layout={layout}
                 onBack={clearConversationSelection}
-                onOpenSettings={() => setView("settings")}
-                onRequestNewConversation={() => setNewConversationPickerOpen(true)}
+                onOpenSettings={() => openSettings()}
+                onRequestNewConversation={handleRequestNewConversation}
               />
             </section>
 

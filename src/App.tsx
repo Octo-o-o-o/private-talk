@@ -45,6 +45,7 @@ function App() {
       loadChatSettings,
       loadImageGenConfig,
       loadSpeechSettings,
+      refreshResolvedLanguage,
       setSystemTheme,
     } =
       useAppStore.getState();
@@ -74,6 +75,7 @@ function App() {
         await loadProviders();
         await loadImageGenConfig();
         await loadSpeechSettings();
+        refreshResolvedLanguage();
       } catch (error) {
         console.warn("App bootstrap unavailable outside Tauri:", error);
       }
@@ -135,6 +137,22 @@ function App() {
     return () => {
       cancelled = true;
       cleanup();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleLanguageChange = () => {
+      useAppStore.getState().refreshResolvedLanguage();
+    };
+
+    window.addEventListener("languagechange", handleLanguageChange);
+
+    return () => {
+      window.removeEventListener("languagechange", handleLanguageChange);
     };
   }, []);
 

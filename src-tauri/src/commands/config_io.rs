@@ -30,6 +30,7 @@ const EXPORTABLE_SETTINGS: &[&str] = &[
     "tts_model",
     "tts_voice",
     "image_gen_config",
+    "provider_model_registry",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -228,7 +229,8 @@ fn has_any_config(conn: &rusqlite::Connection) -> Result<bool, String> {
             "SELECT COUNT(*) FROM settings WHERE key IN (
                 'ui_language', 'assistant_preset', 'assistant_language', 'assistant_custom_prompt',
                 'chat_provider_id', 'chat_model', 'context_max_messages', 'stt_provider_id',
-                'stt_model', 'tts_provider_id', 'tts_model', 'tts_voice', 'image_gen_config'
+                'stt_model', 'tts_provider_id', 'tts_model', 'tts_voice', 'image_gen_config',
+                'provider_model_registry'
             )",
             [],
             |row| row.get(0),

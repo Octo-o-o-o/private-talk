@@ -15,6 +15,19 @@ export const ZOOM_STEP = 0.1;
 const LIGHT_NATIVE_BACKGROUND = "#fcfaf5";
 const DARK_NATIVE_BACKGROUND = "#050506";
 
+function readBrowserThemePreference(): ResolvedAppearanceTheme | null {
+  if (
+    typeof window === "undefined" ||
+    typeof window.matchMedia !== "function"
+  ) {
+    return null;
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
 export function normalizeAppearanceMode(
   value: string | null | undefined,
 ): AppearanceMode {
@@ -126,19 +139,17 @@ export function applyDocumentAppearance(
 
 export async function readWindowTheme(): Promise<ResolvedAppearanceTheme> {
   if (isTauri()) {
-    const theme = await getCurrentWindow().theme();
-    return theme === "light" ? "light" : "dark";
+    try {
+      const theme = await getCurrentWindow().theme();
+      if (theme === "light" || theme === "dark") {
+        return theme;
+      }
+    } catch (error) {
+      console.warn("Failed to read native window theme:", error);
+    }
   }
 
-  if (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-
-  return "light";
+  return readBrowserThemePreference() ?? "light";
 }
 
 export async function applyNativeAppearance(
@@ -175,53 +186,63 @@ export async function applyZoomFactor(zoomFactor: number): Promise<void> {
 export function listenToWindowThemeChanges(
   handler: (theme: ResolvedAppearanceTheme) => void,
 ): () => void {
-  if (isTauri()) {
-    let off: Unlisten | null = null;
+  let offNative: Unlisten | null = null;
+  let offBrowser: Unlisten | null = null;
+  let lastTheme: ResolvedAppearanceTheme | null = null;
 
+  const emit = (theme: ResolvedAppearanceTheme) => {
+    if (theme === lastTheme) {
+      return;
+    }
+
+    lastTheme = theme;
+    handler(theme);
+  };
+
+  if (isTauri()) {
     void getCurrentWindow()
       .onThemeChanged(({ payload }) => {
-        handler(payload === "light" ? "light" : "dark");
+        emit(payload === "light" ? "light" : "dark");
       })
       .then((unlisten) => {
-        off = unlisten;
+        offNative = unlisten;
       })
       .catch((error) => {
         console.warn("Failed to subscribe to theme changes:", error);
       });
-
-    return () => {
-      off?.();
-    };
   }
 
   if (
-    typeof window === "undefined" ||
-    typeof window.matchMedia !== "function"
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
   ) {
-    return () => {};
-  }
+    const mediaQuery = window.matchMedia(
+      "(prefers-color-scheme: dark)",
+    ) as MediaQueryList & {
+      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
+    };
+    const listener = (event: MediaQueryListEvent) => {
+      emit(event.matches ? "dark" : "light");
+    };
 
-  const mediaQuery = window.matchMedia(
-    "(prefers-color-scheme: dark)",
-  ) as MediaQueryList & {
-    addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-    removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-  };
-  const listener = (event: MediaQueryListEvent) => {
-    handler(event.matches ? "dark" : "light");
-  };
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", listener);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(listener);
+    }
 
-  if (typeof mediaQuery.addEventListener === "function") {
-    mediaQuery.addEventListener("change", listener);
-  } else if (typeof mediaQuery.addListener === "function") {
-    mediaQuery.addListener(listener);
+    offBrowser = () => {
+      if (typeof mediaQuery.removeEventListener === "function") {
+        mediaQuery.removeEventListener("change", listener);
+      } else if (typeof mediaQuery.removeListener === "function") {
+        mediaQuery.removeListener(listener);
+      }
+    };
   }
 
   return () => {
-    if (typeof mediaQuery.removeEventListener === "function") {
-      mediaQuery.removeEventListener("change", listener);
-    } else if (typeof mediaQuery.removeListener === "function") {
-      mediaQuery.removeListener(listener);
-    }
+    offNative?.();
+    offBrowser?.();
   };
 }

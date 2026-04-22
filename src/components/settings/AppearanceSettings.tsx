@@ -1,5 +1,4 @@
-import { ChevronDown, Minus, Plus } from "lucide-react";
-import { useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import {
   formatZoomLabel,
   MAX_ZOOM_FACTOR,
@@ -9,7 +8,7 @@ import {
 } from "../../lib/appearance";
 import { useI18n } from "../../lib/i18n";
 import { useAppStore } from "../../stores/appStore";
-import { buttonStyles, Field } from "./formControls";
+import { buttonStyles, SelectSettingRow } from "./formControls";
 import { SettingsSection } from "./SettingsPage";
 
 const APPEARANCE_OPTIONS: Array<{
@@ -37,21 +36,26 @@ function appearanceLabel(
 export function AppearanceSettingsSection() {
   const { t, locale } = useI18n();
   const appearanceMode = useAppStore((state) => state.appearanceMode);
+  const resolvedTheme = useAppStore((state) => state.resolvedTheme);
   const setAppearanceMode = useAppStore((state) => state.setAppearanceMode);
   const zoomFactor = useAppStore((state) => state.zoomFactor);
   const setZoomFactor = useAppStore((state) => state.setZoomFactor);
-  const [expanded, setExpanded] = useState(false);
-  const [draftMode, setDraftMode] = useState<AppearanceMode>(appearanceMode);
-
-  function restoreSaved(): void {
-    setDraftMode(appearanceMode);
-  }
-
-  async function handleSave(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
-    await setAppearanceMode(draftMode);
-    setExpanded(false);
-  }
+  const valueLabel = appearanceLabel(appearanceMode, locale);
+  const resolvedThemeLabel = appearanceLabel(resolvedTheme, locale);
+  const detail =
+    appearanceMode === "system"
+      ? t(
+          `当前为 ${resolvedThemeLabel}，会跟随系统外观切换。`,
+          `Currently ${resolvedThemeLabel} and following the system appearance.`,
+        )
+      : t(
+          `当前固定为 ${resolvedThemeLabel}。`,
+          `Currently pinned to ${resolvedThemeLabel}.`,
+        );
+  const options = APPEARANCE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: locale === "zh-CN" ? option.labelZh : option.labelEn,
+  }));
 
   const currentZoomLabel = formatZoomLabel(zoomFactor);
   const canZoomOut = zoomFactor > MIN_ZOOM_FACTOR;
@@ -65,69 +69,19 @@ export function AppearanceSettingsSection() {
         "Supports system appearance and Command/Ctrl +, -, 0 for interface zoom.",
       )}
     >
-      <button
-        type="button"
-        className="pt-settings-row pt-settings-row--interactive"
-        onClick={() => {
-          setExpanded((value) => {
-            if (value) {
-              restoreSaved();
-            }
-            return !value;
+      <SelectSettingRow
+        title={t("界面外观", "Interface Appearance")}
+        detail={detail}
+        label={t("选择界面外观", "Choose interface appearance")}
+        value={appearanceMode}
+        valueLabel={valueLabel}
+        options={options}
+        onChange={(value) => {
+          void setAppearanceMode(value).catch((error) => {
+            console.warn("Failed to update appearance mode:", error);
           });
         }}
-      >
-        <div className="pt-settings-row__copy">
-          <div className="pt-settings-row__title-line">
-            <p className="pt-settings-row__title">
-              {t("界面外观", "Interface Appearance")}
-            </p>
-            <ChevronDown
-              size={16}
-              className={`pt-row-chevron${expanded ? " is-open" : ""}`}
-            />
-          </div>
-          <p className="pt-settings-row__detail">
-            {appearanceLabel(appearanceMode, locale)}
-          </p>
-        </div>
-      </button>
-
-      {expanded ? (
-        <form className="pt-settings-expand pt-settings-form" onSubmit={handleSave}>
-          <Field label={t("外观模式", "Appearance Mode")}>
-            <select
-              className="pt-select"
-              value={draftMode}
-              onChange={(event) =>
-                setDraftMode(event.target.value as AppearanceMode)
-              }
-            >
-              {APPEARANCE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {locale === "zh-CN" ? option.labelZh : option.labelEn}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <div className="pt-settings-form__actions">
-            <button
-              type="button"
-              className={buttonStyles.secondary}
-              onClick={() => {
-                restoreSaved();
-                setExpanded(false);
-              }}
-            >
-              {t("取消", "Cancel")}
-            </button>
-            <button type="submit" className={buttonStyles.primary}>
-              {t("保存更改", "Save Changes")}
-            </button>
-          </div>
-        </form>
-      ) : null}
+      />
 
       <div className="pt-settings-row">
         <div className="pt-settings-row__copy">

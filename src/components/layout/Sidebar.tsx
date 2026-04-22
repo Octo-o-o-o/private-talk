@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { getProvidersForPurpose } from "../../lib/providerModels";
 import type { Conversation } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "./useLayoutMode";
@@ -72,10 +73,13 @@ export function Sidebar({
   const { t } = useI18n();
   const conversations = useAppStore((s) => s.conversations);
   const providers = useAppStore((s) => s.providers);
+  const providerModelRegistry = useAppStore((s) => s.providerModelRegistry);
   const view = useAppStore((s) => s.view);
-  const setView = useAppStore((s) => s.setView);
+  const openSettings = useAppStore((s) => s.openSettings);
   const isPhone = layout === "phone";
-  const showProviderNotice = providers.length === 0;
+  const hasTextProviders =
+    getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
+  const showProviderNotice = !hasTextProviders;
   const desktopDragProps = !isPhone ? { "data-tauri-drag-region": true } : {};
 
   return (
@@ -97,7 +101,7 @@ export function Sidebar({
           <button
             type="button"
             className={`pt-icon-button${view === "settings" ? " is-active" : ""}`}
-            onClick={() => setView("settings")}
+            onClick={() => openSettings()}
             aria-label={t("打开设置", "Open settings")}
           >
             <Settings size={18} />
@@ -115,13 +119,20 @@ export function Sidebar({
             </div>
             <div>
               <p className="pt-sidebar__notice-title">
-                {t("添加模型服务商", "Add a model provider")}
+                {providers.length === 0
+                  ? t("添加模型服务商", "Add a model provider")
+                  : t("标记一个文本模型", "Mark a text model")}
               </p>
               <p className="pt-sidebar__notice-copy">
-                {t(
-                  "先在设置中配置一个 OpenAI 兼容端点，再开始发送第一条消息。",
-                  "Configure an OpenAI-compatible endpoint in Settings before you send your first message.",
-                )}
+                {providers.length === 0
+                  ? t(
+                      "先在设置中配置一个 OpenAI 兼容端点，再开始发送第一条消息。",
+                      "Configure an OpenAI-compatible endpoint in Settings before you send your first message.",
+                    )
+                  : t(
+                      "已有服务商，但还没有可用于聊天的文本模型。去“模型与服务商”里给一个模型标记“文本”用途。",
+                      "A provider already exists, but there is no text model for chat yet. Go to Models & Providers and mark one model as text.",
+                    )}
               </p>
             </div>
           </section>
@@ -153,7 +164,7 @@ export function Sidebar({
           <button
             type="button"
             className={`pt-nav-button${view === "settings" ? " is-active" : ""}`}
-            onClick={() => setView("settings")}
+            onClick={() => openSettings()}
             aria-label={t("打开设置", "Open settings")}
           >
             <Settings size={16} />
@@ -167,14 +178,14 @@ export function Sidebar({
 
 function ConversationList() {
   const { t, locale } = useI18n();
-  const {
-    conversations,
-    currentConversationId,
-    selectConversation,
-    deleteConversation,
-    renameConversation,
-    view,
-  } = useAppStore();
+  const conversations = useAppStore((state) => state.conversations);
+  const currentConversationId = useAppStore(
+    (state) => state.currentConversationId,
+  );
+  const selectConversation = useAppStore((state) => state.selectConversation);
+  const deleteConversation = useAppStore((state) => state.deleteConversation);
+  const renameConversation = useAppStore((state) => state.renameConversation);
+  const view = useAppStore((state) => state.view);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
 

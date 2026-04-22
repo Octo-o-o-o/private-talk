@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Private Talk</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1.0.0.1</string>
+	<string>0.1.0</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -33,17 +35,6 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Private Talk needs microphone access for voice input and voice messages.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Private Talk needs Speech Recognition access to transcribe voice input with macOS native speech recognition.</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -51,5 +42,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Private Talk needs microphone access for voice input and voice messages.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Private Talk needs Speech Recognition access to transcribe voice input with macOS native speech recognition.</string>
 </dict>
 </plist>

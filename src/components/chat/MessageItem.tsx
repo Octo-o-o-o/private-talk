@@ -1,7 +1,7 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { File, FileImage, FileText, Loader2, Square, Volume2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -21,7 +21,7 @@ interface MessageItemProps {
   isStreaming?: boolean;
 }
 
-export function MessageItem({
+export const MessageItem = memo(function MessageItem({
   role,
   content,
   attachments = [],
@@ -45,7 +45,9 @@ export function MessageItem({
       isStreaming={isStreaming}
     />
   );
-}
+});
+
+MessageItem.displayName = "MessageItem";
 
 function AssistantMessage({
   content,

@@ -35,8 +35,11 @@ export function PinSettings() {
 
 export function PinSettingsSection() {
   const { t } = useI18n();
-  const { pinEnabled, checkPinStatus, loadConversations, loadProviders, loadAssistants } =
-    useAppStore();
+  const pinEnabled = useAppStore((state) => state.pinEnabled);
+  const checkPinStatus = useAppStore((state) => state.checkPinStatus);
+  const loadConversations = useAppStore((state) => state.loadConversations);
+  const loadProviders = useAppStore((state) => state.loadProviders);
+  const loadAssistants = useAppStore((state) => state.loadAssistants);
   const [expanded, setExpanded] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [pin, setPin] = useState("");

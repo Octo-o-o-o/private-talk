@@ -7,6 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager, State};
 
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
@@ -16,6 +17,8 @@ const EVENT_DONE: &str = "chat-stream-done";
 const EVENT_ERROR: &str = "chat-stream-error";
 const DEFAULT_ATTACHMENT_PROMPT: &str =
     "Please review the attached files and summarize the key information.";
+const STREAM_CHUNK_EMIT_INTERVAL: Duration = Duration::from_millis(40);
+const STREAM_CHUNK_EMIT_MIN_BYTES: usize = 128;
 
 #[derive(Clone, Serialize)]
 struct StreamChunkPayload {
@@ -104,27 +107,6 @@ fn context_message_limit(setting: Option<String>) -> usize {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(50)
-}
-
-fn trim_history_for_context(history: Vec<ChatMessage>, max_messages: usize) -> Vec<ChatMessage> {
-    let mut system_messages = Vec::new();
-    let mut non_system_messages = Vec::new();
-
-    for message in history {
-        if message.role == "system" {
-            system_messages.push(message);
-        } else {
-            non_system_messages.push(message);
-        }
-    }
-
-    let retained = if non_system_messages.len() > max_messages {
-        non_system_messages.split_off(non_system_messages.len() - max_messages)
-    } else {
-        non_system_messages
-    };
-
-    system_messages.into_iter().chain(retained).collect()
 }
 
 fn assistant_preset_instruction(preset: &str) -> &'static str {
@@ -289,11 +271,20 @@ fn load_history(
     conn: &Connection,
     conversation_id: &str,
     model: &str,
+    max_messages: usize,
 ) -> Result<Vec<ChatMessage>, String> {
     let messages = collect_rows(
         conn,
-        "SELECT id, role, content FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
-        params![conversation_id],
+        "SELECT id, role, content
+         FROM (
+            SELECT rowid AS sort_rowid, id, role, content, created_at
+            FROM messages
+            WHERE conversation_id = ?1
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?2
+         )
+         ORDER BY created_at ASC, sort_rowid ASC",
+        params![conversation_id, max_messages],
         |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -375,6 +366,20 @@ fn emit_error(app: &tauri::AppHandle, conversation_id: &str, error: String) {
     );
 }
 
+fn emit_chunk(app: &tauri::AppHandle, conversation_id: &str, content: String) {
+    if content.is_empty() {
+        return;
+    }
+
+    let _ = app.emit(
+        EVENT_CHUNK,
+        StreamChunkPayload {
+            conversation_id: conversation_id.to_string(),
+            content,
+        },
+    );
+}
+
 #[tauri::command]
 pub async fn send_message(
     app: tauri::AppHandle,
@@ -435,7 +440,8 @@ pub async fn send_message(
                 |row| row.get::<_, String>(0),
             )
             .unwrap_or_else(|_| "New Chat".to_string());
-        let mut history = load_history(&conn, &conversation_id, &model)?;
+        let context_limit = context_message_limit(load_setting(&conn, "context_max_messages")?);
+        let mut history = load_history(&conn, &conversation_id, &model, context_limit)?;
         let conversation_assistant_prompt =
             load_conversation_assistant_prompt(&conn, &conversation_id)?;
         if let Some(last_user) = history
@@ -449,14 +455,13 @@ pub async fn send_message(
                 is_vision_model(&model),
             );
         }
-        let context_limit = load_setting(&conn, "context_max_messages")?;
         let assistant_preset = load_setting(&conn, "assistant_preset")?;
         let reply_language = load_setting(&conn, "assistant_language")?;
         let custom_prompt = load_setting(&conn, "assistant_custom_prompt")?;
         (
             provider.0,
             provider.1,
-            trim_history_for_context(history, context_message_limit(context_limit)),
+            history,
             title,
             conversation_assistant_prompt,
             assistant_preset,
@@ -483,6 +488,8 @@ pub async fn send_message(
     };
 
     let mut full_content = String::new();
+    let mut pending_content = String::new();
+    let mut last_chunk_emit = Instant::now();
     let mut final_usage: Option<Usage> = None;
     let mut had_error = false;
 
@@ -493,13 +500,14 @@ pub async fn send_message(
         match chunk {
             Ok(StreamItem::Content(text)) => {
                 full_content.push_str(&text);
-                let _ = app.emit(
-                    EVENT_CHUNK,
-                    StreamChunkPayload {
-                        conversation_id: conversation_id.clone(),
-                        content: text,
-                    },
-                );
+                pending_content.push_str(&text);
+
+                if pending_content.len() >= STREAM_CHUNK_EMIT_MIN_BYTES
+                    || last_chunk_emit.elapsed() >= STREAM_CHUNK_EMIT_INTERVAL
+                {
+                    emit_chunk(&app, &conversation_id, std::mem::take(&mut pending_content));
+                    last_chunk_emit = Instant::now();
+                }
             }
             Ok(StreamItem::Usage(usage)) => {
                 final_usage = Some(usage);
@@ -511,6 +519,8 @@ pub async fn send_message(
             }
         }
     }
+
+    emit_chunk(&app, &conversation_id, pending_content);
 
     if had_error && full_content.is_empty() {
         return Ok(());
