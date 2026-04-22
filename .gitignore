@@ -30,6 +30,9 @@ dist-ssr
 # Local design/demo scratch files
 demo.html
 after-*.png
+probe-*.png
+screenshots/
+screenshots-out/
 
 # Xcode per-user caches (gen/apple has its own .gitignore for build/Externals)
 **/xcuserdata/

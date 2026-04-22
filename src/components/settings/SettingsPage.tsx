@@ -17,15 +17,21 @@ import { AssistantSettingsSection } from "./AssistantSettings";
 import { AppearanceSettingsSection } from "./AppearanceSettings";
 import { BackupSettingsSection } from "./BackupSettingsSection";
 import { ConversationAssistantsSection } from "./ConversationAssistantsSection";
-import { ImageGenerationSettingsSection } from "./ImageGenerationSettings";
+import {
+  ImageGenerationSettingsSection,
+  ImageRoutingSettingsSection,
+} from "./ImageGenerationSettings";
 import { LanguageSettingsSection } from "./LanguageSettings";
 import { MemorySettingsSection } from "./MemorySettings";
 import { ModelRoutingSettingsSection } from "./ModelRoutingSettings";
 import { PinSettingsSection } from "./PinSettings";
 import { ProviderForm } from "./ProviderForm";
-import { SpeechSettingsSection } from "./SpeechSettings";
+import { SpeechRoutingSettingsSection } from "./SpeechSettings";
 import { UsageSettingsSection } from "./UsageSettingsSection";
-import { VoiceOutputSettingsSection } from "./VoiceOutputSettings";
+import {
+  VoiceOutputSettingsSection,
+  VoiceRoutingSettingsSection,
+} from "./VoiceOutputSettings";
 
 interface SettingsPageProps {
   layout: LayoutMode;
@@ -93,31 +99,33 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
     },
     {
       id: "models",
-      title: t("模型与服务商", "Models & Providers"),
+      title: t("模型与能力", "Models & Capabilities"),
       description: t(
-        "文本路由、模型用途与服务商端点。",
-        "Text routing, model purposes, and provider endpoints.",
+        "服务商端点、模型用途和各能力路由。",
+        "Provider endpoints, model purposes, and routing for each capability.",
       ),
       icon: Bot,
       content: (
         <>
-          <ModelRoutingSettingsSection />
           <ProviderForm />
+          <ModelRoutingSettingsSection />
+          <SpeechRoutingSettingsSection />
+          <VoiceRoutingSettingsSection />
+          <ImageRoutingSettingsSection />
           <MemorySettingsSection />
         </>
       ),
     },
     {
       id: "media",
-      title: t("语音与图片", "Speech & Images"),
+      title: t("媒体偏好", "Media Preferences"),
       description: t(
-        "语音转写、语音输出和图片生成。",
-        "Speech-to-text, voice output, and image generation.",
+        "朗读声音与图片默认参数。",
+        "Playback voice and default image parameters.",
       ),
       icon: Mic,
       content: (
         <>
-          <SpeechSettingsSection />
           <VoiceOutputSettingsSection />
           <ImageGenerationSettingsSection />
         </>

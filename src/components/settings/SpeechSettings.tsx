@@ -6,7 +6,7 @@ import { useAppStore } from "../../stores/appStore";
 import { buttonStyles, Field } from "./formControls";
 import { SettingsSection } from "./SettingsPage";
 
-export function SpeechSettingsSection() {
+export function SpeechRoutingSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
   const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
@@ -29,6 +29,13 @@ export function SpeechSettingsSection() {
     () => providers.find((provider) => provider.id === effectiveProviderId) ?? null,
     [effectiveProviderId, providers],
   );
+  const availableEffectiveModels = useMemo(
+    () =>
+      effectiveProvider
+        ? getProviderModelsForPurpose(effectiveProvider, providerModelRegistry, "stt")
+        : [],
+    [effectiveProvider, providerModelRegistry],
+  );
   const draftEffectiveProviderId = draftProviderId || selectedProviderId || "";
   const draftEffectiveProvider = useMemo(
     () =>
@@ -48,6 +55,22 @@ export function SpeechSettingsSection() {
         ? draftModel
         : availableDraftModels[0] ?? ""
       : draftModel;
+  const summaryModel =
+    availableEffectiveModels.length > 0
+      ? availableEffectiveModels.includes(sttModel)
+        ? sttModel
+        : availableEffectiveModels[0] ?? sttModel
+      : "";
+  const canSave = availableDraftModels.length > 0;
+  const missingDraftHint = !draftEffectiveProvider
+    ? t(
+        "先配置文本路由，或者直接选择一个已标记“转写”用途的服务商。",
+        "Configure text routing first, or choose a provider that already has a transcription-tagged model.",
+      )
+    : t(
+        "当前服务商还没有标记为“转写”用途的模型。去上面的模型服务商表单里补上用途。",
+        "This provider does not have a transcription-tagged model yet. Add that purpose in the provider form above.",
+      );
 
   useEffect(() => {
     setDraftProviderId(sttProviderId ?? "");
@@ -96,7 +119,12 @@ export function SpeechSettingsSection() {
           </div>
           <p className="pt-settings-row__detail">
             {effectiveProvider
-              ? `${effectiveProvider.name} · ${sttModel}`
+              ? availableEffectiveModels.length > 0
+                ? `${effectiveProvider.name} · ${summaryModel}`
+                : t(
+                    `${effectiveProvider.name} · 未标记转写模型`,
+                    `${effectiveProvider.name} · No transcription model tagged`,
+                  )
               : t("跟随当前聊天服务商", "Follow current chat provider")}
           </p>
         </div>
@@ -149,12 +177,7 @@ export function SpeechSettingsSection() {
                 ))}
               </select>
             ) : (
-              <input
-                className="pt-input"
-                value={draftModel}
-                onChange={(event) => setDraftModel(event.target.value)}
-                placeholder="whisper-1"
-              />
+              <p className="pt-settings-help">{missingDraftHint}</p>
             )}
           </Field>
 
@@ -169,7 +192,7 @@ export function SpeechSettingsSection() {
             >
               {t("取消", "Cancel")}
             </button>
-            <button type="submit" className={buttonStyles.primary}>
+            <button type="submit" className={buttonStyles.primary} disabled={!canSave}>
               {t("保存更改", "Save Changes")}
             </button>
           </div>

@@ -108,6 +108,7 @@ export interface StreamErrorPayload {
 export interface PreviewBootstrap {
   screen?: string | null;
   dataset?: string | null;
+  lang?: string | null;
 }
 
 export interface ExportConfigResult {

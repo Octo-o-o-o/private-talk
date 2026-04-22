@@ -11,6 +11,7 @@ import type {
   PreviewBootstrap,
   Provider,
 } from "./types";
+import type { ResolvedUiLanguage, UiLanguage } from "./uiLanguage";
 
 function timestamp(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -27,65 +28,129 @@ const PREVIEW_PROVIDER: Provider = {
   created_at: timestamp(180),
 };
 
-const PREVIEW_CONVERSATIONS: Conversation[] = [
+const PREVIEW_CONVERSATIONS_EN: Conversation[] = [
   {
     id: "preview-conversation-main",
-    title: "Ship the iPad split-view polish for iOS 26",
-    preview: "iPad split view needs tighter chrome and steadier safe-area spacing.",
+    title: "Plan a weekend in Kyoto with a toddler",
+    preview: "Shrines in the morning, riverside lunch, naps by 2pm. Low-stress routing.",
     assistant_id: null,
     created_at: timestamp(210),
     updated_at: timestamp(6),
   },
   {
     id: "preview-conversation-notes",
-    title: "Design notes and motion pass",
-    preview: "Need to tighten the glass highlight and reduce the sidebar chrome.",
+    title: "Review the Series A pitch narrative",
+    preview: "Tighten the problem slide and move the traction chart earlier.",
     assistant_id: null,
     created_at: timestamp(330),
     updated_at: timestamp(38),
   },
   {
     id: "preview-conversation-cn",
-    title: "把移动端界面整理成真正的 iOS 体验",
-    preview: "详情页进入时，列表要左移缩放，但仍然保持呼吸感。",
+    title: "Translate the contract section into Japanese",
+    preview: "Keep the legal tone formal, match the original clause numbering.",
     assistant_id: null,
     created_at: timestamp(450),
     updated_at: timestamp(92),
   },
 ];
 
-const PREVIEW_MESSAGES: Message[] = [
+const PREVIEW_CONVERSATIONS_ZH: Conversation[] = [
+  {
+    id: "preview-conversation-main",
+    title: "规划一趟京都亲子周末",
+    preview: "上午去神社，中午河边吃饭，下午两点午休。不赶时间。",
+    assistant_id: null,
+    created_at: timestamp(210),
+    updated_at: timestamp(6),
+  },
+  {
+    id: "preview-conversation-notes",
+    title: "复盘 A 轮路演讲稿",
+    preview: "把问题页再收紧一点，数据图提前到第三页。",
+    assistant_id: null,
+    created_at: timestamp(330),
+    updated_at: timestamp(38),
+  },
+  {
+    id: "preview-conversation-cn",
+    title: "把合同第 3 条翻成日语",
+    preview: "保持法律文本语气，条款编号和原文对齐。",
+    assistant_id: null,
+    created_at: timestamp(450),
+    updated_at: timestamp(92),
+  },
+];
+
+const PREVIEW_MESSAGES_EN: Message[] = [
   {
     id: "preview-message-1",
-    conversation_id: PREVIEW_CONVERSATIONS[0].id,
+    conversation_id: PREVIEW_CONVERSATIONS_EN[0].id,
     role: "user",
-    content: "我刚在 iPad 横屏上看了一遍，想把聊天页的 chrome 再收紧一点。",
+    content: "We land Friday night with a 3-year-old. Plan a calm Saturday in Kyoto.",
     attachments: [],
     created_at: timestamp(24),
   },
   {
     id: "preview-message-2",
-    conversation_id: PREVIEW_CONVERSATIONS[0].id,
+    conversation_id: PREVIEW_CONVERSATIONS_EN[0].id,
     role: "assistant",
     content:
-      "可以，先把问题拆成 3 块：\n\n- 顶部导航和安全区\n- 消息列最大宽度\n- 输入区在横屏和分屏下的底部留白",
+      "Here is a low-stress Saturday:\n\n- 8:30 — Fushimi Inari, take only the lower torii loop\n- 10:30 — Stroller break at Kamo river, sandwich and tea\n- 13:00 — Nap at the hotel (core rule, never skip)\n- 16:00 — Nishiki market, pointing-at-snacks mode\n- 18:30 — Early kid-friendly dinner near Gion",
     attachments: [],
     created_at: timestamp(23),
   },
   {
     id: "preview-message-3",
-    conversation_id: PREVIEW_CONVERSATIONS[0].id,
+    conversation_id: PREVIEW_CONVERSATIONS_EN[0].id,
     role: "user",
-    content: "顺便检查一下 markdown 卡片和代码块在窄宽度下会不会撑破。",
+    content: "Great. Give me a one-line packing reminder I can paste into Notes.",
     attachments: [],
     created_at: timestamp(22),
   },
   {
     id: "preview-message-4",
-    conversation_id: PREVIEW_CONVERSATIONS[0].id,
+    conversation_id: PREVIEW_CONVERSATIONS_EN[0].id,
     role: "assistant",
     content:
-      "我会按以下规则收口：\n\n```ts\nconst maxWidth = layout === \"tablet\" ? \"72ch\" : \"64ch\";\nconst bottomInset = safeArea.bottom + 16;\n```\n\n> 目标是让 iPhone、iPad 竖屏和横屏都保持同一套触控节奏。",
+      "```text\nStroller, 2 snack boxes, 1 backup outfit, sunhat, water, charger, travel cup.\n```\n\n> Pro tip: keep a labeled pouch for wet clothes — you will thank yourself by 3pm.",
+    attachments: [],
+    created_at: timestamp(21),
+  },
+];
+
+const PREVIEW_MESSAGES_ZH: Message[] = [
+  {
+    id: "preview-message-1",
+    conversation_id: PREVIEW_CONVERSATIONS_ZH[0].id,
+    role: "user",
+    content: "我们周五晚上到京都，带一个 3 岁小朋友。帮我排一个不赶时间的周六。",
+    attachments: [],
+    created_at: timestamp(24),
+  },
+  {
+    id: "preview-message-2",
+    conversation_id: PREVIEW_CONVERSATIONS_ZH[0].id,
+    role: "assistant",
+    content:
+      "安排一个慢节奏的周六：\n\n- 8:30 伏见稻荷，只走下面那段鸟居\n- 10:30 鸭川边上坐推车，面包和茶\n- 13:00 回酒店午睡（这条不能省）\n- 16:00 锦市场，指哪吃哪\n- 18:30 祇园附近找一家亲子友好的店吃早饭",
+    attachments: [],
+    created_at: timestamp(23),
+  },
+  {
+    id: "preview-message-3",
+    conversation_id: PREVIEW_CONVERSATIONS_ZH[0].id,
+    role: "user",
+    content: "不错。再给我一句可以直接贴进备忘录的打包提醒。",
+    attachments: [],
+    created_at: timestamp(22),
+  },
+  {
+    id: "preview-message-4",
+    conversation_id: PREVIEW_CONVERSATIONS_ZH[0].id,
+    role: "assistant",
+    content:
+      "```text\n推车、两盒零食、一套备换衣服、防晒帽、水壶、充电器、出行杯。\n```\n\n> 小贴士：带一个写了字的湿衣袋 —— 下午三点你就会感谢自己。",
     attachments: [],
     created_at: timestamp(21),
   },
@@ -117,6 +182,14 @@ const PREVIEW_IMAGE_GEN_CONFIG: ImageGenConfig = {
   max_images_per_request: 4,
 };
 
+function normalizedLang(value: string | null | undefined): UiLanguage | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  if (v === "zh" || v === "zh-cn" || v === "zh_cn") return "zh-CN";
+  if (v === "en" || v === "en-us") return "en";
+  return null;
+}
+
 export function readBrowserPreviewBootstrap(): PreviewBootstrap | null {
   if (typeof window === "undefined") {
     return null;
@@ -135,6 +208,7 @@ export function readBrowserPreviewBootstrap(): PreviewBootstrap | null {
     screen,
     dataset:
       params.get("previewData") ?? params.get("dataset") ?? params.get("data"),
+    lang: params.get("lang") ?? params.get("locale") ?? null,
   };
 }
 
@@ -175,6 +249,15 @@ export function browserPreviewNeedsBootstrap(
     );
   }
 
+  if (screen === "list") {
+    return (
+      state.view !== "chat" ||
+      !!state.currentConversationId ||
+      state.providerCount === 0 ||
+      state.conversationCount === 0
+    );
+  }
+
   if (screen === "welcome") {
     return (
       state.view !== "chat" ||
@@ -197,16 +280,22 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
   const dataset = (preview.dataset ?? "demo").trim().toLowerCase();
   const hasSeededContent = dataset !== "empty" || screen === "chat";
   const providers = hasSeededContent ? [PREVIEW_PROVIDER] : [];
+  const lang = normalizedLang(preview.lang);
+  const resolvedLang: ResolvedUiLanguage = lang === "zh-CN" ? "zh-CN" : lang === "en" ? "en" : "en";
+  const uiLang: UiLanguage = lang ?? "auto";
+  const conversationBundle = resolvedLang === "zh-CN" ? PREVIEW_CONVERSATIONS_ZH : PREVIEW_CONVERSATIONS_EN;
+  const messageBundle = resolvedLang === "zh-CN" ? PREVIEW_MESSAGES_ZH : PREVIEW_MESSAGES_EN;
   const conversations =
-    screen === "welcome" || dataset === "empty" ? [] : PREVIEW_CONVERSATIONS;
+    screen === "welcome" || dataset === "empty" ? [] : conversationBundle;
   const currentConversationId =
-    screen === "chat" ? PREVIEW_CONVERSATIONS[0]?.id ?? null : null;
+    screen === "chat" ? conversationBundle[0]?.id ?? null : null;
+  const viewTarget = screen === "settings" ? "settings" : "chat";
 
   useAppStore.setState({
-    view: screen === "settings" ? "settings" : "chat",
+    view: viewTarget,
     conversations,
     currentConversationId,
-    messages: screen === "chat" ? PREVIEW_MESSAGES : [],
+    messages: screen === "chat" ? messageBundle : [],
     isStreaming: false,
     providers,
     selectedProviderId: providers[0]?.id ?? null,
@@ -222,6 +311,8 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
     systemTheme: "dark",
     resolvedTheme: resolveAppearanceTheme(DEFAULT_APPEARANCE_MODE, "dark"),
     zoomFactor: DEFAULT_ZOOM_FACTOR,
+    uiLanguage: uiLang,
+    resolvedLanguage: resolvedLang,
     pinEnabled: screen === "pin",
     isLocked: screen === "pin",
   });

@@ -127,8 +127,8 @@ export function ChatInput({
       ? hasTextProviders
         ? t("先选择一个文本模型，再开始聊天", "Choose a text model before chatting")
         : t(
-            "先去设置里的“模型与服务商”配置一个文本模型，再开始聊天",
-            "Configure a text model in Settings > Models & Providers before chatting",
+            "先去设置里的“模型与能力”配置一个文本模型，再开始聊天",
+            "Configure a text model in Settings > Models & Capabilities before chatting",
           )
       : currentConversationId
         ? t("给 Private Talk 发消息", "Message Private Talk")
@@ -137,7 +137,10 @@ export function ChatInput({
     ? mode === "image"
       ? t("切回聊天模式", "Switch to chat mode")
       : t("切到图片模式", "Switch to image mode")
-    : t("先在设置里启用图片生成", "Enable image generation in Settings first");
+    : t(
+        "先在“模型与能力”里启用图片路由",
+        "Enable image routing in Models & Capabilities first",
+      );
   const recordingAvailable =
     typeof navigator !== "undefined" &&
     typeof navigator.mediaDevices?.getUserMedia === "function" &&

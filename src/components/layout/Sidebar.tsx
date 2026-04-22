@@ -130,8 +130,8 @@ export function Sidebar({
                       "Configure an OpenAI-compatible endpoint in Settings before you send your first message.",
                     )
                   : t(
-                      "已有服务商，但还没有可用于聊天的文本模型。去“模型与服务商”里给一个模型标记“文本”用途。",
-                      "A provider already exists, but there is no text model for chat yet. Go to Models & Providers and mark one model as text.",
+                      "已有服务商，但还没有可用于聊天的文本模型。去“模型与能力”里给一个模型标记“文本”用途。",
+                      "A provider already exists, but there is no text model for chat yet. Go to Models & Capabilities and mark one model as text.",
                     )}
               </p>
             </div>

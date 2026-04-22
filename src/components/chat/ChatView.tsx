@@ -268,8 +268,8 @@ export function ChatView({
         conversation_id: conversationId,
         role: "assistant",
         content: t(
-          "图片生成当前还没有配置完成。先去 Settings > Image Generation 里启用并选择服务商，再继续发送 /img 请求。",
-          "Image generation is not configured yet. Enable it in Settings > Image Generation and choose a provider before sending /img requests.",
+          "图片生成当前还没有配置完成。先去“模型与能力”里启用图片路由并选择服务商，再继续发送 /img 请求。",
+          "Image generation is not configured yet. Enable image routing in Models & Capabilities and choose a provider before sending /img requests.",
         ),
         attachments: [],
         created_at: new Date().toISOString(),
@@ -519,7 +519,13 @@ export function ChatView({
               onSelectAssistant={selectAssistant}
               onCreateConversation={onRequestNewConversation}
               onOpenSettings={
-                hasTextProviders ? onOpenSettings : () => openSettings("models")
+                hasTextProviders
+                  ? onOpenSettings
+                  : () =>
+                      openSettings(
+                        "models",
+                        providers.length === 0 ? "create-provider" : "repair-chat",
+                      )
               }
             />
           )}
@@ -768,8 +774,8 @@ function WelcomePanel({
               "Create a thread and your next message becomes the first turn.",
             )
           : t(
-              "先到“模型与服务商”里添加服务商，并把至少一个模型标记为文本用途，聊天页才会出现可用路由。",
-              "Go to Models & Providers, add a provider, and mark at least one model as text before chat routing becomes available.",
+              "先到“模型与能力”里添加服务商，并把至少一个模型标记为文本用途，聊天页才会出现可用路由。",
+              "Go to Models & Capabilities, add a provider, and mark at least one model as text before chat routing becomes available.",
             )}
       </p>
       <div className="pt-welcome__actions">

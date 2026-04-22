@@ -8,9 +8,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import {
+  getProviderModelsForPurpose,
   getProviderModelProfiles,
   providerPurposeCounts,
   serializeProviderModelRegistry,
@@ -104,6 +105,10 @@ export function ProviderForm() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
   const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
+  const settingsModelsAction = useAppStore((state) => state.settingsModelsAction);
+  const clearSettingsModelsAction = useAppStore(
+    (state) => state.clearSettingsModelsAction,
+  );
   const loadProviders = useAppStore((state) => state.loadProviders);
   const loadSpeechSettings = useAppStore((state) => state.loadSpeechSettings);
   const loadImageGenConfig = useAppStore((state) => state.loadImageGenConfig);
@@ -213,6 +218,45 @@ export function ProviderForm() {
     setShowKey(false);
     setError(null);
   }
+
+  function beginRepairForPurpose(purpose: ModelPurpose): void {
+    const provider =
+      providers.find(
+        (item) =>
+          getProviderModelsForPurpose(item, providerModelRegistry, purpose).length === 0,
+      ) ??
+      providers.find((item) => item.is_default) ??
+      providers[0] ??
+      null;
+
+    if (!provider) {
+      beginCustomCreate();
+      return;
+    }
+
+    beginEdit(provider.id);
+  }
+
+  useEffect(() => {
+    if (!settingsModelsAction) {
+      return;
+    }
+
+    if (settingsModelsAction === "create-provider") {
+      beginCustomCreate();
+      clearSettingsModelsAction();
+      return;
+    }
+
+    const purpose = settingsModelsAction.replace("repair-", "") as ModelPurpose;
+    beginRepairForPurpose(purpose);
+    clearSettingsModelsAction();
+  }, [
+    clearSettingsModelsAction,
+    providerModelRegistry,
+    providers,
+    settingsModelsAction,
+  ]);
 
   async function seedPurposeDefaults(
     providerId: string,

@@ -28,7 +28,7 @@ export function AppLayout() {
 
   function handleRequestNewConversation(): void {
     if (!hasTextProviders) {
-      openSettings("models");
+      openSettings("models", providers.length === 0 ? "create-provider" : "repair-chat");
       return;
     }
 

@@ -1,7 +1,10 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../lib/i18n";
-import { getProviderModelsForPurpose, getProvidersForPurpose } from "../../lib/providerModels";
+import {
+  getProviderModelsForPurpose,
+  getProvidersForPurpose,
+} from "../../lib/providerModels";
 import type { ImageGenConfig } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import { buttonStyles, Field } from "./formControls";
@@ -17,10 +20,12 @@ const DEFAULT_CONFIG: ImageGenConfig = {
   max_images_per_request: 4,
 };
 
-export function ImageGenerationSettingsSection() {
+export function ImageRoutingSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
-  const providerModelRegistry = useAppStore((state) => state.providerModelRegistry);
+  const providerModelRegistry = useAppStore(
+    (state) => state.providerModelRegistry,
+  );
   const savedConfig = useAppStore((state) => state.imageGenConfig);
   const loadImageGenConfig = useAppStore((state) => state.loadImageGenConfig);
   const setImageGenConfig = useAppStore((state) => state.setImageGenConfig);
@@ -29,9 +34,7 @@ export function ImageGenerationSettingsSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void (async () => {
-      await loadImageGenConfig();
-    })();
+    void loadImageGenConfig();
   }, [loadImageGenConfig]);
 
   useEffect(() => {
@@ -42,10 +45,16 @@ export function ImageGenerationSettingsSection() {
     () => getProvidersForPurpose(providers, providerModelRegistry, "image"),
     [providerModelRegistry, providers],
   );
-
   const currentProvider = useMemo(
     () => providers.find((provider) => provider.id === savedConfig.provider_id) ?? null,
     [providers, savedConfig.provider_id],
+  );
+  const availableCurrentModels = useMemo(
+    () =>
+      currentProvider
+        ? getProviderModelsForPurpose(currentProvider, providerModelRegistry, "image")
+        : [],
+    [currentProvider, providerModelRegistry],
   );
   const draftProvider = useMemo(
     () => providers.find((provider) => provider.id === draftConfig.provider_id) ?? null,
@@ -64,6 +73,24 @@ export function ImageGenerationSettingsSection() {
         ? draftConfig.model
         : availableDraftModels[0] ?? ""
       : draftConfig.model;
+  const summaryModel =
+    availableCurrentModels.length > 0
+      ? availableCurrentModels.includes(savedConfig.model)
+        ? savedConfig.model
+        : availableCurrentModels[0] ?? savedConfig.model
+      : "";
+  const canSave =
+    !draftConfig.enabled ||
+    (draftConfig.provider_id.trim().length > 0 && availableDraftModels.length > 0);
+  const missingDraftHint = !draftProvider
+    ? t(
+        "先选择一个已标记“图片”用途的服务商。",
+        "Choose a provider that already has an image-tagged model.",
+      )
+    : t(
+        "当前服务商还没有标记为“图片”用途的模型。去上面的模型服务商表单里补上用途。",
+        "This provider does not have an image-tagged model yet. Add that purpose in the provider form above.",
+      );
 
   function restoreSaved(): void {
     setDraftConfig(savedConfig);
@@ -78,27 +105,37 @@ export function ImageGenerationSettingsSection() {
         setError(t("请选择图片生成服务商。", "Choose an image generation provider."));
         return;
       }
+      if (availableDraftModels.length === 0) {
+        setError(
+          t(
+            "当前服务商还没有标记为“图片”用途的模型。去“模型与能力”里的服务商表单补上用途。",
+            "This provider does not have an image-tagged model yet. Add that purpose in the provider form inside Models & Capabilities.",
+          ),
+        );
+        return;
+      }
       if (!resolvedDraftModel.trim()) {
         setError(t("请输入图片生成模型。", "Enter an image generation model."));
         return;
       }
     }
 
-    const nextConfig = {
-      ...draftConfig,
+    await setImageGenConfig({
+      ...savedConfig,
+      enabled: draftConfig.enabled,
+      provider_id: draftConfig.provider_id,
       model: resolvedDraftModel.trim(),
-    };
-    await setImageGenConfig(nextConfig);
+    });
     setError(null);
     setExpanded(false);
   }
 
   return (
     <SettingsSection
-      title={t("图片生成", "Image Generation")}
+      title={t("图片路由", "Image Routing")}
       footer={t(
-        "聊天输入框里的 Sparkles 按钮会使用这里的图片路由和默认参数。",
-        "The Sparkles button in chat uses this image route and its default parameters.",
+        "这里只控制是否启用图片能力，以及它使用哪个服务商和模型。",
+        "This only controls whether image capability is enabled and which provider/model it uses.",
       )}
     >
       <button
@@ -115,14 +152,19 @@ export function ImageGenerationSettingsSection() {
       >
         <div className="pt-settings-row__copy">
           <div className="pt-settings-row__title-line">
-            <p className="pt-settings-row__title">{t("生图路由", "Image Routing")}</p>
+            <p className="pt-settings-row__title">{t("生图服务商与模型", "Image Provider & Model")}</p>
             <ChevronDown size={16} className={`pt-row-chevron${expanded ? " is-open" : ""}`} />
           </div>
           <p className="pt-settings-row__detail">
             {savedConfig.enabled
               ? currentProvider
-                ? `${currentProvider.name} · ${savedConfig.model}`
-                : savedConfig.model
+                ? availableCurrentModels.length > 0
+                  ? `${currentProvider.name} · ${summaryModel}`
+                  : t(
+                      `${currentProvider.name} · 未标记图片模型`,
+                      `${currentProvider.name} · No image model tagged`,
+                    )
+                : t("未选择图片服务商", "No image provider selected")
               : t("当前关闭", "Disabled")}
           </p>
         </div>
@@ -199,20 +241,92 @@ export function ImageGenerationSettingsSection() {
                 ))}
               </select>
             ) : (
-              <input
-                className="pt-input"
-                value={draftConfig.model}
-                onChange={(event) =>
-                  setDraftConfig((current) => ({
-                    ...current,
-                    model: event.target.value,
-                  }))
-                }
-                placeholder="gpt-image-1"
-              />
+              <p className="pt-settings-help">{missingDraftHint}</p>
             )}
           </Field>
 
+          {error ? <p className="pt-form-error">{error}</p> : null}
+
+          <div className="pt-settings-form__actions">
+            <button
+              type="button"
+              className={buttonStyles.secondary}
+              onClick={() => {
+                restoreSaved();
+                setExpanded(false);
+              }}
+            >
+              {t("取消", "Cancel")}
+            </button>
+            <button type="submit" className={buttonStyles.primary} disabled={!canSave}>
+              {t("保存更改", "Save Changes")}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </SettingsSection>
+  );
+}
+
+export function ImageGenerationSettingsSection() {
+  const { t } = useI18n();
+  const savedConfig = useAppStore((state) => state.imageGenConfig);
+  const setImageGenConfig = useAppStore((state) => state.setImageGenConfig);
+  const [expanded, setExpanded] = useState(false);
+  const [draftConfig, setDraftConfig] = useState<ImageGenConfig>(DEFAULT_CONFIG);
+
+  useEffect(() => {
+    setDraftConfig(savedConfig);
+  }, [savedConfig]);
+
+  async function handleSave(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    await setImageGenConfig({
+      ...savedConfig,
+      default_aspect_ratio: draftConfig.default_aspect_ratio,
+      default_quality: draftConfig.default_quality,
+      default_background: draftConfig.default_background,
+      max_images_per_request: draftConfig.max_images_per_request,
+    });
+    setExpanded(false);
+  }
+
+  return (
+    <SettingsSection
+      title={t("图片偏好", "Image Preferences")}
+      footer={t(
+        "这里仅保存生图默认参数；服务商和模型在“模型与能力”里配置。",
+        "This only stores default image parameters. Provider and model are configured in Models & Capabilities.",
+      )}
+    >
+      <button
+        type="button"
+        className="pt-settings-row pt-settings-row--interactive"
+        onClick={() => {
+          setExpanded((value) => {
+            if (value) {
+              setDraftConfig(savedConfig);
+            }
+            return !value;
+          });
+        }}
+      >
+        <div className="pt-settings-row__copy">
+          <div className="pt-settings-row__title-line">
+            <p className="pt-settings-row__title">{t("默认参数", "Defaults")}</p>
+            <ChevronDown size={16} className={`pt-row-chevron${expanded ? " is-open" : ""}`} />
+          </div>
+          <p className="pt-settings-row__detail">
+            {`${draftConfig.default_aspect_ratio} · ${draftConfig.default_quality} · ${t(
+              `${draftConfig.max_images_per_request} 张`,
+              `${draftConfig.max_images_per_request} images`,
+            )}`}
+          </p>
+        </div>
+      </button>
+
+      {expanded ? (
+        <form className="pt-settings-expand pt-settings-form" onSubmit={handleSave}>
           <div className="pt-settings-form__split">
             <Field label={t("默认比例", "Default Ratio")}>
               <select
@@ -288,8 +402,6 @@ export function ImageGenerationSettingsSection() {
             </Field>
           </div>
 
-          {error ? <p className="pt-form-error">{error}</p> : null}
-
           <p className="pt-settings-help">
             {t(
               "输入框切到 Image 后，直接描述画面即可；如果你更习惯命令式输入，也可以继续手动写 /img prompt --ratio 16:9 --quality hd。",
@@ -302,7 +414,7 @@ export function ImageGenerationSettingsSection() {
               type="button"
               className={buttonStyles.secondary}
               onClick={() => {
-                restoreSaved();
+                setDraftConfig(savedConfig);
                 setExpanded(false);
               }}
             >

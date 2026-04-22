@@ -25,6 +25,7 @@ import type {
   Conversation,
   ImageGenConfig,
   Message,
+  ModelPurpose,
   ProviderModelRegistry,
   Provider,
 } from "../lib/types";
@@ -37,6 +38,7 @@ type SettingsTargetGroupId =
   | "media"
   | "data"
   | "about";
+type SettingsModelsAction = "create-provider" | `repair-${ModelPurpose}`;
 
 const CHAT_PROVIDER_SETTING_KEY = "chat_provider_id";
 const CHAT_MODEL_SETTING_KEY = "chat_model";
@@ -120,8 +122,13 @@ interface AppState {
   view: View;
   setView: (view: View) => void;
   settingsTargetGroupId: SettingsTargetGroupId | null;
-  openSettings: (groupId?: SettingsTargetGroupId | null) => void;
+  settingsModelsAction: SettingsModelsAction | null;
+  openSettings: (
+    groupId?: SettingsTargetGroupId | null,
+    modelsAction?: SettingsModelsAction | null,
+  ) => void;
   clearSettingsTargetGroup: () => void;
+  clearSettingsModelsAction: () => void;
   uiLanguage: UiLanguage;
   resolvedLanguage: ResolvedUiLanguage;
   loadUiPreferences: () => Promise<void>;
@@ -197,12 +204,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   view: "chat",
   setView: (view) => set({ view }),
   settingsTargetGroupId: null,
-  openSettings: (groupId) =>
+  settingsModelsAction: null,
+  openSettings: (groupId, modelsAction) =>
     set({
       view: "settings",
       settingsTargetGroupId: groupId ?? null,
+      settingsModelsAction: modelsAction ?? null,
     }),
   clearSettingsTargetGroup: () => set({ settingsTargetGroupId: null }),
+  clearSettingsModelsAction: () => set({ settingsModelsAction: null }),
   uiLanguage: "auto",
   resolvedLanguage: resolveUiLanguage("auto"),
   appearanceMode: DEFAULT_APPEARANCE_MODE,
