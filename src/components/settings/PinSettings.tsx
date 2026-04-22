@@ -35,7 +35,7 @@ export function PinSettings() {
 
 export function PinSettingsSection() {
   const { t } = useI18n();
-  const { pinEnabled, checkPinStatus, loadConversations, loadProviders } =
+  const { pinEnabled, checkPinStatus, loadConversations, loadProviders, loadAssistants } =
     useAppStore();
   const [expanded, setExpanded] = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -104,6 +104,7 @@ export function PinSettingsSection() {
       await api.resetAllData();
       await checkPinStatus();
       await loadConversations();
+      await loadAssistants();
       await loadProviders();
       setShowReset(false);
       closePanel();

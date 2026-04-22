@@ -1,4 +1,11 @@
-import { ChevronDown } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  MessageSquareText,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
@@ -12,6 +19,10 @@ function totalTokens(usages: ModelUsage[]): number {
   return usages.reduce((sum, usage) => sum + usage.total_tokens, 0);
 }
 
+function totalRequests(usages: ModelUsage[]): number {
+  return usages.reduce((sum, usage) => sum + usage.request_count, 0);
+}
+
 function formatTokens(value: number): string {
   if (value >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(1)}M`;
@@ -22,10 +33,51 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+function parseTimestamp(value: string): Date | null {
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatTimestamp(value: string, locale: string): string {
+  const date = parseTimestamp(value);
+  if (!date) {
+    return value;
+  }
+  return date.toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDay(value: string, locale: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString(locale === "zh-CN" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+function leadModelLabel(usages: ModelUsage[]): string | null {
+  const label = usages[0]?.model ?? null;
+  if (!label) {
+    return null;
+  }
+  return label.length > 26 ? `${label.slice(0, 26)}...` : label;
+}
+
 export function UsageSettingsSection() {
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<UsageView>("conversation");
   const [conversationUsages, setConversationUsages] = useState<ConversationUsage[]>([]);
@@ -48,29 +100,40 @@ export function UsageSettingsSection() {
           : t("读取用量失败。", "Failed to load usage."),
       );
     } finally {
+      setHasLoaded(true);
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (expanded && conversationUsages.length === 0 && !loading && !error) {
+    if (expanded && !hasLoaded && !loading) {
       void loadUsage();
     }
-  }, [conversationUsages.length, error, expanded, loading]);
+  }, [expanded, hasLoaded, loading]);
 
-  const totalRequests = useMemo(
-    () =>
-      conversationUsages.reduce((sum, usage) => sum + usage.total_requests, 0),
-    [conversationUsages],
+  const totalRequestCount = useMemo(
+    () => {
+      if (conversationUsages.length > 0) {
+        return conversationUsages.reduce((sum, usage) => sum + usage.total_requests, 0);
+      }
+      return dailyUsages.reduce((sum, usage) => sum + totalRequests(usage.model_usages), 0);
+    },
+    [conversationUsages, dailyUsages],
   );
   const totalTokenCount = useMemo(
-    () =>
-      conversationUsages.reduce(
-        (sum, usage) => sum + totalTokens(usage.model_usages),
-        0,
-      ),
-    [conversationUsages],
+    () => {
+      if (conversationUsages.length > 0) {
+        return conversationUsages.reduce(
+          (sum, usage) => sum + totalTokens(usage.model_usages),
+          0,
+        );
+      }
+      return dailyUsages.reduce((sum, usage) => sum + totalTokens(usage.model_usages), 0);
+    },
+    [conversationUsages, dailyUsages],
   );
+  const currentCount = view === "conversation" ? conversationUsages.length : dailyUsages.length;
+  const hasUsage = conversationUsages.length > 0 || dailyUsages.length > 0;
 
   return (
     <SettingsSection
@@ -96,18 +159,58 @@ export function UsageSettingsSection() {
             />
           </div>
           <p className="pt-settings-row__detail">
-            {conversationUsages.length > 0
+            {hasUsage
               ? t(
-                  `${formatTokens(totalTokenCount)} tokens · ${totalRequests} 次请求`,
-                  `${formatTokens(totalTokenCount)} tokens · ${totalRequests} requests`,
+                  `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} 次请求`,
+                  `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} requests`,
                 )
-              : t("按会话和日期查看本地 token 消耗", "View local token usage by chat or day")}
+              : hasLoaded
+                ? t("还没有记录到任何 token 用量。", "No token usage recorded yet.")
+                : t("按会话和日期查看本地 token 消耗", "View local token usage by chat or day")}
           </p>
         </div>
       </button>
 
       {expanded ? (
         <div className="pt-settings-expand">
+          <div className="pt-usage-overview">
+            <article className="pt-usage-stat">
+              <div className="pt-usage-stat__eyebrow">
+                <MessageSquareText size={13} />
+                <span>{t("总请求", "Requests")}</span>
+              </div>
+              <p className="pt-usage-stat__value">{totalRequestCount}</p>
+              <p className="pt-usage-stat__detail">
+                {t(
+                  `${conversationUsages.length} 个会话`,
+                  `${conversationUsages.length} chats`,
+                )}
+              </p>
+            </article>
+            <article className="pt-usage-stat">
+              <div className="pt-usage-stat__eyebrow">
+                <ArrowUpRight size={13} />
+                <span>{t("总 Tokens", "Total Tokens")}</span>
+              </div>
+              <p className="pt-usage-stat__value">{formatTokens(totalTokenCount)}</p>
+              <p className="pt-usage-stat__detail">
+                {t("本地累计记录", "Locally recorded total")}
+              </p>
+            </article>
+            <article className="pt-usage-stat">
+              <div className="pt-usage-stat__eyebrow">
+                <CalendarDays size={13} />
+                <span>{view === "conversation" ? t("会话视图", "Chats") : t("日期视图", "Days")}</span>
+              </div>
+              <p className="pt-usage-stat__value">{currentCount}</p>
+              <p className="pt-usage-stat__detail">
+                {view === "conversation"
+                  ? t("按会话查看模型消耗", "Model usage by chat")
+                  : t("按日期查看聚合结果", "Daily aggregated usage")}
+              </p>
+            </article>
+          </div>
+
           <div className="pt-settings-form__actions pt-settings-form__actions--start">
             <button
               type="button"
@@ -133,7 +236,6 @@ export function UsageSettingsSection() {
           </div>
 
           {error ? <p className="pt-form-error">{error}</p> : null}
-
           {loading ? (
             <p className="pt-settings-help">{t("正在加载用量...", "Loading usage...")}</p>
           ) : null}
@@ -147,39 +249,12 @@ export function UsageSettingsSection() {
                   </p>
                 ) : (
                   conversationUsages.map((usage) => (
-                    <article key={usage.conversation_id} className="pt-usage-card">
-                      <div className="pt-usage-card__header">
-                        <div>
-                          <p className="pt-usage-card__title">{usage.conversation_title}</p>
-                          <p className="pt-usage-card__detail">{usage.first_message_preview}</p>
-                        </div>
-                        <div className="pt-usage-card__summary">
-                          <span>{formatTokens(totalTokens(usage.model_usages))}</span>
-                          <span>
-                            {t(
-                              `${usage.total_requests} 次请求`,
-                              `${usage.total_requests} requests`,
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="pt-usage-model-list">
-                        {usage.model_usages.map((modelUsage) => (
-                          <div key={modelUsage.model} className="pt-usage-model-row">
-                            <span className="pt-usage-model-row__name">{modelUsage.model}</span>
-                            <span className="pt-usage-model-row__meta">
-                              {formatTokens(modelUsage.prompt_tokens)} in ·{" "}
-                              {formatTokens(modelUsage.completion_tokens)} out
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="pt-usage-card__timestamp">
-                        {new Date(usage.latest_at).toLocaleString(
-                          locale === "zh-CN" ? "zh-CN" : "en-US",
-                        )}
-                      </p>
-                    </article>
+                    <ConversationUsageCard
+                      key={usage.conversation_id}
+                      locale={locale}
+                      usage={usage}
+                      t={t}
+                    />
                   ))
                 )}
               </div>
@@ -191,43 +266,12 @@ export function UsageSettingsSection() {
                   </p>
                 ) : (
                   dailyUsages.map((usage) => (
-                    <article key={usage.date} className="pt-usage-card">
-                      <div className="pt-usage-card__header">
-                        <div>
-                          <p className="pt-usage-card__title">
-                            {new Date(`${usage.date}T00:00:00`).toLocaleDateString(
-                              locale === "zh-CN" ? "zh-CN" : "en-US",
-                              {
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric",
-                              },
-                            )}
-                          </p>
-                          <p className="pt-usage-card__detail">
-                            {t(
-                              `${usage.conversation_count} 个会话`,
-                              `${usage.conversation_count} chats`,
-                            )}
-                          </p>
-                        </div>
-                        <div className="pt-usage-card__summary">
-                          <span>{formatTokens(totalTokens(usage.model_usages))}</span>
-                          <span>{usage.model_usages.length} models</span>
-                        </div>
-                      </div>
-                      <div className="pt-usage-model-list">
-                        {usage.model_usages.map((modelUsage) => (
-                          <div key={modelUsage.model} className="pt-usage-model-row">
-                            <span className="pt-usage-model-row__name">{modelUsage.model}</span>
-                            <span className="pt-usage-model-row__meta">
-                              {formatTokens(modelUsage.total_tokens)} tokens ·{" "}
-                              {modelUsage.request_count} calls
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
+                    <DailyUsageCard
+                      key={usage.date}
+                      locale={locale}
+                      usage={usage}
+                      t={t}
+                    />
                   ))
                 )}
               </div>
@@ -236,5 +280,178 @@ export function UsageSettingsSection() {
         </div>
       ) : null}
     </SettingsSection>
+  );
+}
+
+function ConversationUsageCard({
+  usage,
+  locale,
+  t,
+}: {
+  usage: ConversationUsage;
+  locale: string;
+  t: (zh: string, en: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const modelLabel = leadModelLabel(usage.model_usages);
+  const title = usage.is_deleted
+    ? t("已删除的会话", "Deleted chat")
+    : usage.conversation_title || t("未命名会话", "Untitled chat");
+  const preview = usage.is_deleted
+    ? t(
+        "会话内容已删除，但本地 usage 记录仍然保留。",
+        "Messages were deleted, but local usage history is still preserved.",
+      )
+    : usage.first_message_preview || t("暂无预览", "No preview");
+
+  return (
+    <article className={`pt-usage-row${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="pt-usage-row__button"
+        onClick={() => {
+          setOpen((value) => !value);
+        }}
+      >
+        <ChevronRight size={16} className={`pt-usage-row__chevron${open ? " is-open" : ""}`} />
+        <div className="pt-usage-row__main">
+          <div className="pt-usage-row__title-line">
+            <p className="pt-usage-row__title">{title}</p>
+            {usage.is_deleted ? (
+              <span className="pt-usage-pill pt-usage-pill--danger">
+                {t("已删除", "Deleted")}
+              </span>
+            ) : (
+              <span className="pt-usage-pill">
+                {t(`${usage.message_count} 条消息`, `${usage.message_count} msgs`)}
+              </span>
+            )}
+            {modelLabel ? (
+              <span className="pt-usage-pill pt-usage-pill--muted">
+                {modelLabel}
+                {usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : ""}
+              </span>
+            ) : null}
+          </div>
+          <p className="pt-usage-row__detail">{preview}</p>
+          <div className="pt-usage-row__meta">
+            <span>{t("最近使用", "Latest")} {formatTimestamp(usage.latest_at, locale)}</span>
+            <span>{t(`${usage.total_requests} 次请求`, `${usage.total_requests} requests`)}</span>
+          </div>
+        </div>
+        <div className="pt-usage-row__summary">
+          <strong>{formatTokens(totalTokens(usage.model_usages))}</strong>
+          <span>{t(`${usage.model_usages.length} 个模型`, `${usage.model_usages.length} models`)}</span>
+        </div>
+      </button>
+
+      {open ? (
+        <div className="pt-usage-row__body">
+          <div className="pt-usage-row__facts">
+            <span>{t("创建于", "Created")} {formatTimestamp(usage.created_at, locale)}</span>
+            <span>{t("更新于", "Updated")} {formatTimestamp(usage.updated_at, locale)}</span>
+          </div>
+          <div className="pt-usage-model-list">
+            {usage.model_usages.map((modelUsage) => (
+              <ModelUsageRow key={modelUsage.model} usage={modelUsage} t={t} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function DailyUsageCard({
+  usage,
+  locale,
+  t,
+}: {
+  usage: DailyUsage;
+  locale: string;
+  t: (zh: string, en: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const modelLabel = leadModelLabel(usage.model_usages);
+
+  return (
+    <article className={`pt-usage-row${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="pt-usage-row__button"
+        onClick={() => {
+          setOpen((value) => !value);
+        }}
+      >
+        <ChevronRight size={16} className={`pt-usage-row__chevron${open ? " is-open" : ""}`} />
+        <div className="pt-usage-row__main">
+          <div className="pt-usage-row__title-line">
+            <p className="pt-usage-row__title">{formatDay(usage.date, locale)}</p>
+            <span className="pt-usage-pill">
+              {t(
+                `${usage.conversation_count} 个会话`,
+                `${usage.conversation_count} chats`,
+              )}
+            </span>
+            {modelLabel ? (
+              <span className="pt-usage-pill pt-usage-pill--muted">
+                {modelLabel}
+                {usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : ""}
+              </span>
+            ) : null}
+          </div>
+          <p className="pt-usage-row__detail">
+            {t(
+              `${totalRequests(usage.model_usages)} 次请求 · ${usage.model_usages.length} 个模型`,
+              `${totalRequests(usage.model_usages)} requests · ${usage.model_usages.length} models`,
+            )}
+          </p>
+        </div>
+        <div className="pt-usage-row__summary">
+          <strong>{formatTokens(totalTokens(usage.model_usages))}</strong>
+          <span>{t("当天累计", "Daily total")}</span>
+        </div>
+      </button>
+
+      {open ? (
+        <div className="pt-usage-row__body">
+          <div className="pt-usage-model-list">
+            {usage.model_usages.map((modelUsage) => (
+              <ModelUsageRow key={modelUsage.model} usage={modelUsage} t={t} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ModelUsageRow({
+  usage,
+  t,
+}: {
+  usage: ModelUsage;
+  t: (zh: string, en: string) => string;
+}) {
+  return (
+    <div className="pt-usage-model-row">
+      <div className="pt-usage-model-row__main">
+        <span className="pt-usage-model-row__name">{usage.model}</span>
+        <span className="pt-usage-inline-metrics">
+          <span className="pt-usage-inline-metric">
+            <ArrowDownRight size={12} />
+            <span>{formatTokens(usage.prompt_tokens)} in</span>
+          </span>
+          <span className="pt-usage-inline-metric">
+            <ArrowUpRight size={12} />
+            <span>{formatTokens(usage.completion_tokens)} out</span>
+          </span>
+        </span>
+      </div>
+      <span className="pt-usage-model-row__stat">
+        {formatTokens(usage.total_tokens)} ·{" "}
+        {t(`${usage.request_count} 次`, `${usage.request_count} calls`)}
+      </span>
+    </div>
   );
 }

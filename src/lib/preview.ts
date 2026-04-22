@@ -1,4 +1,9 @@
 import { useAppStore } from "../stores/appStore";
+import {
+  DEFAULT_APPEARANCE_MODE,
+  DEFAULT_ZOOM_FACTOR,
+  resolveAppearanceTheme,
+} from "./appearance";
 import type {
   Conversation,
   ImageGenConfig,
@@ -27,6 +32,7 @@ const PREVIEW_CONVERSATIONS: Conversation[] = [
     id: "preview-conversation-main",
     title: "Ship the iPad split-view polish for iOS 26",
     preview: "iPad split view needs tighter chrome and steadier safe-area spacing.",
+    assistant_id: null,
     created_at: timestamp(210),
     updated_at: timestamp(6),
   },
@@ -34,6 +40,7 @@ const PREVIEW_CONVERSATIONS: Conversation[] = [
     id: "preview-conversation-notes",
     title: "Design notes and motion pass",
     preview: "Need to tighten the glass highlight and reduce the sidebar chrome.",
+    assistant_id: null,
     created_at: timestamp(330),
     updated_at: timestamp(38),
   },
@@ -41,6 +48,7 @@ const PREVIEW_CONVERSATIONS: Conversation[] = [
     id: "preview-conversation-cn",
     title: "把移动端界面整理成真正的 iOS 体验",
     preview: "详情页进入时，列表要左移缩放，但仍然保持呼吸感。",
+    assistant_id: null,
     created_at: timestamp(450),
     updated_at: timestamp(92),
   },
@@ -211,6 +219,10 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
     ttsModel: "tts-1",
     ttsVoice: "alloy",
     imageGenConfig: PREVIEW_IMAGE_GEN_CONFIG,
+    appearanceMode: DEFAULT_APPEARANCE_MODE,
+    systemTheme: "dark",
+    resolvedTheme: resolveAppearanceTheme(DEFAULT_APPEARANCE_MODE, "dark"),
+    zoomFactor: DEFAULT_ZOOM_FACTOR,
     pinEnabled: screen === "pin",
     isLocked: screen === "pin",
   });
@@ -235,6 +247,10 @@ export function previewSettingValue(key: string): string | null {
       return "";
     case "context_max_messages":
       return "50";
+    case "appearance_mode":
+      return DEFAULT_APPEARANCE_MODE;
+    case "ui_zoom_factor":
+      return DEFAULT_ZOOM_FACTOR.toFixed(2);
     case "stt_provider_id":
       return PREVIEW_PROVIDER.id;
     case "stt_model":

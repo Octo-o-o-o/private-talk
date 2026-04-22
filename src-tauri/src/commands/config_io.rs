@@ -38,6 +38,7 @@ struct ConfigPayload {
     app: String,
     exported_at: String,
     providers: Vec<ProviderData>,
+    assistants: Vec<AssistantData>,
     settings: Vec<SettingEntry>,
 }
 
@@ -57,23 +58,37 @@ struct SettingEntry {
     value: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AssistantData {
+    id: String,
+    name: String,
+    description: String,
+    system_prompt: String,
+    icon: String,
+    created_at: String,
+    updated_at: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ExportConfigResult {
     pub file_name: String,
     pub data: Vec<u8>,
     pub providers: usize,
+    pub assistants: usize,
     pub settings: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ImportConfigResult {
     pub providers: usize,
+    pub assistants: usize,
     pub settings: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ValidateBackupResult {
     pub providers: usize,
+    pub assistants: usize,
     pub settings: usize,
     pub has_local_config: bool,
 }
@@ -178,6 +193,32 @@ fn collect_settings(conn: &rusqlite::Connection) -> Result<Vec<SettingEntry>, St
         .map_err(|error| error.to_string())
 }
 
+fn collect_assistants(conn: &rusqlite::Connection) -> Result<Vec<AssistantData>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, system_prompt, icon, created_at, updated_at
+             FROM assistants
+             WHERE is_preset = 0
+             ORDER BY created_at ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AssistantData {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                system_prompt: row.get(3)?,
+                icon: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
 fn has_any_config(conn: &rusqlite::Connection) -> Result<bool, String> {
     let provider_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM providers", [], |row| row.get(0))
@@ -193,7 +234,14 @@ fn has_any_config(conn: &rusqlite::Connection) -> Result<bool, String> {
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
-    Ok(provider_count > 0 || setting_count > 0)
+    let assistant_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM assistants WHERE is_preset = 0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(provider_count > 0 || assistant_count > 0 || setting_count > 0)
 }
 
 fn parse_backup(data: &[u8], password: &str) -> Result<ConfigPayload, String> {
@@ -217,12 +265,14 @@ pub fn export_config_data(
 
     let conn = db.lock()?;
     let providers = collect_providers(&conn)?;
+    let assistants = collect_assistants(&conn)?;
     let settings = collect_settings(&conn)?;
     let payload = ConfigPayload {
         version: 1,
         app: "private-talk".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
         providers: providers.clone(),
+        assistants: assistants.clone(),
         settings: settings.clone(),
     };
     let json = serde_json::to_vec_pretty(&payload).map_err(|error| error.to_string())?;
@@ -236,6 +286,7 @@ pub fn export_config_data(
         file_name,
         data,
         providers: providers.len(),
+        assistants: assistants.len(),
         settings: settings.len(),
     })
 }
@@ -255,6 +306,7 @@ pub fn validate_backup_data(
     let has_local_config = has_any_config(&conn)?;
     Ok(ValidateBackupResult {
         providers: payload.providers.len(),
+        assistants: payload.assistants.len(),
         settings: payload.settings.len(),
         has_local_config,
     })
@@ -277,6 +329,8 @@ pub fn import_config_data(
     if mode == "replace" {
         conn.execute("DELETE FROM providers", [])
             .map_err(|error| error.to_string())?;
+        conn.execute("DELETE FROM assistants WHERE is_preset = 0", [])
+            .map_err(|error| error.to_string())?;
         for key in EXPORTABLE_SETTINGS {
             conn.execute(
                 "DELETE FROM settings WHERE key = ?1",
@@ -287,6 +341,7 @@ pub fn import_config_data(
     }
 
     let mut imported_providers = 0_usize;
+    let mut imported_assistants = 0_usize;
     let mut imported_settings = 0_usize;
 
     for provider in &payload.providers {
@@ -320,8 +375,32 @@ pub fn import_config_data(
         }
     }
 
+    for assistant in &payload.assistants {
+        let id = if assistant.id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            assistant.id.clone()
+        };
+        conn.execute(
+            "INSERT OR REPLACE INTO assistants (id, name, description, system_prompt, icon, is_preset, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
+            rusqlite::params![
+                id,
+                assistant.name,
+                assistant.description,
+                assistant.system_prompt,
+                assistant.icon,
+                assistant.created_at,
+                assistant.updated_at,
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        imported_assistants += 1;
+    }
+
     Ok(ImportConfigResult {
         providers: imported_providers,
+        assistants: imported_assistants,
         settings: imported_settings,
     })
 }

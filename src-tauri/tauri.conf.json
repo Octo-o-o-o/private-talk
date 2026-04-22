@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "private-talk",
+  "productName": "Private Talk",
   "version": "0.1.0",
   "identifier": "com.wangyixiao.private-talk",
   "build": {
@@ -18,14 +18,22 @@
         "minWidth": 768,
         "minHeight": 600,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        },
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/generated-images/**"]
+        "scope": [
+          "$APPDATA/attachments/**",
+          "$APPDATA/generated-images/**"
+        ]
       }
     }
   },
@@ -39,10 +47,28 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "category": "Education",
+    "copyright": "Copyright © 2026 Yixiao Wang and contributors",
     "macOS": {
       "minimumSystemVersion": "11.0",
+      "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
-      "signingIdentity": "Developer ID Application: Yixiao Wang (5CS6HUB4P2)"
+      "signingIdentity": "Developer ID Application: Yixiao Wang (5CS6HUB4P2)",
+      "infoPlist": "Info.plist",
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        }
+      }
     }
   }
 }

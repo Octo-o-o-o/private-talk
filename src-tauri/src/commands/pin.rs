@@ -98,10 +98,12 @@ pub fn reset_all_data(app: tauri::AppHandle, db: State<DbState>) -> Result<(), S
          DELETE FROM attachments;
          DELETE FROM usage_records;
          DELETE FROM conversations;
+         DELETE FROM assistants;
          DELETE FROM providers;
          DELETE FROM settings;",
     )
     .map_err(|e| e.to_string())?;
+    crate::db::schema::init_db(&conn).map_err(|e| e.to_string())?;
     if let Ok(app_dir) = app.path().app_data_dir() {
         let _ = std::fs::remove_dir_all(app_dir.join("attachments"));
         let _ = std::fs::remove_dir_all(app_dir.join("generated-images"));

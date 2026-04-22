@@ -24,8 +24,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::assistant::list_assistants,
+            commands::assistant::create_assistant,
+            commands::assistant::update_assistant,
+            commands::assistant::delete_assistant,
+            commands::assistant::duplicate_assistant,
             commands::conversation::list_conversations,
             commands::conversation::create_conversation,
+            commands::conversation::update_conversation_assistant,
             commands::conversation::delete_conversation,
             commands::conversation::rename_conversation,
             commands::conversation::get_messages,

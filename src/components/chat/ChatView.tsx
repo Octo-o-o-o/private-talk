@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
   MessageSquarePlus,
@@ -10,6 +10,7 @@ import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import type {
   Attachment,
+  Assistant,
   Provider,
   StreamChunkPayload,
   StreamDonePayload,
@@ -24,14 +25,23 @@ interface ChatViewProps {
   layout: LayoutMode;
   onBack?: () => void;
   onOpenSettings: () => void;
+  onRequestNewConversation: () => void;
 }
 
-export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
+type Unlisten = () => void;
+
+export function ChatView({
+  layout,
+  onBack,
+  onOpenSettings,
+  onRequestNewConversation,
+}: ChatViewProps) {
   const { t } = useI18n();
   const {
     messages,
     conversations,
     currentConversationId,
+    currentAssistantId,
     isStreaming,
     streamingContent,
     setStreaming,
@@ -41,8 +51,10 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
     selectedProviderId,
     selectedModel,
     providers,
+    assistants,
     imageGenConfig,
     createConversation,
+    selectAssistant,
     setSelectedProvider,
     setSelectedModel,
   } = useAppStore();
@@ -122,7 +134,7 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
       payload: T,
     ): boolean => payload.conversation_id === currentConversationId;
 
-    const subscriptions: Promise<UnlistenFn>[] = [
+    const subscriptions: Promise<Unlisten>[] = [
       listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
         if (!matchesConversation(event.payload)) {
           return;
@@ -343,12 +355,20 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
   const currentConversation = conversations.find(
     (conversation) => conversation.id === currentConversationId,
   );
+  const currentAssistant =
+    assistants.find(
+      (assistant) =>
+        assistant.id ===
+        (currentConversation?.assistant_id ?? currentAssistantId ?? null),
+    ) ?? null;
   const hasConversation = !!currentConversationId;
   const title = hasConversation
     ? currentConversation?.title.trim() || t("新对话", "New Conversation")
     : "Private Talk";
   const subtitle = hasConversation
-    ? effectiveModel ?? effectiveProvider?.name ?? t("选择模型", "Choose a model")
+    ? [currentAssistant?.name, effectiveModel ?? effectiveProvider?.name ?? t("选择模型", "Choose a model")]
+        .filter(Boolean)
+        .join(" · ")
     : providers.length > 0
       ? t("一切都只保留在当前设备。", "Everything stays on this device.")
       : t("先添加服务商，再开始使用。", "Add a provider to begin.");
@@ -397,7 +417,12 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
           {hasConversation ? (
             <>
               {messages.length === 0 && !isStreaming ? (
-                <ConversationStarterCard />
+                <ConversationStarterCard
+                  assistants={assistants}
+                  currentAssistant={currentAssistant}
+                  currentAssistantId={currentAssistantId}
+                  onSelectAssistant={selectAssistant}
+                />
               ) : null}
 
               {messages.map((message) => (
@@ -422,8 +447,12 @@ export function ChatView({ layout, onBack, onOpenSettings }: ChatViewProps) {
             </>
           ) : (
             <WelcomePanel
+              assistants={assistants}
+              currentAssistant={currentAssistant}
+              currentAssistantId={currentAssistantId}
               hasProviders={providers.length > 0}
-              onCreateConversation={() => void createConversation()}
+              onSelectAssistant={selectAssistant}
+              onCreateConversation={onRequestNewConversation}
               onOpenSettings={onOpenSettings}
             />
           )}
@@ -462,11 +491,20 @@ function DesktopChatHeader({
   onProviderChange: (id: string) => void;
   onModelChange: (model: string) => void;
 }) {
+  const dragRegionProps = { "data-tauri-drag-region": true } as const;
+
   return (
-    <header className="pt-pane-header pt-pane-header--desktop pt-drag">
-      <div className="pt-pane-header__copy">
-        <p className="pt-pane-header__title">{title}</p>
-        <p className="pt-pane-header__subtitle">{subtitle}</p>
+    <header
+      className="pt-pane-header pt-pane-header--desktop pt-drag"
+      {...dragRegionProps}
+    >
+      <div className="pt-pane-header__copy" {...dragRegionProps}>
+        <p className="pt-pane-header__title" {...dragRegionProps}>
+          {title}
+        </p>
+        <p className="pt-pane-header__subtitle" {...dragRegionProps}>
+          {subtitle}
+        </p>
       </div>
 
       <div className="pt-pane-header__actions" data-no-drag>
@@ -617,11 +655,19 @@ function ProviderControls({
 }
 
 function WelcomePanel({
+  assistants,
+  currentAssistant,
+  currentAssistantId,
   hasProviders,
+  onSelectAssistant,
   onCreateConversation,
   onOpenSettings,
 }: {
+  assistants: Assistant[];
+  currentAssistant: Assistant | null;
+  currentAssistantId: string | null;
   hasProviders: boolean;
+  onSelectAssistant: (id: string | null) => void | Promise<void>;
   onCreateConversation: () => void;
   onOpenSettings: () => void;
 }) {
@@ -649,9 +695,17 @@ function WelcomePanel({
       </p>
       <div className="pt-welcome__actions">
         {hasProviders ? (
-          <button type="button" className="pt-btn pt-btn--primary" onClick={onCreateConversation}>
-            {t("新建聊天", "New Chat")}
-          </button>
+          <>
+            <AssistantSelector
+              assistants={assistants}
+              currentAssistant={currentAssistant}
+              currentAssistantId={currentAssistantId}
+              onSelectAssistant={onSelectAssistant}
+            />
+            <button type="button" className="pt-btn pt-btn--primary" onClick={onCreateConversation}>
+              {t("新建聊天", "New Chat")}
+            </button>
+          </>
         ) : (
           <button type="button" className="pt-btn pt-btn--primary" onClick={onOpenSettings}>
             {t("打开设置", "Open Settings")}
@@ -662,7 +716,17 @@ function WelcomePanel({
   );
 }
 
-function ConversationStarterCard() {
+function ConversationStarterCard({
+  assistants,
+  currentAssistant,
+  currentAssistantId,
+  onSelectAssistant,
+}: {
+  assistants: Assistant[];
+  currentAssistant: Assistant | null;
+  currentAssistantId: string | null;
+  onSelectAssistant: (id: string | null) => void | Promise<void>;
+}) {
   const { t } = useI18n();
   return (
     <section className="pt-helper-card">
@@ -677,8 +741,70 @@ function ConversationStarterCard() {
             "Your next message becomes the first turn in this conversation.",
           )}
         </p>
+        <AssistantSelector
+          assistants={assistants}
+          currentAssistant={currentAssistant}
+          currentAssistantId={currentAssistantId}
+          onSelectAssistant={onSelectAssistant}
+          compact
+        />
       </div>
     </section>
+  );
+}
+
+function AssistantSelector({
+  assistants,
+  currentAssistant,
+  currentAssistantId,
+  onSelectAssistant,
+  compact = false,
+}: {
+  assistants: Assistant[];
+  currentAssistant: Assistant | null;
+  currentAssistantId: string | null;
+  onSelectAssistant: (id: string | null) => void | Promise<void>;
+  compact?: boolean;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className={`pt-assistant-inline${compact ? " is-compact" : ""}`}>
+      <div className="pt-assistant-inline__header">
+        <span className="pt-assistant-inline__label">
+          {t("会话助手", "Conversation Assistant")}
+        </span>
+        {currentAssistant?.is_preset ? (
+          <span className="pt-badge">{t("预设", "Preset")}</span>
+        ) : null}
+      </div>
+
+      <select
+        className="pt-select"
+        value={currentAssistantId ?? "__free__"}
+        onChange={(event) =>
+          void onSelectAssistant(
+            event.target.value === "__free__" ? null : event.target.value,
+          )
+        }
+        aria-label={t("选择会话助手", "Choose conversation assistant")}
+      >
+        <option value="__free__">{t("自由对话", "Free Chat")}</option>
+        {assistants.map((assistant) => (
+          <option key={assistant.id} value={assistant.id}>
+            {assistant.name}
+          </option>
+        ))}
+      </select>
+
+      <p className="pt-assistant-inline__detail">
+        {currentAssistant?.description ||
+          t(
+            "不绑定额外系统提示词，按当前全局助手偏好回复。",
+            "No extra system prompt is attached. Replies follow the current global assistant defaults.",
+          )}
+      </p>
+    </div>
   );
 }
 

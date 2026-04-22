@@ -81,6 +81,23 @@ fn load_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> 
     .map_err(|error| error.to_string())
 }
 
+fn load_conversation_assistant_prompt(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT assistants.system_prompt
+         FROM conversations
+         LEFT JOIN assistants ON assistants.id = conversations.assistant_id
+         WHERE conversations.id = ?1",
+        params![conversation_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+    .map(|value| value.flatten().map(|prompt| prompt.trim().to_string()))
+}
+
 fn context_message_limit(setting: Option<String>) -> usize {
     setting
         .as_deref()
@@ -143,24 +160,33 @@ fn language_instruction(language: &str) -> Option<&'static str> {
 }
 
 fn build_system_message(
+    assistant_prompt: Option<String>,
     assistant_preset: Option<String>,
     reply_language: Option<String>,
     custom_prompt: Option<String>,
 ) -> Option<ChatMessage> {
-    let preset = assistant_preset.unwrap_or_else(|| "default".to_string());
-    let custom_prompt = custom_prompt.unwrap_or_default().trim().to_string();
     let mut instructions = Vec::new();
 
-    if preset != "default" {
-        instructions.push(assistant_preset_instruction(&preset).to_string());
+    if let Some(prompt) = assistant_prompt
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        instructions.push(prompt);
+    } else {
+        let preset = assistant_preset.unwrap_or_else(|| "default".to_string());
+        let custom_prompt = custom_prompt.unwrap_or_default().trim().to_string();
+
+        if preset != "default" {
+            instructions.push(assistant_preset_instruction(&preset).to_string());
+        }
+
+        if !custom_prompt.is_empty() {
+            instructions.push(format!("Additional instructions: {}", custom_prompt));
+        }
     }
 
     if let Some(language) = reply_language.as_deref().and_then(language_instruction) {
         instructions.push(language.to_string());
-    }
-
-    if !custom_prompt.is_empty() {
-        instructions.push(format!("Additional instructions: {}", custom_prompt));
     }
 
     if instructions.is_empty() {
@@ -382,6 +408,7 @@ pub async fn send_message(
         api_key,
         mut history,
         conversation_title,
+        conversation_assistant_prompt,
         assistant_preset,
         reply_language,
         custom_prompt,
@@ -409,6 +436,8 @@ pub async fn send_message(
             )
             .unwrap_or_else(|_| "New Chat".to_string());
         let mut history = load_history(&conn, &conversation_id, &model)?;
+        let conversation_assistant_prompt =
+            load_conversation_assistant_prompt(&conn, &conversation_id)?;
         if let Some(last_user) = history
             .iter_mut()
             .rev()
@@ -429,15 +458,19 @@ pub async fn send_message(
             provider.1,
             trim_history_for_context(history, context_message_limit(context_limit)),
             title,
+            conversation_assistant_prompt,
             assistant_preset,
             reply_language,
             custom_prompt,
         )
     };
 
-    if let Some(system_message) =
-        build_system_message(assistant_preset, reply_language, custom_prompt)
-    {
+    if let Some(system_message) = build_system_message(
+        conversation_assistant_prompt,
+        assistant_preset,
+        reply_language,
+        custom_prompt,
+    ) {
         history.insert(0, system_message);
     }
 

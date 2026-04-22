@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { ChatView } from "../chat/ChatView";
+import { NewConversationPicker } from "./NewConversationPicker";
 import { SettingsPage } from "../settings/SettingsPage";
 import { Sidebar } from "./Sidebar";
 import { useLayoutMode } from "./useLayoutMode";
 
 export function AppLayout() {
+  const [newConversationPickerOpen, setNewConversationPickerOpen] = useState(false);
   const layout = useLayoutMode();
   const view = useAppStore((s) => s.view);
   const currentConversationId = useAppStore((s) => s.currentConversationId);
@@ -24,7 +27,10 @@ export function AppLayout() {
     >
       <aside className="app-sidebar-pane">
         <div className="app-panel app-panel--sidebar">
-          <Sidebar layout={layout} />
+          <Sidebar
+            layout={layout}
+            onRequestNewConversation={() => setNewConversationPickerOpen(true)}
+          />
         </div>
       </aside>
 
@@ -39,6 +45,7 @@ export function AppLayout() {
                 layout={layout}
                 onBack={clearConversationSelection}
                 onOpenSettings={() => setView("settings")}
+                onRequestNewConversation={() => setNewConversationPickerOpen(true)}
               />
             </section>
 
@@ -54,6 +61,12 @@ export function AppLayout() {
           </div>
         </div>
       </main>
+
+      <NewConversationPicker
+        open={newConversationPickerOpen}
+        layout={layout}
+        onClose={() => setNewConversationPickerOpen(false)}
+      />
     </div>
   );
 }

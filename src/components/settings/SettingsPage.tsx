@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { LayoutMode } from "../layout/useLayoutMode";
 import { AssistantSettingsSection } from "./AssistantSettings";
+import { AppearanceSettingsSection } from "./AppearanceSettings";
 import { BackupSettingsSection } from "./BackupSettingsSection";
+import { ConversationAssistantsSection } from "./ConversationAssistantsSection";
 import { ImageGenerationSettingsSection } from "./ImageGenerationSettings";
 import { LanguageSettingsSection } from "./LanguageSettings";
 import { MemorySettingsSection } from "./MemorySettings";
@@ -22,6 +24,7 @@ interface SettingsPageProps {
 export function SettingsPage({ layout, onBack }: SettingsPageProps) {
   const isPhone = layout === "phone";
   const { t } = useI18n();
+  const desktopDragProps = !isPhone ? { "data-tauri-drag-region": true } : {};
 
   return (
     <div className={`pt-settings pt-settings--${layout}`}>
@@ -29,6 +32,7 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
         className={`pt-pane-header ${
           isPhone ? "pt-pane-header--mobile" : "pt-pane-header--desktop pt-drag"
         }`}
+        {...desktopDragProps}
       >
         {isPhone ? (
           <button
@@ -40,12 +44,17 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
             <ArrowLeft size={20} />
           </button>
         ) : (
-          <div className="pt-pane-header__spacer" />
+          <div className="pt-pane-header__spacer" {...desktopDragProps} />
         )}
 
-        <div className={`pt-pane-header__copy${isPhone ? " pt-pane-header__copy--center" : ""}`}>
-          <p className="pt-pane-header__title">{t("设置", "Settings")}</p>
-          <p className="pt-pane-header__subtitle">
+        <div
+          className={`pt-pane-header__copy${isPhone ? " pt-pane-header__copy--center" : ""}`}
+          {...desktopDragProps}
+        >
+          <p className="pt-pane-header__title" {...desktopDragProps}>
+            {t("设置", "Settings")}
+          </p>
+          <p className="pt-pane-header__subtitle" {...desktopDragProps}>
             {t(
               "模型、助手与本地安全设置",
               "Models, assistant, and local security",
@@ -53,13 +62,18 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
           </p>
         </div>
 
-        <div className="pt-pane-header__spacer" data-no-drag />
+        <div
+          className="pt-pane-header__spacer"
+          {...(isPhone ? { "data-no-drag": true } : desktopDragProps)}
+        />
       </header>
 
       <div className="pt-settings__scroll">
         <div className="pt-settings__column">
           <LanguageSettingsSection />
+          <AppearanceSettingsSection />
           <AssistantSettingsSection />
+          <ConversationAssistantsSection />
           <ModelRoutingSettingsSection />
           <ImageGenerationSettingsSection />
           <MemorySettingsSection />

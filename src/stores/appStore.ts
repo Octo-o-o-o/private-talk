@@ -1,5 +1,15 @@
 import { create } from "zustand";
 import {
+  DEFAULT_APPEARANCE_MODE,
+  DEFAULT_ZOOM_FACTOR,
+  normalizeAppearanceMode,
+  normalizeZoomFactor,
+  resolveAppearanceTheme,
+  serializeZoomFactor,
+  type AppearanceMode,
+  type ResolvedAppearanceTheme,
+} from "../lib/appearance";
+import {
   normalizeUiLanguage,
   resolveUiLanguage,
   type ResolvedUiLanguage,
@@ -7,6 +17,7 @@ import {
 } from "../lib/uiLanguage";
 import * as api from "../lib/tauri";
 import type {
+  Assistant,
   Conversation,
   ImageGenConfig,
   Message,
@@ -18,6 +29,8 @@ type View = "chat" | "settings";
 const CHAT_PROVIDER_SETTING_KEY = "chat_provider_id";
 const CHAT_MODEL_SETTING_KEY = "chat_model";
 const UI_LANGUAGE_SETTING_KEY = "ui_language";
+const APPEARANCE_MODE_SETTING_KEY = "appearance_mode";
+const UI_ZOOM_FACTOR_SETTING_KEY = "ui_zoom_factor";
 const CONTEXT_MAX_MESSAGES_SETTING_KEY = "context_max_messages";
 const STT_PROVIDER_SETTING_KEY = "stt_provider_id";
 const STT_MODEL_SETTING_KEY = "stt_model";
@@ -97,14 +110,26 @@ interface AppState {
   resolvedLanguage: ResolvedUiLanguage;
   loadUiPreferences: () => Promise<void>;
   setUiLanguage: (language: UiLanguage) => Promise<void>;
+  appearanceMode: AppearanceMode;
+  systemTheme: ResolvedAppearanceTheme;
+  resolvedTheme: ResolvedAppearanceTheme;
+  zoomFactor: number;
+  loadAppearancePreferences: () => Promise<void>;
+  setAppearanceMode: (mode: AppearanceMode) => Promise<void>;
+  setSystemTheme: (theme: ResolvedAppearanceTheme) => void;
+  setZoomFactor: (zoomFactor: number) => Promise<void>;
 
   // Conversations
   conversations: Conversation[];
+  assistants: Assistant[];
+  currentAssistantId: string | null;
   currentConversationId: string | null;
   loadConversations: () => Promise<void>;
+  loadAssistants: () => Promise<void>;
+  selectAssistant: (id: string | null) => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   clearConversationSelection: () => void;
-  createConversation: () => Promise<string>;
+  createConversation: (assistantId?: string | null) => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
 
@@ -158,6 +183,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setView: (view) => set({ view }),
   uiLanguage: "auto",
   resolvedLanguage: resolveUiLanguage("auto"),
+  appearanceMode: DEFAULT_APPEARANCE_MODE,
+  systemTheme: "dark",
+  resolvedTheme: resolveAppearanceTheme(DEFAULT_APPEARANCE_MODE, "dark"),
+  zoomFactor: DEFAULT_ZOOM_FACTOR,
   loadUiPreferences: async () => {
     const nextLanguage = normalizeUiLanguage(
       await api.getSetting(UI_LANGUAGE_SETTING_KEY),
@@ -175,19 +204,103 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     await api.setSetting(UI_LANGUAGE_SETTING_KEY, nextLanguage);
   },
+  loadAppearancePreferences: async () => {
+    const [storedAppearanceMode, storedZoomFactor] = await Promise.all([
+      api.getSetting(APPEARANCE_MODE_SETTING_KEY),
+      api.getSetting(UI_ZOOM_FACTOR_SETTING_KEY),
+    ]);
+    const nextAppearanceMode = normalizeAppearanceMode(storedAppearanceMode);
+    const nextZoomFactor = normalizeZoomFactor(storedZoomFactor);
+
+    set((state) => ({
+      appearanceMode: nextAppearanceMode,
+      zoomFactor: nextZoomFactor,
+      resolvedTheme: resolveAppearanceTheme(
+        nextAppearanceMode,
+        state.systemTheme,
+      ),
+    }));
+
+    if ((storedAppearanceMode ?? "") !== nextAppearanceMode) {
+      void api
+        .setSetting(APPEARANCE_MODE_SETTING_KEY, nextAppearanceMode)
+        .catch((error) => {
+          console.warn("Failed to persist appearance mode:", error);
+        });
+    }
+
+    const serializedZoomFactor = serializeZoomFactor(nextZoomFactor);
+    if ((storedZoomFactor ?? "") !== serializedZoomFactor) {
+      void api
+        .setSetting(UI_ZOOM_FACTOR_SETTING_KEY, serializedZoomFactor)
+        .catch((error) => {
+          console.warn("Failed to persist zoom factor:", error);
+        });
+    }
+  },
+  setAppearanceMode: async (mode) => {
+    const nextAppearanceMode = normalizeAppearanceMode(mode);
+    set((state) => ({
+      appearanceMode: nextAppearanceMode,
+      resolvedTheme: resolveAppearanceTheme(
+        nextAppearanceMode,
+        state.systemTheme,
+      ),
+    }));
+    await api.setSetting(APPEARANCE_MODE_SETTING_KEY, nextAppearanceMode);
+  },
+  setSystemTheme: (theme) => {
+    set((state) => ({
+      systemTheme: theme,
+      resolvedTheme: resolveAppearanceTheme(state.appearanceMode, theme),
+    }));
+  },
+  setZoomFactor: async (zoomFactor) => {
+    const nextZoomFactor = normalizeZoomFactor(zoomFactor);
+    set({ zoomFactor: nextZoomFactor });
+    await api.setSetting(
+      UI_ZOOM_FACTOR_SETTING_KEY,
+      serializeZoomFactor(nextZoomFactor),
+    );
+  },
 
   // Conversations
   conversations: [],
+  assistants: [],
+  currentAssistantId: null,
   currentConversationId: null,
   loadConversations: async () => {
     set({ conversations: await api.listConversations() });
   },
-  selectConversation: async (id) => {
-    set({ currentConversationId: id, view: "chat" });
-    await get().loadMessages(id);
+  loadAssistants: async () => {
+    set({ assistants: await api.listAssistants() });
   },
-  clearConversationSelection: () => {
+  selectAssistant: async (id) => {
+    const { currentConversationId, messages } = get();
+
+    if (currentConversationId && messages.length === 0) {
+      const updatedConversation = await api.updateConversationAssistant(
+        currentConversationId,
+        id ?? null,
+      );
+      set((state) => ({
+        currentAssistantId: updatedConversation.assistant_id ?? null,
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === currentConversationId
+            ? {
+                ...conversation,
+                assistant_id: updatedConversation.assistant_id ?? null,
+                updated_at: updatedConversation.updated_at,
+              }
+            : conversation,
+        ),
+      }));
+      await get().loadConversations();
+      return;
+    }
+
     set({
+      currentAssistantId: id ?? null,
       currentConversationId: null,
       messages: [],
       view: "chat",
@@ -195,10 +308,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       streamingContent: "",
     });
   },
-  createConversation: async () => {
-    const conv = await api.createConversation();
+  selectConversation: async (id) => {
+    const conversation =
+      get().conversations.find((item) => item.id === id) ?? null;
+      set({ currentConversationId: id, view: "chat" });
+    set({ currentAssistantId: conversation?.assistant_id ?? null });
+    await get().loadMessages(id);
+  },
+  clearConversationSelection: () => {
+    set({
+      currentAssistantId: null,
+      currentConversationId: null,
+      messages: [],
+      view: "chat",
+      isStreaming: false,
+      streamingContent: "",
+    });
+  },
+  createConversation: async (assistantId) => {
+    const nextAssistantId = assistantId ?? get().currentAssistantId ?? null;
+    const conv = await api.createConversation(undefined, nextAssistantId);
     await get().loadConversations();
     set({
+      currentAssistantId: conv.assistant_id ?? nextAssistantId,
       currentConversationId: conv.id,
       messages: [],
       view: "chat",
@@ -208,7 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteConversation: async (id) => {
     await api.deleteConversation(id);
     if (get().currentConversationId === id) {
-      set({ currentConversationId: null, messages: [] });
+      set({ currentAssistantId: null, currentConversationId: null, messages: [] });
     }
     await get().loadConversations();
   },

@@ -302,10 +302,12 @@ function buildMarkdownComponents(
 ): Components {
   return {
     code({ className, children, ...props }) {
-      const match = /language-(\w+)/.exec(className || "");
+      const languageClass = (className ?? "")
+        .split(/\s+/)
+        .find((token) => token.startsWith("language-"));
       const code = String(children).replace(/\n$/, "");
 
-      if (!match) {
+      if (!languageClass) {
         return (
           <code className="pt-markdown__inline-code" {...props}>
             {children}
@@ -313,12 +315,14 @@ function buildMarkdownComponents(
         );
       }
 
+      const language = languageClass.slice("language-".length);
+
       return (
-        <Suspense fallback={<CodeBlockFallback code={code} language={match[1]} />}>
+        <Suspense fallback={<CodeBlockFallback code={code} language={language} />}>
           <LazyMarkdownCodeBlock
             code={code}
             copied={copied}
-            language={match[1]}
+            language={language}
             onCopy={onCopy}
             copyLabel={copied ? t("已复制", "Copied") : t("复制代码", "Copy code")}
           />

@@ -62,22 +62,35 @@ function conversationAvatar(title: string, fallbackLabel: string): string {
   return normalized || "PT";
 }
 
-export function Sidebar({ layout }: { layout: LayoutMode }) {
+export function Sidebar({
+  layout,
+  onRequestNewConversation,
+}: {
+  layout: LayoutMode;
+  onRequestNewConversation: () => void;
+}) {
   const { t } = useI18n();
   const conversations = useAppStore((s) => s.conversations);
   const providers = useAppStore((s) => s.providers);
   const view = useAppStore((s) => s.view);
-  const createConversation = useAppStore((s) => s.createConversation);
   const setView = useAppStore((s) => s.setView);
   const isPhone = layout === "phone";
   const showProviderNotice = providers.length === 0;
+  const desktopDragProps = !isPhone ? { "data-tauri-drag-region": true } : {};
 
   return (
     <div className={`pt-sidebar pt-sidebar--${layout}`}>
-      <header className={`pt-sidebar__header${isPhone ? "" : " pt-drag"}`}>
-        <div>
-          <p className="pt-sidebar__eyebrow">Private Talk</p>
-          <h1 className="pt-sidebar__title">{t("聊天", "Chats")}</h1>
+      <header
+        className={`pt-sidebar__header${isPhone ? "" : " pt-drag"}`}
+        {...desktopDragProps}
+      >
+        <div {...desktopDragProps}>
+          <p className="pt-sidebar__eyebrow" {...desktopDragProps}>
+            Private Talk
+          </p>
+          <h1 className="pt-sidebar__title" {...desktopDragProps}>
+            {t("聊天", "Chats")}
+          </h1>
         </div>
 
         {isPhone ? (
@@ -90,7 +103,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
             <Settings size={18} />
           </button>
         ) : (
-          <div className="pt-sidebar__header-spacer" data-no-drag />
+          <div className="pt-sidebar__header-spacer" {...desktopDragProps} />
         )}
       </header>
 
@@ -128,7 +141,7 @@ export function Sidebar({ layout }: { layout: LayoutMode }) {
         <button
           type="button"
           className="pt-inline-button"
-          onClick={() => void createConversation()}
+          onClick={onRequestNewConversation}
         >
           <Plus size={17} strokeWidth={2.6} />
           {t("新建聊天", "New Chat")}

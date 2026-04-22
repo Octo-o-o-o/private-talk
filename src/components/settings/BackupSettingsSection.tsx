@@ -36,6 +36,7 @@ function fileToByteArray(file: File): Promise<number[]> {
 export function BackupSettingsSection() {
   const { t } = useI18n();
   const loadProviders = useAppStore((state) => state.loadProviders);
+  const loadAssistants = useAppStore((state) => state.loadAssistants);
   const loadUiPreferences = useAppStore((state) => state.loadUiPreferences);
   const loadChatSettings = useAppStore((state) => state.loadChatSettings);
   const loadSpeechSettings = useAppStore((state) => state.loadSpeechSettings);
@@ -60,6 +61,7 @@ export function BackupSettingsSection() {
   async function refreshConfig(): Promise<void> {
     await Promise.all([
       loadProviders(),
+      loadAssistants(),
       loadUiPreferences(),
       loadChatSettings(),
       loadSpeechSettings(),
@@ -79,8 +81,8 @@ export function BackupSettingsSection() {
       downloadBytes(result.file_name, result.data);
       setSuccess(
         t(
-          `已导出 ${result.providers} 个服务商和 ${result.settings} 项设置。`,
-          `Exported ${result.providers} providers and ${result.settings} settings.`,
+          `已导出 ${result.providers} 个服务商、${result.assistants} 个自定义助手和 ${result.settings} 项设置。`,
+          `Exported ${result.providers} providers, ${result.assistants} custom assistants, and ${result.settings} settings.`,
         ),
       );
     } catch (exportError) {
@@ -136,8 +138,8 @@ export function BackupSettingsSection() {
       await refreshConfig();
       setSuccess(
         t(
-          `已导入 ${result.providers} 个服务商和 ${result.settings} 项设置。`,
-          `Imported ${result.providers} providers and ${result.settings} settings.`,
+          `已导入 ${result.providers} 个服务商、${result.assistants} 个自定义助手和 ${result.settings} 项设置。`,
+          `Imported ${result.providers} providers, ${result.assistants} custom assistants, and ${result.settings} settings.`,
         ),
       );
     } catch (importError) {
@@ -234,6 +236,7 @@ export function BackupSettingsSection() {
               {validation ? (
                 <div className="pt-backup-summary">
                   <span>{t(`${validation.providers} 个服务商`, `${validation.providers} providers`)}</span>
+                  <span>{t(`${validation.assistants} 个自定义助手`, `${validation.assistants} custom assistants`)}</span>
                   <span>{t(`${validation.settings} 项设置`, `${validation.settings} settings`)}</span>
                 </div>
               ) : null}

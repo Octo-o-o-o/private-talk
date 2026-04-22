@@ -4,6 +4,18 @@ export interface Conversation {
   id: string;
   title: string;
   preview: string;
+  assistant_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Assistant {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  icon: string;
+  is_preset: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -93,16 +105,19 @@ export interface ExportConfigResult {
   file_name: string;
   data: number[];
   providers: number;
+  assistants: number;
   settings: number;
 }
 
 export interface ImportConfigResult {
   providers: number;
+  assistants: number;
   settings: number;
 }
 
 export interface ValidateBackupResult {
   providers: number;
+  assistants: number;
   settings: number;
   has_local_config: boolean;
 }
@@ -118,8 +133,12 @@ export interface ModelUsage {
 export interface ConversationUsage {
   conversation_id: string;
   conversation_title: string;
+  is_deleted: boolean;
   first_message_preview: string;
+  created_at: string;
+  updated_at: string;
   latest_at: string;
+  message_count: number;
   total_requests: number;
   model_usages: ModelUsage[];
 }

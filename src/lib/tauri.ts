@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
+  Assistant,
   AttachmentUpload,
   Conversation,
   ConversationUsage,
@@ -16,12 +17,68 @@ import type {
 } from "./types";
 
 const PREVIEW_PROVIDER_ID = "preview-provider-openai";
+const PREVIEW_ASSISTANTS: Assistant[] = [
+  {
+    id: "preset-default-assistant",
+    name: "Balanced Assistant",
+    description: "General-purpose replies with clear, practical tone.",
+    system_prompt: "You are Private Talk, a clear, helpful, and concise assistant.",
+    icon: "sparkles",
+    is_preset: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "preset-coding-assistant",
+    name: "Coding Assistant",
+    description: "Implementation-focused help for debugging, architecture, and code quality.",
+    system_prompt: "You are a senior software engineer.",
+    icon: "code",
+    is_preset: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "preset-writing-assistant",
+    name: "Writing Assistant",
+    description: "Sharper structure, phrasing, and editing support for drafts.",
+    system_prompt: "You are a writing assistant.",
+    icon: "pen",
+    is_preset: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "preset-translator",
+    name: "Translation Assistant",
+    description: "Meaning-first translation with terminology and format preserved.",
+    system_prompt: "You are a translation assistant.",
+    icon: "languages",
+    is_preset: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "preset-research-assistant",
+    name: "Research Assistant",
+    description: "Tradeoff-aware synthesis for options, planning, and comparisons.",
+    system_prompt: "You are a research assistant.",
+    icon: "search",
+    is_preset: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+];
 const PREVIEW_USAGE_BY_CONVERSATION: ConversationUsage[] = [
   {
     conversation_id: "preview-conversation-main",
     conversation_title: "Ship the iPad split-view polish for iOS 26",
+    is_deleted: false,
     first_message_preview: "Tighten the chrome, safe areas, and bubble width on iPad landscape.",
+    created_at: new Date(Date.now() - 1000 * 60 * 80).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
     latest_at: new Date().toISOString(),
+    message_count: 14,
     total_requests: 6,
     model_usages: [
       {
@@ -36,8 +93,12 @@ const PREVIEW_USAGE_BY_CONVERSATION: ConversationUsage[] = [
   {
     conversation_id: "preview-conversation-notes",
     conversation_title: "Design notes and motion pass",
+    is_deleted: false,
     first_message_preview: "Review the motion curve and hover glow intensity before shipping.",
+    created_at: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
     latest_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    message_count: 8,
     total_requests: 3,
     model_usages: [
       {
@@ -103,6 +164,10 @@ function previewSettingValue(key: string): string | null {
       return "";
     case "context_max_messages":
       return "50";
+    case "appearance_mode":
+      return "dark";
+    case "ui_zoom_factor":
+      return "1.00";
     case "stt_provider_id":
       return PREVIEW_PROVIDER_ID;
     case "stt_model":
@@ -142,8 +207,18 @@ export function listConversations(): Promise<Conversation[]> {
   return cmd("list_conversations");
 }
 
-export function createConversation(title?: string): Promise<Conversation> {
-  return cmd("create_conversation", { title });
+export function createConversation(
+  title?: string,
+  assistantId?: string | null,
+): Promise<Conversation> {
+  return cmd("create_conversation", { title, assistantId });
+}
+
+export function updateConversationAssistant(
+  id: string,
+  assistantId?: string | null,
+): Promise<Conversation> {
+  return cmd("update_conversation_assistant", { id, assistantId });
 }
 
 export function deleteConversation(id: string): Promise<void> {
@@ -156,6 +231,40 @@ export function renameConversation(id: string, title: string): Promise<void> {
 
 export function getMessages(conversationId: string): Promise<Message[]> {
   return cmd("get_messages", { conversationId });
+}
+
+export function listAssistants(): Promise<Assistant[]> {
+  if (!isTauri()) {
+    return Promise.resolve(PREVIEW_ASSISTANTS);
+  }
+  return cmd("list_assistants");
+}
+
+export function createAssistant(
+  name: string,
+  description: string,
+  systemPrompt: string,
+  icon?: string,
+): Promise<Assistant> {
+  return cmd("create_assistant", { name, description, systemPrompt, icon });
+}
+
+export function updateAssistant(
+  id: string,
+  name?: string,
+  description?: string,
+  systemPrompt?: string,
+  icon?: string,
+): Promise<void> {
+  return cmd("update_assistant", { id, name, description, systemPrompt, icon });
+}
+
+export function deleteAssistant(id: string): Promise<void> {
+  return cmd("delete_assistant", { id });
+}
+
+export function duplicateAssistant(id: string): Promise<Assistant> {
+  return cmd("duplicate_assistant", { id });
 }
 
 // Provider commands
@@ -349,11 +458,13 @@ export function exportConfigData(password: string): Promise<ExportConfigResult> 
           JSON.stringify({
             password_length: password.length,
             providers: 1,
+            assistants: 1,
             settings: 11,
           }),
         ),
       ),
       providers: 1,
+      assistants: 1,
       settings: 11,
     });
   }
@@ -367,6 +478,7 @@ export function validateBackupData(
   if (!isTauri()) {
     return Promise.resolve({
       providers: data.length > 0 ? 1 : 0,
+      assistants: data.length > 0 ? 1 : 0,
       settings: password.trim() ? 11 : 0,
       has_local_config: true,
     });
@@ -382,6 +494,7 @@ export function importConfigData(
   if (!isTauri()) {
     return Promise.resolve({
       providers: data.length > 0 ? 1 : 0,
+      assistants: data.length > 0 ? 1 : 0,
       settings: password.trim() ? 11 : 0,
     });
   }
