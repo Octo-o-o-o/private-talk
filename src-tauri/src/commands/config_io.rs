@@ -406,3 +406,86 @@ pub fn import_config_data(
         settings: imported_settings,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{decrypt, encrypt, FILE_VERSION, MAGIC, NONCE_LEN, SALT_LEN};
+
+    #[test]
+    fn encrypt_then_decrypt_roundtrip_recovers_plaintext() {
+        let plaintext = b"{\"hello\":\"world\",\"n\":42}";
+        let password = "correct horse battery staple";
+
+        let cipher = encrypt(plaintext, password).expect("encrypt");
+        let recovered = decrypt(&cipher, password).expect("decrypt");
+
+        assert_eq!(recovered, plaintext);
+    }
+
+    #[test]
+    fn encrypt_output_starts_with_magic_and_version_header() {
+        let cipher = encrypt(b"payload", "pw").expect("encrypt");
+        assert!(
+            cipher.starts_with(MAGIC),
+            "ciphertext must start with magic header"
+        );
+        assert_eq!(cipher[4], FILE_VERSION);
+        assert!(
+            cipher.len() > 4 + 1 + SALT_LEN + NONCE_LEN,
+            "ciphertext must include salt + nonce + AEAD output"
+        );
+    }
+
+    #[test]
+    fn encrypt_produces_unique_salt_and_nonce_per_call() {
+        let a = encrypt(b"same input", "same pw").expect("encrypt a");
+        let b = encrypt(b"same input", "same pw").expect("encrypt b");
+        assert_ne!(
+            a, b,
+            "encrypt must randomize salt + nonce so the same input yields different ciphertexts",
+        );
+    }
+
+    #[test]
+    fn decrypt_rejects_wrong_password_with_clear_error() {
+        let cipher = encrypt(b"secret", "right-pw").expect("encrypt");
+        let error = decrypt(&cipher, "wrong-pw").expect_err("must fail");
+        assert!(
+            error.contains("Decryption failed"),
+            "error should mention decryption failure, got: {error}",
+        );
+    }
+
+    #[test]
+    fn decrypt_rejects_truncated_input() {
+        let cipher = encrypt(b"secret", "pw").expect("encrypt");
+        let truncated = &cipher[..10];
+        let error = decrypt(truncated, "pw").expect_err("must fail on short input");
+        assert!(error.contains("too short"), "got: {error}");
+    }
+
+    #[test]
+    fn decrypt_rejects_bad_magic_header() {
+        let mut cipher = encrypt(b"secret", "pw").expect("encrypt");
+        cipher[0] = b'X';
+        let error = decrypt(&cipher, "pw").expect_err("must fail on bad magic");
+        assert!(error.contains("bad magic"), "got: {error}");
+    }
+
+    #[test]
+    fn decrypt_rejects_unsupported_version() {
+        let mut cipher = encrypt(b"secret", "pw").expect("encrypt");
+        cipher[4] = FILE_VERSION + 99;
+        let error = decrypt(&cipher, "pw").expect_err("must fail on bad version");
+        assert!(error.contains("Unsupported backup version"), "got: {error}");
+    }
+
+    #[test]
+    fn decrypt_rejects_tampered_ciphertext() {
+        let mut cipher = encrypt(b"secret", "pw").expect("encrypt");
+        let last_index = cipher.len() - 1;
+        cipher[last_index] ^= 0xFF;
+        let error = decrypt(&cipher, "pw").expect_err("AEAD tag must reject tampering");
+        assert!(error.contains("Decryption failed"), "got: {error}");
+    }
+}

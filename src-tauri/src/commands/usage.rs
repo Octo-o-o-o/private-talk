@@ -1,4 +1,5 @@
 use crate::db::{collect_rows, DbState};
+use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tauri::State;
@@ -56,12 +57,9 @@ struct ConversationMetaRow {
     message_count: i64,
 }
 
-#[tauri::command]
-pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<ConversationUsage>, String> {
-    let conn = db.lock()?;
-    crate::db::schema::init_db(&conn).map_err(|error| error.to_string())?;
+fn get_usage_by_conversation_db(conn: &Connection) -> Result<Vec<ConversationUsage>, String> {
     let rows = collect_rows(
-        &conn,
+        conn,
         "SELECT conversation_id, conversation_title, request_preview, model, prompt_tokens, completion_tokens, total_tokens, created_at
          FROM usage_records
          ORDER BY created_at DESC",
@@ -80,7 +78,7 @@ pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<Conversat
         },
     )?;
     let metadata = collect_rows(
-        &conn,
+        conn,
         "SELECT
             conversations.id,
             conversations.title,
@@ -228,11 +226,15 @@ pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<Conversat
 }
 
 #[tauri::command]
-pub fn get_usage_by_date(db: State<'_, DbState>) -> Result<Vec<DailyUsage>, String> {
+pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<ConversationUsage>, String> {
     let conn = db.lock()?;
     crate::db::schema::init_db(&conn).map_err(|error| error.to_string())?;
+    get_usage_by_conversation_db(&conn)
+}
+
+fn get_usage_by_date_db(conn: &Connection) -> Result<Vec<DailyUsage>, String> {
     let rows = collect_rows(
-        &conn,
+        conn,
         "SELECT substr(created_at, 1, 10), conversation_id, model, prompt_tokens, completion_tokens, total_tokens
          FROM usage_records
          ORDER BY created_at DESC",
@@ -302,4 +304,223 @@ pub fn get_usage_by_date(db: State<'_, DbState>) -> Result<Vec<DailyUsage>, Stri
             .sort_by(|left, right| right.total_tokens.cmp(&left.total_tokens));
     }
     Ok(result)
+}
+
+#[tauri::command]
+pub fn get_usage_by_date(db: State<'_, DbState>) -> Result<Vec<DailyUsage>, String> {
+    let conn = db.lock()?;
+    crate::db::schema::init_db(&conn).map_err(|error| error.to_string())?;
+    get_usage_by_date_db(&conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_usage_by_conversation_db, get_usage_by_date_db};
+    use crate::db::schema::init_db;
+    use rusqlite::{params, Connection};
+
+    fn fresh() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        init_db(&c).unwrap();
+        c
+    }
+
+    fn seed_conv(conn: &Connection, id: &str, title: &str, created_at: &str, deleted: bool) {
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            params![id, title, created_at, deleted.then_some(created_at)],
+        )
+        .unwrap();
+    }
+
+    fn seed_msg(conn: &Connection, id: &str, conv_id: &str, role: &str, content: &str, created_at: &str) {
+        conn.execute(
+            "INSERT INTO messages (id, conversation_id, role, content, raw_content, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            params![id, conv_id, role, content, created_at],
+        )
+        .unwrap();
+    }
+
+    fn seed_usage(
+        conn: &Connection,
+        id: &str,
+        conv_id: &str,
+        title: &str,
+        preview: &str,
+        model: &str,
+        prompt_t: i64,
+        completion_t: i64,
+        created_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO usage_records
+             (id, conversation_id, conversation_title, request_preview, model,
+              prompt_tokens, completion_tokens, total_tokens, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                conv_id,
+                title,
+                preview,
+                model,
+                prompt_t,
+                completion_t,
+                prompt_t + completion_t,
+                created_at
+            ],
+        )
+        .unwrap();
+    }
+
+    // ---------- get_usage_by_conversation_db ----------
+
+    #[test]
+    fn aggregates_tokens_per_model_within_one_conversation() {
+        let conn = fresh();
+        seed_conv(&conn, "c", "T", "2026-05-17 10:00:00", false);
+        seed_msg(&conn, "m1", "c", "user", "first", "2026-05-17 10:00:01");
+        seed_usage(&conn, "u1", "c", "T", "first", "gpt-4o", 100, 50, "2026-05-17 10:00:01");
+        seed_usage(&conn, "u2", "c", "T", "second", "gpt-4o", 30, 20, "2026-05-17 10:01:00");
+        seed_usage(&conn, "u3", "c", "T", "third", "gpt-5", 10, 5, "2026-05-17 10:02:00");
+
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        let r = &rows[0];
+
+        assert_eq!(r.conversation_id, "c");
+        assert_eq!(r.total_requests, 3);
+        assert_eq!(r.model_usages.len(), 2);
+
+        // model_usages is sorted by total_tokens DESC: gpt-4o = 200 > gpt-5 = 15
+        assert_eq!(r.model_usages[0].model, "gpt-4o");
+        assert_eq!(r.model_usages[0].prompt_tokens, 130);
+        assert_eq!(r.model_usages[0].completion_tokens, 70);
+        assert_eq!(r.model_usages[0].total_tokens, 200);
+        assert_eq!(r.model_usages[0].request_count, 2);
+
+        assert_eq!(r.model_usages[1].model, "gpt-5");
+        assert_eq!(r.model_usages[1].request_count, 1);
+    }
+
+    #[test]
+    fn marks_conversations_as_deleted_when_deleted_at_is_set() {
+        let conn = fresh();
+        seed_conv(&conn, "alive", "T1", "2026-05-17 10:00:00", false);
+        seed_conv(&conn, "gone", "T2", "2026-05-17 10:00:00", true);
+        seed_usage(&conn, "u-alive", "alive", "T1", "hi", "m", 1, 1, "2026-05-17 10:00:01");
+        seed_usage(&conn, "u-gone", "gone", "T2", "hi", "m", 1, 1, "2026-05-17 10:00:01");
+
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        let alive = rows.iter().find(|r| r.conversation_id == "alive").unwrap();
+        let gone = rows.iter().find(|r| r.conversation_id == "gone").unwrap();
+
+        assert!(!alive.is_deleted);
+        assert!(gone.is_deleted);
+    }
+
+    #[test]
+    fn first_message_preview_prefers_earliest_user_message_content() {
+        let conn = fresh();
+        seed_conv(&conn, "c", "T", "2026-05-17 10:00:00", false);
+        // Multiple user + assistant messages; first user message wins for preview.
+        seed_msg(&conn, "ma1", "c", "assistant", "asst-noise", "2026-05-17 10:00:00");
+        seed_msg(&conn, "mu1", "c", "user", "real first user msg", "2026-05-17 10:00:01");
+        seed_msg(&conn, "mu2", "c", "user", "later user msg", "2026-05-17 10:00:02");
+        seed_usage(&conn, "u1", "c", "T", "preview-ignored", "m", 1, 1, "2026-05-17 10:00:01");
+
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        assert_eq!(rows[0].first_message_preview, "real first user msg");
+    }
+
+    #[test]
+    fn first_message_preview_falls_back_to_earliest_usage_preview_when_no_user_messages() {
+        let conn = fresh();
+        seed_conv(&conn, "c", "T", "2026-05-17 10:00:00", false);
+        // Only assistant messages → fallback to earliest usage_records.request_preview.
+        seed_msg(&conn, "ma1", "c", "assistant", "asst-only", "2026-05-17 10:00:01");
+        seed_usage(&conn, "u-late", "c", "T", "later usage preview", "m", 1, 1, "2026-05-17 10:00:05");
+        seed_usage(&conn, "u-early", "c", "T", "EARLIEST USAGE PREVIEW", "m", 1, 1, "2026-05-17 10:00:02");
+
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        assert_eq!(rows[0].first_message_preview, "EARLIEST USAGE PREVIEW");
+    }
+
+    #[test]
+    fn rows_are_sorted_by_latest_usage_timestamp_desc() {
+        let conn = fresh();
+        seed_conv(&conn, "old", "Old", "2026-05-17 08:00:00", false);
+        seed_conv(&conn, "new", "New", "2026-05-17 12:00:00", false);
+        seed_usage(&conn, "u-old", "old", "Old", "x", "m", 1, 1, "2026-05-17 08:01:00");
+        seed_usage(&conn, "u-new", "new", "New", "x", "m", 1, 1, "2026-05-17 12:01:00");
+
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r.conversation_id.clone()).collect::<Vec<_>>(),
+            vec!["new", "old"],
+        );
+    }
+
+    #[test]
+    fn empty_db_returns_empty_vec() {
+        let conn = fresh();
+        let rows = get_usage_by_conversation_db(&conn).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    // ---------- get_usage_by_date_db ----------
+
+    #[test]
+    fn date_aggregation_groups_by_yyyy_mm_dd_prefix() {
+        let conn = fresh();
+        seed_conv(&conn, "c", "T", "2026-05-17 10:00:00", false);
+        seed_usage(&conn, "u-morning", "c", "T", "x", "m1", 100, 50, "2026-05-17 09:00:00");
+        seed_usage(&conn, "u-afternoon", "c", "T", "x", "m1", 30, 20, "2026-05-17 15:00:00");
+        seed_usage(&conn, "u-other-day", "c", "T", "x", "m1", 1, 1, "2026-05-18 09:00:00");
+
+        let rows = get_usage_by_date_db(&conn).unwrap();
+        // Sorted by date DESC.
+        assert_eq!(rows[0].date, "2026-05-18");
+        assert_eq!(rows[1].date, "2026-05-17");
+
+        let day_17 = &rows[1];
+        assert_eq!(day_17.model_usages.len(), 1);
+        assert_eq!(day_17.model_usages[0].prompt_tokens, 130);
+        assert_eq!(day_17.model_usages[0].completion_tokens, 70);
+        assert_eq!(day_17.model_usages[0].request_count, 2);
+    }
+
+    #[test]
+    fn date_aggregation_counts_distinct_conversations_per_day() {
+        let conn = fresh();
+        seed_conv(&conn, "c1", "T1", "2026-05-17 10:00:00", false);
+        seed_conv(&conn, "c2", "T2", "2026-05-17 10:00:00", false);
+        seed_conv(&conn, "c3", "T3", "2026-05-17 10:00:00", false);
+
+        // Three records but only two distinct conversations on day 2026-05-17.
+        seed_usage(&conn, "u1", "c1", "T1", "x", "m", 1, 1, "2026-05-17 09:00:00");
+        seed_usage(&conn, "u2", "c1", "T1", "x", "m", 1, 1, "2026-05-17 10:00:00");
+        seed_usage(&conn, "u3", "c2", "T2", "x", "m", 1, 1, "2026-05-17 11:00:00");
+        // c3 on a different day.
+        seed_usage(&conn, "u4", "c3", "T3", "x", "m", 1, 1, "2026-05-18 09:00:00");
+
+        let rows = get_usage_by_date_db(&conn).unwrap();
+        let day_17 = rows.iter().find(|r| r.date == "2026-05-17").unwrap();
+        let day_18 = rows.iter().find(|r| r.date == "2026-05-18").unwrap();
+        assert_eq!(day_17.conversation_count, 2);
+        assert_eq!(day_18.conversation_count, 1);
+    }
+
+    #[test]
+    fn date_aggregation_model_usages_sorted_by_total_tokens_desc() {
+        let conn = fresh();
+        seed_conv(&conn, "c", "T", "2026-05-17 10:00:00", false);
+        seed_usage(&conn, "u1", "c", "T", "x", "small-model", 5, 5, "2026-05-17 10:00:00");
+        seed_usage(&conn, "u2", "c", "T", "x", "big-model", 500, 500, "2026-05-17 11:00:00");
+
+        let rows = get_usage_by_date_db(&conn).unwrap();
+        assert_eq!(rows[0].model_usages[0].model, "big-model");
+        assert_eq!(rows[0].model_usages[1].model, "small-model");
+    }
 }

@@ -1,5 +1,5 @@
 use crate::db::{collect_rows, now_timestamp, DbState};
-use rusqlite::{params, types::Value};
+use rusqlite::{params, types::Value, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -17,11 +17,11 @@ pub struct Provider {
     pub created_at: String,
 }
 
-#[tauri::command]
-pub fn list_providers(db: State<DbState>) -> Result<Vec<Provider>, String> {
-    let conn = db.lock()?;
+// ---------- DB-only helpers (testable without Tauri State) ----------
+
+fn list_providers_db(conn: &Connection) -> Result<Vec<Provider>, String> {
     collect_rows(
-        &conn,
+        conn,
         "SELECT id, name, api_type, base_url, api_key, models, is_default, created_at \
          FROM providers ORDER BY created_at ASC",
         [],
@@ -42,15 +42,13 @@ pub fn list_providers(db: State<DbState>) -> Result<Vec<Provider>, String> {
     )
 }
 
-#[tauri::command]
-pub fn create_provider(
-    db: State<DbState>,
+fn create_provider_db(
+    conn: &Connection,
     name: String,
     base_url: String,
     api_key: String,
     models: Vec<String>,
 ) -> Result<Provider, String> {
-    let conn = db.lock()?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_timestamp();
     let models_json = serde_json::to_string(&models).map_err(|e| e.to_string())?;
@@ -90,9 +88,8 @@ pub fn create_provider(
     })
 }
 
-#[tauri::command]
-pub fn update_provider(
-    db: State<DbState>,
+fn update_provider_db(
+    conn: &Connection,
     id: String,
     name: Option<String>,
     base_url: Option<String>,
@@ -130,23 +127,18 @@ pub fn update_provider(
     );
     values.push(Value::Text(id));
 
-    let conn = db.lock()?;
     conn.execute(&sql, rusqlite::params_from_iter(values))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
-pub fn delete_provider(db: State<DbState>, id: String) -> Result<(), String> {
-    let conn = db.lock()?;
+fn delete_provider_db(conn: &Connection, id: String) -> Result<(), String> {
     conn.execute("DELETE FROM providers WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-#[tauri::command]
-pub fn set_default_provider(db: State<DbState>, id: String) -> Result<(), String> {
-    let conn = db.lock()?;
+fn set_default_provider_db(conn: &Connection, id: String) -> Result<(), String> {
     conn.execute("UPDATE providers SET is_default = 0", [])
         .map_err(|e| e.to_string())?;
     conn.execute(
@@ -155,4 +147,232 @@ pub fn set_default_provider(db: State<DbState>, id: String) -> Result<(), String
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------- Tauri command shims (thin wrappers around DB helpers) ----------
+
+#[tauri::command]
+pub fn list_providers(db: State<DbState>) -> Result<Vec<Provider>, String> {
+    let conn = db.lock()?;
+    list_providers_db(&conn)
+}
+
+#[tauri::command]
+pub fn create_provider(
+    db: State<DbState>,
+    name: String,
+    base_url: String,
+    api_key: String,
+    models: Vec<String>,
+) -> Result<Provider, String> {
+    let conn = db.lock()?;
+    create_provider_db(&conn, name, base_url, api_key, models)
+}
+
+#[tauri::command]
+pub fn update_provider(
+    db: State<DbState>,
+    id: String,
+    name: Option<String>,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    models: Option<Vec<String>>,
+) -> Result<(), String> {
+    let conn = db.lock()?;
+    update_provider_db(&conn, id, name, base_url, api_key, models)
+}
+
+#[tauri::command]
+pub fn delete_provider(db: State<DbState>, id: String) -> Result<(), String> {
+    let conn = db.lock()?;
+    delete_provider_db(&conn, id)
+}
+
+#[tauri::command]
+pub fn set_default_provider(db: State<DbState>, id: String) -> Result<(), String> {
+    let conn = db.lock()?;
+    set_default_provider_db(&conn, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        create_provider_db, delete_provider_db, list_providers_db, set_default_provider_db,
+        update_provider_db,
+    };
+    use crate::db::schema::init_db;
+    use rusqlite::Connection;
+
+    fn fresh() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        init_db(&c).unwrap();
+        c
+    }
+
+    #[test]
+    fn create_provider_marks_first_provider_as_default() {
+        let conn = fresh();
+        let p1 = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "https://api.openai.com/v1".into(),
+            "sk-1".into(),
+            vec!["gpt-4o".into()],
+        )
+        .unwrap();
+        assert!(p1.is_default, "first provider must be default");
+        assert_eq!(p1.api_type, "openai-compatible");
+        assert_eq!(p1.models, vec!["gpt-4o".to_string()]);
+    }
+
+    #[test]
+    fn create_provider_does_not_steal_default_from_existing() {
+        let conn = fresh();
+        let _first = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "https://api.openai.com/v1".into(),
+            "sk-1".into(),
+            vec!["gpt-4o".into()],
+        )
+        .unwrap();
+        let second = create_provider_db(
+            &conn,
+            "xAI".into(),
+            "https://api.x.ai/v1".into(),
+            "sk-2".into(),
+            vec!["grok-4".into()],
+        )
+        .unwrap();
+        assert!(!second.is_default, "subsequent providers must not steal default");
+
+        let list = list_providers_db(&conn).unwrap();
+        assert_eq!(list.iter().filter(|p| p.is_default).count(), 1);
+    }
+
+    #[test]
+    fn update_provider_only_touches_provided_fields() {
+        let conn = fresh();
+        let p = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "https://api.openai.com/v1".into(),
+            "sk-old".into(),
+            vec!["gpt-4o".into()],
+        )
+        .unwrap();
+
+        // Only update api_key; name / base_url / models must stay.
+        update_provider_db(
+            &conn,
+            p.id.clone(),
+            None,
+            None,
+            Some("sk-new".into()),
+            None,
+        )
+        .unwrap();
+
+        let after = &list_providers_db(&conn).unwrap()[0];
+        assert_eq!(after.name, "OpenAI");
+        assert_eq!(after.base_url, "https://api.openai.com/v1");
+        assert_eq!(after.api_key, "sk-new");
+        assert_eq!(after.models, vec!["gpt-4o".to_string()]);
+    }
+
+    #[test]
+    fn update_provider_with_all_none_is_a_noop() {
+        let conn = fresh();
+        let p = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "https://api.openai.com/v1".into(),
+            "sk-old".into(),
+            vec!["gpt-4o".into()],
+        )
+        .unwrap();
+
+        update_provider_db(&conn, p.id.clone(), None, None, None, None).unwrap();
+
+        let after = &list_providers_db(&conn).unwrap()[0];
+        assert_eq!(after.name, "OpenAI");
+        assert_eq!(after.api_key, "sk-old");
+    }
+
+    #[test]
+    fn set_default_provider_makes_exactly_one_provider_default() {
+        let conn = fresh();
+        let p1 = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "u1".into(),
+            "k1".into(),
+            vec![],
+        )
+        .unwrap();
+        let p2 = create_provider_db(
+            &conn,
+            "xAI".into(),
+            "u2".into(),
+            "k2".into(),
+            vec![],
+        )
+        .unwrap();
+
+        // Initially p1 is default; flip to p2.
+        set_default_provider_db(&conn, p2.id.clone()).unwrap();
+
+        let list = list_providers_db(&conn).unwrap();
+        let defaults: Vec<&str> = list
+            .iter()
+            .filter(|p| p.is_default)
+            .map(|p| p.id.as_str())
+            .collect();
+        assert_eq!(defaults, vec![p2.id.as_str()]);
+        // p1 has been demoted.
+        assert!(
+            list.iter().find(|p| p.id == p1.id).unwrap().is_default == false
+        );
+    }
+
+    #[test]
+    fn delete_provider_removes_only_the_targeted_row() {
+        let conn = fresh();
+        let p1 = create_provider_db(
+            &conn,
+            "OpenAI".into(),
+            "u1".into(),
+            "k1".into(),
+            vec![],
+        )
+        .unwrap();
+        let _p2 = create_provider_db(
+            &conn,
+            "xAI".into(),
+            "u2".into(),
+            "k2".into(),
+            vec![],
+        )
+        .unwrap();
+
+        delete_provider_db(&conn, p1.id.clone()).unwrap();
+
+        let list = list_providers_db(&conn).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_ne!(list[0].id, p1.id);
+    }
+
+    #[test]
+    fn list_providers_orders_by_created_at_ascending() {
+        let conn = fresh();
+        let p1 = create_provider_db(&conn, "A".into(), "u1".into(), "k1".into(), vec![]).unwrap();
+        let p2 = create_provider_db(&conn, "B".into(), "u2".into(), "k2".into(), vec![]).unwrap();
+
+        let ids: Vec<String> = list_providers_db(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(ids, vec![p1.id, p2.id]);
+    }
 }

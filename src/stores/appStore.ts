@@ -66,7 +66,7 @@ const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
   max_images_per_request: 4,
 };
 
-function previewFromContent(content: string): string {
+export function previewFromContent(content: string): string {
   return content
     .replace(/!\[[^\]]*]\([^)]+\)/g, "🖼 Image")
     .replace(/\[[^\]]+]\(([^)]+)\)/g, "$1")
@@ -74,7 +74,7 @@ function previewFromContent(content: string): string {
     .trim();
 }
 
-function previewFromMessage(message: Message): string {
+export function previewFromMessage(message: Message): string {
   const contentPreview = previewFromContent(message.content);
   if (contentPreview) {
     return contentPreview;
@@ -91,7 +91,7 @@ function previewFromMessage(message: Message): string {
   return "";
 }
 
-function updateConversationPreview(
+export function updateConversationPreview(
   conversations: Conversation[],
   message: Message,
 ): Conversation[] {

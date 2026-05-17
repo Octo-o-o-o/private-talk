@@ -61,6 +61,23 @@ pnpm build      # tsc + vite build, output in dist/
 pnpm preview    # serve the built bundle
 ```
 
+## Running tests
+
+```bash
+# Rust unit / integration tests (in-memory SQLite, no native shell).
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+# Frontend unit tests (vitest + jsdom, no Tauri runtime).
+pnpm test
+```
+
+Notes:
+
+- All tests are hermetic — they run against `Connection::open_in_memory()` or temporary directories, hit no real LLM provider, and need no Tauri runtime.
+- `cargo test` will compile Rust dev-dependencies (`tempfile`, `wiremock`) on first run.
+- `pnpm test` requires `pnpm install` once to pull `vitest` / `@testing-library/*` / `jsdom`.
+- See [2026-05-17-test-coverage-plan.md](./2026-05-17-test-coverage-plan.md) for the full coverage plan and implementation roadmap.
+
 ## UI design
 
 The cross-platform visual language is described in [iOS 26 / macOS 26 Design Specification](./IOS26_UI_SPEC.md). The actual UI redesign that landed in this branch is recorded in [UI_REDESIGN_EXECUTION_PLAN.md](./UI_REDESIGN_EXECUTION_PLAN.md), and the performance / rendering work that backs the streaming chat experience is in [PERFORMANCE_OPTIMIZATION_PLAN.md](./PERFORMANCE_OPTIMIZATION_PLAN.md).

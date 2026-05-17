@@ -20,11 +20,13 @@ pub struct ReferenceImage {
     pub mime_type: String,
 }
 
+#[derive(Debug)]
 pub struct GeneratedImage {
     pub data: Vec<u8>,
     pub mime_type: String,
 }
 
+#[derive(Debug)]
 pub struct ImageGenerationResult {
     pub images: Vec<GeneratedImage>,
     pub revised_prompt: Option<String>,
@@ -378,4 +380,303 @@ pub fn parse_img_command(
         background: Some(background.unwrap_or_else(|| default_background.to_string())),
         reference_images: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detect_provider, generate_images, map_quality, map_size, parse_img_command,
+        ImageGenerationRequest, ProviderKind,
+    };
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn parse(content: &str) -> Result<ImageGenerationRequest, String> {
+        parse_img_command(content, "1:1", "standard", "auto")
+    }
+
+    fn req(prompt: &str) -> ImageGenerationRequest {
+        ImageGenerationRequest {
+            prompt: prompt.to_string(),
+            aspect_ratio: Some("1:1".into()),
+            quality: Some("standard".into()),
+            count: Some(1),
+            background: Some("auto".into()),
+            reference_images: vec![],
+        }
+    }
+
+    #[test]
+    fn parses_prompt_only_input_with_defaults() {
+        let request = parse("a watercolor of kyoto").expect("parse");
+        assert_eq!(request.prompt, "a watercolor of kyoto");
+        assert_eq!(request.aspect_ratio.as_deref(), Some("1:1"));
+        assert_eq!(request.quality.as_deref(), Some("standard"));
+        assert_eq!(request.background.as_deref(), Some("auto"));
+        assert!(request.count.is_none());
+    }
+
+    #[test]
+    fn parses_slash_img_prefix_with_space_or_newline() {
+        let from_space = parse("/img a cat").expect("space");
+        assert_eq!(from_space.prompt, "a cat");
+
+        let from_newline = parse("/img\na cat").expect("newline");
+        assert_eq!(from_newline.prompt, "a cat");
+    }
+
+    #[test]
+    fn errors_on_bare_slash_img_with_no_prompt() {
+        let err = parse("/img").expect_err("must error");
+        assert!(err.contains("/img"));
+    }
+
+    #[test]
+    fn extracts_all_trailing_flags_in_any_short_or_long_form() {
+        let request = parse("a calm forest --ratio 16:9 --quality hd --count 3 --bg transparent")
+            .expect("parse");
+        assert_eq!(request.prompt, "a calm forest");
+        assert_eq!(request.aspect_ratio.as_deref(), Some("16:9"));
+        assert_eq!(request.quality.as_deref(), Some("hd"));
+        assert_eq!(request.count, Some(3));
+        assert_eq!(request.background.as_deref(), Some("transparent"));
+    }
+
+    #[test]
+    fn supports_short_flag_aliases() {
+        let request = parse("a calm forest -r 9:16 -q hd -n 2").expect("parse");
+        assert_eq!(request.prompt, "a calm forest");
+        assert_eq!(request.aspect_ratio.as_deref(), Some("9:16"));
+        assert_eq!(request.quality.as_deref(), Some("hd"));
+        assert_eq!(request.count, Some(2));
+    }
+
+    #[test]
+    fn stops_flag_scan_at_first_unknown_pair_and_keeps_them_in_prompt() {
+        // Backward flag parser walks token pairs from the tail; first unknown
+        // pair terminates the scan, so --foo bar stays inside the prompt.
+        let request = parse("/img --foo bar a cat --ratio 16:9").expect("parse");
+        assert_eq!(request.prompt, "--foo bar a cat");
+        assert_eq!(request.aspect_ratio.as_deref(), Some("16:9"));
+    }
+
+    #[test]
+    fn rejects_out_of_range_count_by_stopping_scan() {
+        // --count 5 is invalid; the parser stops and falls back to default count.
+        let request = parse("/img a cat --count 5").expect("parse");
+        assert_eq!(request.prompt, "a cat --count 5");
+        assert!(request.count.is_none());
+    }
+
+    #[test]
+    fn rejects_unknown_ratio_value_by_stopping_scan() {
+        let request = parse("/img a cat --ratio 3:2").expect("parse");
+        assert_eq!(request.prompt, "a cat --ratio 3:2");
+        assert_eq!(request.aspect_ratio.as_deref(), Some("1:1")); // default
+    }
+
+    #[test]
+    fn errors_when_prompt_is_empty_after_flag_extraction() {
+        let err = parse("/img --ratio 16:9").expect_err("must error");
+        assert!(err.contains("/img"));
+    }
+
+    #[test]
+    fn detect_provider_recognizes_grok_by_host() {
+        assert_eq!(detect_provider("https://api.x.ai/v1"), ProviderKind::Grok);
+        assert_eq!(detect_provider("https://API.X.AI/v1"), ProviderKind::Grok);
+        assert_eq!(
+            detect_provider("https://api.openai.com/v1"),
+            ProviderKind::OpenAiCompatible,
+        );
+        assert_eq!(
+            detect_provider("https://my-proxy.local/v1"),
+            ProviderKind::OpenAiCompatible,
+        );
+    }
+
+    #[test]
+    fn map_size_returns_known_sizes_for_each_ratio() {
+        assert_eq!(map_size("1:1"), "1024x1024");
+        assert_eq!(map_size("16:9"), "1536x1024");
+        assert_eq!(map_size("9:16"), "1024x1536");
+        assert_eq!(map_size("4:3"), "1024x768");
+        assert_eq!(map_size("3:4"), "768x1024");
+        // Anything else falls back to square.
+        assert_eq!(map_size("garbage"), "1024x1024");
+    }
+
+    #[test]
+    fn map_quality_picks_provider_specific_label() {
+        assert_eq!(map_quality("hd", "dall-e-3").as_deref(), Some("hd"));
+        assert_eq!(map_quality("standard", "dall-e-3").as_deref(), Some("standard"));
+        assert_eq!(map_quality("hd", "gpt-image-1").as_deref(), Some("high"));
+        assert_eq!(
+            map_quality("standard", "gpt-image-1").as_deref(),
+            Some("medium"),
+        );
+        // Unknown model family → no quality flag emitted.
+        assert!(map_quality("hd", "grok-vision-1").is_none());
+    }
+
+    // ---------- parse_image_response (covered through generate_images) ----------
+
+    // 1×1 transparent PNG bytes (smallest valid PNG).
+    const TINY_PNG: [u8; 67] = [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    #[tokio::test]
+    async fn parses_b64_json_response_into_decoded_bytes() {
+        let server = MockServer::start().await;
+        let b64 = BASE64.encode(TINY_PNG);
+        let payload = serde_json::json!({
+            "data": [{ "b64_json": b64 }],
+            "revised_prompt": "a clearer cat",
+        });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .and(header("Authorization", "Bearer test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+            .mount(&server)
+            .await;
+
+        let result = generate_images(&server.uri(), "test-key", "gpt-image-1", &req("a cat"))
+            .await
+            .expect("ok");
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].data, TINY_PNG.to_vec());
+        assert_eq!(result.images[0].mime_type, "image/png");
+        assert_eq!(result.revised_prompt.as_deref(), Some("a clearer cat"));
+    }
+
+    #[tokio::test]
+    async fn parses_base64_alias_in_data_array() {
+        let server = MockServer::start().await;
+        let b64 = BASE64.encode(TINY_PNG);
+        let payload = serde_json::json!({
+            "data": [{ "base64": b64 }],
+        });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+            .mount(&server)
+            .await;
+
+        let result = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect("ok");
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].data, TINY_PNG.to_vec());
+    }
+
+    #[tokio::test]
+    async fn parses_inline_image_response_as_single_image() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "image/png")
+                    .set_body_bytes(TINY_PNG.to_vec()),
+            )
+            .mount(&server)
+            .await;
+
+        let result = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect("ok");
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].mime_type, "image/png");
+        assert_eq!(result.images[0].data, TINY_PNG.to_vec());
+        assert!(result.revised_prompt.is_none());
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_downloading_image_when_response_only_has_url() {
+        let server = MockServer::start().await;
+
+        // The "url" route the generator will redirect us to.
+        Mock::given(method("GET"))
+            .and(path("/img/abc.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "image/png")
+                    .set_body_bytes(TINY_PNG.to_vec()),
+            )
+            .mount(&server)
+            .await;
+
+        let download_url = format!("{}/img/abc.png", server.uri());
+        let payload = serde_json::json!({
+            "data": [{ "url": download_url }],
+        });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+            .mount(&server)
+            .await;
+
+        let result = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect("ok");
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].data, TINY_PNG.to_vec());
+        assert_eq!(result.images[0].mime_type, "image/png");
+    }
+
+    #[tokio::test]
+    async fn errors_when_response_has_no_usable_image_data() {
+        let server = MockServer::start().await;
+        let payload = serde_json::json!({ "data": [{ "metadata": "no image here" }] });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+            .mount(&server)
+            .await;
+
+        let err = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect_err("no images");
+        assert!(err.contains("no usable image data"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn errors_when_response_payload_is_completely_unrecognized() {
+        let server = MockServer::start().await;
+        // No "data" or "images" array — `parse_image_response` reports
+        // "Unsupported image response payload".
+        let payload = serde_json::json!({ "weird": true });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload))
+            .mount(&server)
+            .await;
+
+        let err = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect_err("unsupported payload");
+        assert!(err.contains("Unsupported image response payload"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn propagates_http_error_status_from_image_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(429).set_body_string("rate limited"))
+            .mount(&server)
+            .await;
+
+        let err = generate_images(&server.uri(), "k", "gpt-image-1", &req("x"))
+            .await
+            .expect_err("429");
+        assert!(err.contains("429"));
+        assert!(err.contains("rate limited"));
+    }
 }

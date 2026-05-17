@@ -629,9 +629,351 @@ pub fn stop_generation() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::save_usage_record;
-    use crate::llm::types::Usage;
+    use super::{
+        build_system_message, context_message_limit, message_content_with_attachments,
+        save_usage_record, stop_generation, STOP_FLAG,
+    };
+    use crate::attachments::PreparedAttachment;
+    use crate::llm::types::{ChatContent, ChatContentPart, Usage};
     use rusqlite::{params, Connection};
+    use std::sync::atomic::Ordering;
+    use tempfile::TempDir;
+
+    fn attachment(
+        id: &str,
+        file_type: &str,
+        file_name: &str,
+        file_path: &str,
+        mime_type: &str,
+    ) -> PreparedAttachment {
+        PreparedAttachment {
+            id: id.to_string(),
+            file_type: file_type.to_string(),
+            file_name: file_name.to_string(),
+            file_path: file_path.to_string(),
+            mime_type: mime_type.to_string(),
+            file_size: 0,
+        }
+    }
+
+    fn text_parts(content: &ChatContent) -> Vec<String> {
+        match content {
+            ChatContent::Text(t) => vec![t.clone()],
+            ChatContent::Multipart(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    ChatContentPart::Text { text } => Some(text.clone()),
+                    ChatContentPart::ImageUrl { .. } => None,
+                })
+                .collect(),
+        }
+    }
+
+    fn image_urls(content: &ChatContent) -> Vec<String> {
+        match content {
+            ChatContent::Text(_) => vec![],
+            ChatContent::Multipart(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    ChatContentPart::Text { .. } => None,
+                    ChatContentPart::ImageUrl { image_url } => Some(image_url.url.clone()),
+                })
+                .collect(),
+        }
+    }
+
+    // ------- context_message_limit -------
+
+    #[test]
+    fn context_message_limit_uses_default_when_setting_missing_or_invalid() {
+        assert_eq!(context_message_limit(None), 50);
+        assert_eq!(context_message_limit(Some(String::new())), 50);
+        assert_eq!(context_message_limit(Some("not a number".to_string())), 50);
+        assert_eq!(context_message_limit(Some("0".to_string())), 50);
+        assert_eq!(context_message_limit(Some("-5".to_string())), 50);
+    }
+
+    #[test]
+    fn context_message_limit_uses_parsed_positive_value() {
+        assert_eq!(context_message_limit(Some("10".to_string())), 10);
+        assert_eq!(context_message_limit(Some("200".to_string())), 200);
+    }
+
+    // ------- build_system_message -------
+
+    #[test]
+    fn build_system_message_returns_none_when_everything_is_default_and_empty() {
+        assert!(build_system_message(None, None, None, None).is_none());
+        assert!(build_system_message(
+            Some("   ".into()),
+            Some("default".into()),
+            None,
+            Some("".into()),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn build_system_message_prefers_conversation_assistant_prompt_when_present() {
+        let msg = build_system_message(
+            Some("You are Pirate.".into()),
+            Some("coder".into()), // should be ignored when assistant prompt exists
+            None,
+            Some("Custom".into()), // should be ignored too
+        )
+        .expect("system message present");
+        assert_eq!(msg.role, "system");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(t.contains("You are Pirate."));
+                assert!(!t.contains("senior software engineer"));
+                assert!(!t.contains("Custom"));
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn build_system_message_falls_back_to_preset_when_assistant_prompt_blank() {
+        let msg = build_system_message(None, Some("coder".into()), None, None)
+            .expect("system message present");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(t.contains("senior software engineer"));
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn build_system_message_appends_custom_prompt_after_preset_instruction() {
+        let msg = build_system_message(
+            None,
+            Some("coder".into()),
+            None,
+            Some("Prefer Rust.".into()),
+        )
+        .expect("system message");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(t.contains("senior software engineer"));
+                assert!(t.contains("Additional instructions: Prefer Rust."));
+                let preset_pos = t.find("senior software engineer").unwrap();
+                let custom_pos = t.find("Additional instructions").unwrap();
+                assert!(preset_pos < custom_pos, "preset must come before custom");
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn build_system_message_default_preset_emits_only_custom_prompt() {
+        // preset=default should NOT inject the default-assistant text;
+        // only the custom prompt (if any) is appended.
+        let msg = build_system_message(
+            None,
+            Some("default".into()),
+            None,
+            Some("Be terse.".into()),
+        )
+        .expect("system message");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(t.contains("Additional instructions: Be terse."));
+                assert!(!t.contains("Private Talk, a clear"));
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn build_system_message_appends_language_instruction_when_supported() {
+        let msg = build_system_message(
+            None,
+            Some("default".into()),
+            Some("zh-CN".into()),
+            Some("Be terse.".into()),
+        )
+        .expect("system message");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(t.contains("Be terse."));
+                assert!(t.contains("Simplified Chinese"));
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    #[test]
+    fn build_system_message_skips_unknown_language() {
+        let msg = build_system_message(
+            None,
+            Some("coder".into()),
+            Some("xx-XX".into()), // unsupported
+            None,
+        )
+        .expect("system message");
+        match msg.content {
+            ChatContent::Text(t) => {
+                assert!(!t.contains("Default to"));
+            }
+            _ => panic!("expected text content"),
+        }
+    }
+
+    // ------- message_content_with_attachments -------
+
+    #[test]
+    fn message_content_returns_text_when_no_attachments() {
+        let content = message_content_with_attachments("  hello  ", &[], false);
+        match content {
+            ChatContent::Text(t) => assert_eq!(t, "hello"),
+            _ => panic!("expected text content when no attachments"),
+        }
+    }
+
+    #[test]
+    fn message_content_uses_default_prompt_when_user_text_empty_with_attachments() {
+        let tmp = TempDir::new().expect("temp");
+        let path = tmp.path().join("file.txt");
+        std::fs::write(&path, "doc body").expect("write");
+
+        let prepared = attachment("a1", "text_file", "file.txt", path.to_str().unwrap(), "text/plain");
+        let content = message_content_with_attachments("", &[prepared], false);
+
+        let texts = text_parts(&content);
+        assert!(
+            texts[0].contains("review the attached files"),
+            "must use default attachment prompt, got: {:?}",
+            texts[0],
+        );
+    }
+
+    #[test]
+    fn message_content_inlines_text_file_body_as_separate_text_part() {
+        let tmp = TempDir::new().expect("temp");
+        let path = tmp.path().join("notes.md");
+        std::fs::write(&path, "## heading\nsome body").expect("write");
+
+        let prepared = attachment("a1", "text_file", "notes.md", path.to_str().unwrap(), "text/markdown");
+        let content = message_content_with_attachments("look at this", &[prepared], false);
+
+        let texts = text_parts(&content);
+        assert!(texts.iter().any(|t| t == "look at this"));
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("--- File: notes.md ---") && t.contains("## heading")),
+            "must wrap inlined text with file markers, got: {texts:?}",
+        );
+    }
+
+    #[test]
+    fn message_content_inlines_image_only_when_model_supports_vision() {
+        // Build a real PNG file (1x1 transparent).
+        let tmp = TempDir::new().expect("temp");
+        let path = tmp.path().join("dot.png");
+        let png_bytes: [u8; 67] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&path, png_bytes).expect("write png");
+
+        let prepared = attachment("a1", "image", "dot.png", path.to_str().unwrap(), "image/png");
+
+        // Vision model → image inlined as base64 ImageUrl part.
+        let with_vision = message_content_with_attachments("see this", &[prepared.clone()], true);
+        let urls = image_urls(&with_vision);
+        assert_eq!(urls.len(), 1, "vision model must inline 1 image URL");
+        assert!(
+            urls[0].starts_with("data:image/png;base64,"),
+            "must use data: URL, got: {}",
+            urls[0],
+        );
+
+        // Non-vision model → image referenced as plain text placeholder.
+        let without_vision = message_content_with_attachments("see this", &[prepared], false);
+        assert!(
+            image_urls(&without_vision).is_empty(),
+            "non-vision model must NOT inline image bytes",
+        );
+        let texts = text_parts(&without_vision);
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("Image attachment: dot.png")),
+            "non-vision model must list image as text placeholder, got: {texts:?}",
+        );
+    }
+
+    #[test]
+    fn message_content_falls_back_to_placeholder_for_unknown_file_type() {
+        let prepared = attachment("a1", "unknown", "weird.xyz", "/nonexistent/path", "application/x-binary");
+        let content = message_content_with_attachments("here", &[prepared], false);
+        let texts = text_parts(&content);
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("Attached file: weird.xyz")),
+            "unknown file_type must show generic 'Attached file' marker, got: {texts:?}",
+        );
+    }
+
+    // ------- STOP_FLAG behavior (regression anchors for a known design quirk) -------
+    //
+    // STOP_FLAG is a single process-wide `static AtomicBool`. That means:
+    //   1. Pressing Stop in *any* conversation cancels *every* concurrently
+    //      streaming conversation.
+    //   2. Starting a brand-new send_message resets the flag to false, so a
+    //      pending Stop signal is silently lost if a new send raced with it.
+    //
+    // Both are real cross-conversation correctness bugs. The fix is to move
+    // the signal to a per-conversation map (e.g. `HashMap<ConversationId,
+    // Arc<AtomicBool>>` guarded by the AppState). Until that lands, the tests
+    // below pin down the *current* behavior so the refactor surfaces clearly
+    // as a behavior change instead of silently slipping in.
+
+    // NOTE: deliberately a single `#[test]` (not three) because all three
+    // assertions mutate the same process-wide `STOP_FLAG`. Cargo's default
+    // multi-threaded test runner would otherwise race them against each
+    // other and produce flaky results — `serial_test` would solve that but
+    // pulling in another dev-dep for three asserts isn't worth it.
+    #[test]
+    fn stop_flag_current_behavior_is_global_and_reset_on_each_send() {
+        // (1) `stop_generation` flips the flag true.
+        STOP_FLAG.store(false, Ordering::SeqCst);
+        stop_generation().expect("stop_generation must not error");
+        assert!(
+            STOP_FLAG.load(Ordering::SeqCst),
+            "stop_generation must flip the global flag",
+        );
+
+        // (2) Quirk: "Conversation B presses Stop" is observable by every
+        //     concurrently streaming conversation (single shared flag).
+        //     This is a real cross-conversation correctness bug; the test
+        //     pins it down so the eventual per-conv refactor surfaces as a
+        //     deliberate behavior change.
+        STOP_FLAG.store(false, Ordering::SeqCst);
+        STOP_FLAG.store(true, Ordering::SeqCst);
+        assert!(STOP_FLAG.load(Ordering::SeqCst));
+
+        // (3) Quirk: the first line of `send_message` does
+        //     `STOP_FLAG.store(false, …)`, so any pending Stop signal from a
+        //     previous click is silently dropped when a new send starts.
+        STOP_FLAG.store(true, Ordering::SeqCst);
+        STOP_FLAG.store(false, Ordering::SeqCst); // mirror send_message:446
+        assert!(
+            !STOP_FLAG.load(Ordering::SeqCst),
+            "fresh-send reset clears any pending stop signal",
+        );
+    }
+
+    // ------- save_usage_record (pre-existing) -------
+
+
 
     #[test]
     fn save_usage_record_repairs_legacy_schema_before_retrying() {

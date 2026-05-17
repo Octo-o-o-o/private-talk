@@ -281,8 +281,73 @@ pub fn init_db(conn: &Connection) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_column, init_db};
+    use super::{has_column, has_table, init_db};
     use rusqlite::{params, Connection};
+
+    fn table_count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |row| row.get(0)).expect("count query")
+    }
+
+    #[test]
+    fn init_db_creates_all_tables_and_indexes_on_fresh_database() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        init_db(&conn).expect("init fresh db");
+
+        for table in [
+            "conversations",
+            "messages",
+            "attachments",
+            "usage_records",
+            "providers",
+            "settings",
+            "assistants",
+        ] {
+            assert!(
+                has_table(&conn, table).expect("table lookup"),
+                "missing table after init_db: {table}",
+            );
+        }
+
+        for index in [
+            "idx_messages_conversation",
+            "idx_attachments_message",
+            "idx_usage_records_conversation",
+            "idx_usage_records_created_at",
+            "idx_assistants_preset",
+            "idx_conversations_assistant",
+        ] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?1",
+                    params![index],
+                    |row| row.get(0),
+                )
+                .expect("index lookup");
+            assert_eq!(exists, 1, "missing index after init_db: {index}");
+        }
+
+        let preset_count =
+            table_count(&conn, "SELECT COUNT(*) FROM assistants WHERE is_preset = 1");
+        assert_eq!(
+            preset_count, 5,
+            "expected 5 seeded preset assistants, got {preset_count}",
+        );
+    }
+
+    #[test]
+    fn init_db_is_idempotent_across_repeated_calls() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        init_db(&conn).expect("first init");
+        init_db(&conn).expect("second init must not error");
+        init_db(&conn).expect("third init must not error");
+
+        let preset_count =
+            table_count(&conn, "SELECT COUNT(*) FROM assistants WHERE is_preset = 1");
+        assert_eq!(
+            preset_count, 5,
+            "preset assistants must not duplicate across init_db calls",
+        );
+    }
 
     #[test]
     fn init_db_backfills_usage_record_titles_for_legacy_databases() {
