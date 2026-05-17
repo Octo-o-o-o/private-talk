@@ -57,6 +57,8 @@
 
 ## 4. CSS 实现核心代码规范 (落地要求)
 
+> 说明：以下 CSS 片段是**设计语言的参考示例**（说明性 token、类名、断点），用于展示意图。它们**并非** `src/index.css` 中正在使用的真实 class —— 仓库里没有 `.ios26-glass` / `.ios26-stack-container` / `.action-button` 这些选择器，且实际媒体查询断点是 `max-width: 767px / 959px`（不是下方示例里的 `768px / 960px`）。真实 token 的命名与值以 `src/index.css` 现状为准；本节仅作风格意图与思路参考。
+
 未来的所有样式基于现代化 CSS 搭建：
 
 ```css
@@ -107,7 +109,9 @@ html, body {
 
 ---
 
-## 5. 即期优化行动计划 (Action Items)
+## 5. 即期优化行动计划 (Action Items) — 已完成
+
+> 状态：本节列出的 3 项即期优化在 [UI_REDESIGN_EXECUTION_PLAN.md](./UI_REDESIGN_EXECUTION_PLAN.md) 中作为正式 phase 全部落地实施。`src/index.css` 已基于黑白灰 token 重写；`src/components/layout/AppLayout.tsx` 已收敛为单一 shell；`src/components/chat/MessageItem.tsx` 已重做气泡与 markdown 排版。原始行动项保留如下，供回顾对照。
 
 为了让 Private Talk 立刻具备 iOS/macOS 26 级别的设计，需：
 1. **重构 `index.css`**：干掉传统的 `border-right: 1px solid var(--separator)`，替换为深空背景 + 磨砂玻璃 Sidebar 面板 + 主页面板的错层悬浮设计。

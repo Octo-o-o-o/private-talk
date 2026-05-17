@@ -4,7 +4,7 @@
 
 - 本次重构只改前端结构、样式系统和窗口最小宽度，不改后端命令、数据模型和业务链路。
 - 目标不是局部美化，而是把当前 `phone / tablet / desktop` 三套割裂渲染树收敛为单一 shell，再在其上统一视觉语言、导航模式和适配逻辑。
-- 设计落地以 `demo.html` 为结构与交互主参考，`IOS26_UI_SPEC.md` 作为材质、层次、动效和黑白灰 token 的视觉补充。
+- 设计落地以原型 `demo.html`（本地设计草稿，未纳入 git 跟踪 / 已在 `.gitignore` 中）为结构与交互主参考，`IOS26_UI_SPEC.md` 作为材质、层次、动效和黑白灰 token 的视觉补充。
 - 桌面端支持缩到 `tablet` 形态，不进入 `mobile` 形态；手机形态只在实际窄宽度设备上触发。
 
 ## 2. 范围与约束
@@ -64,7 +64,7 @@
 
 ### 阶段 3：Sidebar 与导航
 
-- Sidebar 结构贴近 `demo.html`：
+- Sidebar 结构贴近原型 `demo.html`（本地设计草稿，未纳入 git 跟踪）：
   - header
   - conversation list
   - inline new chat
@@ -96,7 +96,7 @@
 
 ### 阶段 5：设置页
 
-- 沿用 `demo.html` 的 section + card-list 结构。
+- 沿用原型 `demo.html`（本地设计草稿，未纳入 git 跟踪）的 section + card-list 结构。
 - 保留真实功能：
   - provider preset / custom form
   - default provider 标识与切换
@@ -193,7 +193,7 @@
 - 侧栏与主面板统一后，Tauri 标题栏拖拽区和交互区边界容易回归。
 - markdown 与 code block 在窄宽度下最容易撑破布局，必须重点验证。
 - PIN 设置页和 PIN 锁屏页如果 token 不完全复用，会再次出现风格断层。
-- 历史版本的语音转写、语音播放、图片生成不仅有设置页，还有独立前后端执行链路；当前重构分支尚未迁回这些运行模块，因此不能把这类回归误判为单纯的 UI 入口缺失。
+- 历史版本的语音转写、语音播放、图片生成不仅有设置页，还有独立前后端执行链路；这些运行模块已在后续提交中全部迁回（`src-tauri/src/commands/stt.rs` / `tts.rs` / `image_gen.rs`），重构期间需要确认它们与新 shell 之间的边界仍然成立。
 - 当前工作区已有未提交改动，实施时只修改本次涉及文件，不回退不相关变化。
 
 ## 7. 文档自 Review 结论
@@ -221,7 +221,7 @@
 ### 历史功能差异
 
 - 已确认：历史版本存在 `stt_provider_id`、`stt_model`、`image_gen_config` 等多模态设置与对应运行模块。
-- 当前重构分支已恢复文本聊天的默认路由与助手偏好，但语音转写 / TTS / 图片生成仍需单独的多模态迁移阶段，不能仅靠补 settings UI 完成恢复。
+- 当前分支已恢复文本聊天的默认路由与助手偏好；语音转写、TTS、图片生成的设置与运行模块也已迁回（`src-tauri/src/commands/stt.rs` / `tts.rs` / `image_gen.rs`），settings UI 与执行链路均可用。
 
 ## 8. 结论
 
