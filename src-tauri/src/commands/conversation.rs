@@ -1,4 +1,5 @@
 use crate::db::{collect_rows, now_timestamp, DbState};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rusqlite::params;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -19,8 +20,59 @@ pub struct Message {
     pub conversation_id: String,
     pub role: String,
     pub content: String,
+    pub raw_content: String,
     pub attachments: Vec<crate::attachments::Attachment>,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MessageResendPayload {
+    pub message_id: String,
+    pub raw_content: String,
+    pub attachments_upload: Vec<crate::attachments::AttachmentUpload>,
+}
+
+#[derive(Debug)]
+struct StoredMessage {
+    id: String,
+    content: String,
+}
+
+fn decode_local_image_uri(value: &str) -> Option<String> {
+    let payload = value.strip_prefix("localb64://")?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    String::from_utf8(bytes).ok()
+}
+
+fn delete_generated_images_for_messages(
+    app: &tauri::AppHandle,
+    messages: &[StoredMessage],
+) -> Result<(), String> {
+    let generated_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("generated-images");
+
+    for message in messages {
+        let mut remaining = message.content.as_str();
+        while let Some(offset) = remaining.find("localb64://") {
+            let candidate = &remaining[offset..];
+            let end = candidate
+                .find(|ch: char| ch.is_whitespace() || matches!(ch, ')' | ']' | '"' | '\\'))
+                .unwrap_or(candidate.len());
+            let uri = &candidate[..end];
+            if let Some(path) = decode_local_image_uri(uri) {
+                let path_ref = std::path::Path::new(&path);
+                if path_ref.starts_with(&generated_root) {
+                    let _ = std::fs::remove_file(path_ref);
+                }
+            }
+            remaining = &candidate[end..];
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -200,6 +252,13 @@ pub fn delete_conversation(
 
 #[tauri::command]
 pub fn rename_conversation(db: State<DbState>, id: String, title: String) -> Result<(), String> {
+    fn should_retry_usage_title_update(error: &rusqlite::Error) -> bool {
+        let message = error.to_string();
+        message.contains("usage_records")
+            && (message.contains("conversation_title")
+                || message.contains("no such table: usage_records"))
+    }
+
     let conn = db.lock()?;
     let updated_rows = conn
         .execute(
@@ -213,12 +272,29 @@ pub fn rename_conversation(db: State<DbState>, id: String, title: String) -> Res
     if updated_rows == 0 {
         return Ok(());
     }
-    conn.execute(
-        "UPDATE usage_records SET conversation_title = ?1 WHERE conversation_id = ?2",
-        params![title, id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+
+    let sync_usage_titles = || {
+        conn.execute(
+            "UPDATE usage_records SET conversation_title = ?1 WHERE conversation_id = ?2",
+            params![title.as_str(), id.as_str()],
+        )
+    };
+
+    match sync_usage_titles() {
+        Ok(_) => Ok(()),
+        Err(error) if should_retry_usage_title_update(&error) => {
+            crate::db::schema::init_db(&conn).map_err(|retry_error| retry_error.to_string())?;
+            sync_usage_titles().map_err(|retry_error| retry_error.to_string())?;
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!(
+                "failed to sync usage record titles for conversation {}: {}",
+                id, error
+            );
+            Ok(())
+        }
+    }
 }
 
 #[tauri::command]
@@ -226,8 +302,8 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
     let conn = db.lock()?;
     let mut messages = collect_rows(
         &conn,
-        "SELECT id, conversation_id, role, content, created_at FROM messages \
-         WHERE conversation_id = ?1 AND role != 'system' ORDER BY created_at ASC",
+        "SELECT id, conversation_id, role, content, raw_content, created_at FROM messages \
+         WHERE conversation_id = ?1 AND role != 'system' ORDER BY created_at ASC, rowid ASC",
         params![conversation_id],
         |row| {
             Ok(Message {
@@ -235,8 +311,9 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
                 conversation_id: row.get(1)?,
                 role: row.get(2)?,
                 content: row.get(3)?,
+                raw_content: row.get(4)?,
                 attachments: vec![],
-                created_at: row.get(4)?,
+                created_at: row.get(5)?,
             })
         },
     )?;
@@ -256,4 +333,140 @@ pub fn get_messages(db: State<DbState>, conversation_id: String) -> Result<Vec<M
     }
 
     Ok(messages)
+}
+
+#[tauri::command]
+pub fn get_message_resend_payload(
+    db: State<DbState>,
+    message_id: String,
+) -> Result<MessageResendPayload, String> {
+    let conn = db.lock()?;
+    let (role, content, raw_content): (String, String, String) = conn
+        .query_row(
+            "SELECT role, content, raw_content FROM messages WHERE id = ?1",
+            params![message_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| format!("Message not found: {error}"))?;
+
+    if role != "user" {
+        return Err("Only user messages can be resent.".to_string());
+    }
+
+    Ok(MessageResendPayload {
+        message_id: message_id.clone(),
+        raw_content: if raw_content.trim().is_empty() {
+            content
+        } else {
+            raw_content
+        },
+        attachments_upload: crate::attachments::get_attachment_uploads_for_message(
+            &conn,
+            &message_id,
+        )?,
+    })
+}
+
+#[tauri::command]
+pub fn truncate_conversation_from_message(
+    app: tauri::AppHandle,
+    db: State<DbState>,
+    message_id: String,
+) -> Result<(), String> {
+    let conn = db.lock()?;
+    let (conversation_id, created_at, rowid): (String, String, i64) = conn
+        .query_row(
+            "SELECT conversation_id, created_at, rowid
+             FROM messages
+             WHERE id = ?1
+               AND role != 'system'",
+            params![message_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|error| format!("Message not found: {error}"))?;
+
+    let messages_to_delete = collect_rows(
+        &conn,
+        "SELECT id, content
+         FROM messages
+         WHERE conversation_id = ?1
+           AND (created_at > ?2 OR (created_at = ?2 AND rowid >= ?3))
+         ORDER BY created_at ASC, rowid ASC",
+        params![conversation_id.as_str(), created_at.as_str(), rowid],
+        |row| {
+            Ok(StoredMessage {
+                id: row.get(0)?,
+                content: row.get(1)?,
+            })
+        },
+    )?;
+
+    if messages_to_delete.is_empty() {
+        return Ok(());
+    }
+
+    let message_ids = messages_to_delete
+        .iter()
+        .map(|message| message.id.clone())
+        .collect::<Vec<_>>();
+    let attachments = crate::attachments::get_attachments_for_messages(&conn, &message_ids)?;
+
+    crate::attachments::delete_attachment_files(&attachments);
+    delete_generated_images_for_messages(&app, &messages_to_delete)?;
+
+    conn.execute(
+        "DELETE FROM attachments
+         WHERE message_id IN (
+            SELECT id
+            FROM messages
+            WHERE conversation_id = ?1
+              AND (created_at > ?2 OR (created_at = ?2 AND rowid >= ?3))
+         )",
+        params![conversation_id.as_str(), created_at.as_str(), rowid],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM messages
+         WHERE conversation_id = ?1
+           AND (created_at > ?2 OR (created_at = ?2 AND rowid >= ?3))",
+        params![conversation_id.as_str(), created_at.as_str(), rowid],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute(
+        "DELETE FROM usage_records
+         WHERE conversation_id = ?1
+           AND created_at >= ?2",
+        params![conversation_id.as_str(), created_at.as_str()],
+    )
+    .map_err(|error| error.to_string())?;
+
+    let next_updated_at: String = conn
+        .query_row(
+            "SELECT COALESCE(
+                (
+                    SELECT created_at
+                    FROM messages
+                    WHERE conversation_id = ?1
+                    ORDER BY created_at DESC, rowid DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT created_at
+                    FROM conversations
+                    WHERE id = ?1
+                ),
+                ?2
+            )",
+            params![conversation_id.as_str(), now_timestamp()],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+
+    conn.execute(
+        "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+        params![next_updated_at, conversation_id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok(())
 }

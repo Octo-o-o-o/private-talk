@@ -31,7 +31,7 @@ pub struct PreparedAttachment {
     pub file_size: i64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttachmentUpload {
     pub file_name: String,
     pub mime_type: String,
@@ -257,6 +257,25 @@ pub fn get_attachments_for_messages(
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())
+}
+
+pub fn get_attachment_uploads_for_message(
+    conn: &Connection,
+    message_id: &str,
+) -> Result<Vec<AttachmentUpload>, String> {
+    let attachments = get_attachments_for_messages(conn, &[message_id.to_string()])?;
+
+    attachments
+        .into_iter()
+        .map(|attachment| {
+            let bytes = std::fs::read(&attachment.file_path).map_err(|error| error.to_string())?;
+            Ok(AttachmentUpload {
+                file_name: attachment.file_name,
+                mime_type: attachment.mime_type,
+                data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            })
+        })
+        .collect()
 }
 
 pub fn read_text_file_content(file_path: &str) -> Result<String, String> {

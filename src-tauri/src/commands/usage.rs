@@ -59,6 +59,7 @@ struct ConversationMetaRow {
 #[tauri::command]
 pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<ConversationUsage>, String> {
     let conn = db.lock()?;
+    crate::db::schema::init_db(&conn).map_err(|error| error.to_string())?;
     let rows = collect_rows(
         &conn,
         "SELECT conversation_id, conversation_title, request_preview, model, prompt_tokens, completion_tokens, total_tokens, created_at
@@ -229,6 +230,7 @@ pub fn get_usage_by_conversation(db: State<'_, DbState>) -> Result<Vec<Conversat
 #[tauri::command]
 pub fn get_usage_by_date(db: State<'_, DbState>) -> Result<Vec<DailyUsage>, String> {
     let conn = db.lock()?;
+    crate::db::schema::init_db(&conn).map_err(|error| error.to_string())?;
     let rows = collect_rows(
         &conn,
         "SELECT substr(created_at, 1, 10), conversation_id, model, prompt_tokens, completion_tokens, total_tokens

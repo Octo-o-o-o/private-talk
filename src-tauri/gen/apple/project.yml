@@ -1,6 +1,6 @@
 name: private-talk
 options:
-  bundleIdPrefix: com.wangyixiao.private-talk
+  bundleIdPrefix: cc.readless.privatetalk
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: private-talk
-      PRODUCT_BUNDLE_IDENTIFIER: com.wangyixiao.private-talk
+      PRODUCT_BUNDLE_IDENTIFIER: cc.readless.privatetalk
       DEVELOPMENT_TEAM: 5CS6HUB4P2
 targetTemplates:
   app:

@@ -1,6 +1,16 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { File, FileImage, FileText, Loader2, Square, Volume2 } from "lucide-react";
+import {
+  File,
+  FileImage,
+  FileText,
+  Loader2,
+  Pencil,
+  RotateCcw,
+  Square,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
@@ -19,6 +29,11 @@ interface MessageItemProps {
   content: string;
   attachments?: Attachment[];
   isStreaming?: boolean;
+  onEdit?: (() => void) | null;
+  onRetry?: (() => void) | null;
+  onDelete?: (() => void) | null;
+  actionsDisabled?: boolean;
+  pendingAction?: "edit" | "retry" | "delete" | null;
 }
 
 export const MessageItem = memo(function MessageItem({
@@ -26,13 +41,69 @@ export const MessageItem = memo(function MessageItem({
   content,
   attachments = [],
   isStreaming = false,
+  onEdit,
+  onRetry,
+  onDelete,
+  actionsDisabled = false,
+  pendingAction = null,
 }: MessageItemProps) {
+  const { t } = useI18n();
+
   if (role === "user") {
     return (
       <div className="pt-message pt-message--user">
         <div className="pt-message__bubble pt-message__bubble--user">
           {content ? <p className="pt-message__plain">{content}</p> : null}
           {attachments.length > 0 ? <AttachmentList attachments={attachments} /> : null}
+          {onEdit || onRetry || onDelete ? (
+            <div className="pt-message__actions">
+              {onEdit ? (
+                <button
+                  type="button"
+                  className="pt-message__action"
+                  onClick={onEdit}
+                  disabled={actionsDisabled}
+                >
+                  {pendingAction === "edit" ? (
+                    <Loader2 size={13} className="pt-spinner" />
+                  ) : (
+                    <Pencil size={13} />
+                  )}
+                  <span>{t("编辑", "Edit")}</span>
+                </button>
+              ) : null}
+              {onRetry ? (
+                <button
+                  type="button"
+                  className="pt-message__action"
+                  onClick={onRetry}
+                  disabled={actionsDisabled}
+                >
+                  {pendingAction === "retry" ? (
+                    <Loader2 size={13} className="pt-spinner" />
+                  ) : (
+                    <RotateCcw size={13} />
+                  )}
+                  <span>{t("重试", "Retry")}</span>
+                </button>
+              ) : null}
+              {onDelete ? (
+                <button
+                  type="button"
+                  className="pt-message__action pt-message__action--danger"
+                  onClick={onDelete}
+                  disabled={actionsDisabled}
+                >
+                  {pendingAction === "delete" ? (
+                    <Loader2 size={13} className="pt-spinner" />
+                  ) : (
+                    <Trash2 size={13} />
+                  )}
+                  <span>{t("删除", "Delete")}</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     );

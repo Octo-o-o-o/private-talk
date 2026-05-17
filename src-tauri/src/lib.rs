@@ -35,6 +35,8 @@ pub fn run() {
             commands::conversation::delete_conversation,
             commands::conversation::rename_conversation,
             commands::conversation::get_messages,
+            commands::conversation::get_message_resend_payload,
+            commands::conversation::truncate_conversation_from_message,
             commands::provider::list_providers,
             commands::provider::create_provider,
             commands::provider::update_provider,

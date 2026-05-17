@@ -1,4 +1,14 @@
-import { ArrowUp, FileUp, ImageIcon, Loader2, Mic, Sparkles, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  FileUp,
+  ImageIcon,
+  Loader2,
+  Mic,
+  PencilLine,
+  Sparkles,
+  Square,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { getProvidersForPurpose } from "../../lib/providerModels";
@@ -22,6 +32,13 @@ export interface ChatInputSubmission {
   attachments: AttachmentUpload[];
 }
 
+export interface ChatInputDraft {
+  content: string;
+  mode: ChatInputMode;
+  referenceImage: ChatInputReferenceImage | null;
+  attachments: AttachmentUpload[];
+}
+
 interface ChatInputProps {
   layout: LayoutMode;
   onSend: (submission: ChatInputSubmission) => void;
@@ -30,6 +47,9 @@ interface ChatInputProps {
   showStop?: boolean;
   canSendOverride?: boolean;
   imageEnabled?: boolean;
+  draft?: ChatInputDraft | null;
+  editingLabel?: string | null;
+  onCancelEdit?: () => void;
 }
 
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -83,6 +103,9 @@ export function ChatInput({
   showStop,
   canSendOverride,
   imageEnabled = false,
+  draft,
+  editingLabel,
+  onCancelEdit,
 }: ChatInputProps) {
   const { t } = useI18n();
   const [input, setInput] = useState("");
@@ -184,10 +207,21 @@ export function ChatInput({
   }, [imageEnabled, mode]);
 
   useEffect(() => {
-    if (mode === "image" && attachments.length > 0) {
-      setAttachments([]);
+    if (!draft) {
+      return;
     }
-  }, [attachments.length, mode]);
+
+    setInput(draft.content);
+    setMode(draft.mode);
+    setReferenceImage(draft.referenceImage);
+    setAttachments(draft.attachments);
+    setTranscriptionError(null);
+
+    window.requestAnimationFrame(() => {
+      resizeTextarea(textareaRef.current);
+      textareaRef.current?.focus();
+    });
+  }, [draft]);
 
   async function handleReferenceImageChange(
     event: React.ChangeEvent<HTMLInputElement>,
@@ -215,6 +249,7 @@ export function ChatInput({
 
     try {
       const base64 = await blobToBase64(file);
+      setAttachments([]);
       setReferenceImage({
         name: file.name,
         mimeType: file.type || "image/png",
@@ -398,12 +433,31 @@ export function ChatInput({
       : isTranscribing
         ? t("正在转写语音...", "Transcribing audio...")
         : null;
+  const showComposeMeta =
+    !!editingLabel || mode === "image" || !!referenceImage || attachments.length > 0;
 
   return (
     <div className={`pt-compose pt-compose--${layout}`}>
       <div className="pt-compose__inner">
-        {mode === "image" || referenceImage || attachments.length > 0 ? (
+        {showComposeMeta ? (
           <div className="pt-compose__meta">
+            {editingLabel ? (
+              <div className="pt-compose__pill pt-compose__pill--editing">
+                <PencilLine size={13} />
+                <span>{editingLabel}</span>
+                {onCancelEdit ? (
+                  <button
+                    type="button"
+                    className="pt-compose__pill-remove"
+                    onClick={onCancelEdit}
+                    aria-label={t("取消编辑", "Cancel editing")}
+                  >
+                    <X size={12} />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {mode === "image" || referenceImage ? (
               <div className="pt-compose__pill pt-compose__pill--mode">
                 <Sparkles size={13} />

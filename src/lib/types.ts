@@ -25,6 +25,7 @@ export interface Message {
   conversation_id: string;
   role: Role;
   content: string;
+  raw_content?: string;
   attachments: Attachment[];
   created_at: string;
 }
@@ -45,6 +46,12 @@ export interface AttachmentUpload {
   file_name: string;
   mime_type: string;
   data_base64: string;
+}
+
+export interface MessageResendPayload {
+  message_id: string;
+  raw_content: string;
+  attachments_upload: AttachmentUpload[];
 }
 
 export interface GeneratedAssistantMessage {

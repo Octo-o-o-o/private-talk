@@ -1,3 +1,4 @@
+use crate::attachments::{self, AttachmentUpload};
 use crate::db::{now_timestamp, DbState};
 use crate::image_generation::{self, GeneratedImage};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -128,8 +129,11 @@ pub async fn generate_image_message(
         &config.default_quality,
         &config.default_background,
     )?;
+    let normalized_reference_mime_type = reference_mime_type
+        .clone()
+        .unwrap_or_else(|| "image/png".to_string());
 
-    if let Some(reference_b64) = reference_image_base64 {
+    if let Some(reference_b64) = reference_image_base64.as_ref() {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(reference_b64)
             .map_err(|error| format!("Invalid reference image data: {error}"))?;
@@ -137,7 +141,7 @@ pub async fn generate_image_message(
             .reference_images
             .push(image_generation::ReferenceImage {
                 data: decoded,
-                mime_type: reference_mime_type.unwrap_or_else(|| "image/png".to_string()),
+                mime_type: normalized_reference_mime_type.clone(),
             });
     }
 
@@ -147,19 +151,44 @@ pub async fn generate_image_message(
         }
     }
 
+    let prepared_reference_attachment = if let Some(reference_b64) = reference_image_base64.clone() {
+        let app_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        Some(attachments::save_upload(
+            &app_dir,
+            &AttachmentUpload {
+                file_name: format!(
+                    "reference-image.{}",
+                    file_extension(&normalized_reference_mime_type)
+                ),
+                mime_type: normalized_reference_mime_type.clone(),
+                data_base64: reference_b64,
+            },
+        )?)
+    } else {
+        None
+    };
+
     {
         let conn = db.lock()?;
         let user_message_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'user', ?3, ?4)",
+            "INSERT INTO messages (id, conversation_id, role, content, raw_content, created_at)
+             VALUES (?1, ?2, 'user', ?3, ?4, ?5)",
             params![
                 user_message_id,
                 conversation_id,
                 user_display_content.unwrap_or_else(|| content.clone()),
+                content,
                 now,
             ],
         )
         .map_err(|error| error.to_string())?;
+        if let Some(reference_attachment) = prepared_reference_attachment.as_ref() {
+            attachments::save_attachment(&conn, reference_attachment, &user_message_id)?;
+        }
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
             params![now, conversation_id],
@@ -219,10 +248,12 @@ pub async fn generate_image_message(
     {
         let conn = db.lock()?;
         conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?1, ?2, 'assistant', ?3, ?4)",
+            "INSERT INTO messages (id, conversation_id, role, content, raw_content, created_at)
+             VALUES (?1, ?2, 'assistant', ?3, ?4, ?5)",
             params![
                 assistant_message.id,
                 assistant_message.conversation_id,
+                assistant_message.content,
                 assistant_message.content,
                 assistant_message.created_at,
             ],

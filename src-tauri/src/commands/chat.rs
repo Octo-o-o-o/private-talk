@@ -45,12 +45,20 @@ fn insert_message(
     conversation_id: &str,
     role: &str,
     content: &str,
+    raw_content: Option<&str>,
     now: &str,
 ) -> Result<(), String> {
     conn.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, conversation_id, role, content, now],
+        "INSERT INTO messages (id, conversation_id, role, content, raw_content, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            conversation_id,
+            role,
+            content,
+            raw_content.unwrap_or(content),
+            now
+        ],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
@@ -334,26 +342,69 @@ fn save_usage_record(
     model: &str,
     usage: &Usage,
 ) -> Result<(), String> {
+    fn insert_usage_record(
+        conn: &Connection,
+        id: &str,
+        conversation_id: &str,
+        conversation_title: &str,
+        request_preview: &str,
+        model: &str,
+        usage: &Usage,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "INSERT INTO usage_records (
+                id, conversation_id, conversation_title, request_preview, model,
+                prompt_tokens, completion_tokens, total_tokens, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                conversation_id,
+                conversation_title,
+                request_preview,
+                model,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                usage.total_tokens,
+                now_timestamp(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn should_retry_usage_record_insert(error: &rusqlite::Error) -> bool {
+        let message = error.to_string();
+        message.contains("usage_records")
+            && (message.contains("conversation_title")
+                || message.contains("no such table: usage_records"))
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO usage_records (
-            id, conversation_id, conversation_title, request_preview, model,
-            prompt_tokens, completion_tokens, total_tokens, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            id,
-            conversation_id,
-            conversation_title,
-            request_preview,
-            model,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
-            now_timestamp(),
-        ],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(())
+
+    match insert_usage_record(
+        conn,
+        &id,
+        conversation_id,
+        conversation_title,
+        request_preview,
+        model,
+        usage,
+    ) {
+        Ok(()) => Ok(()),
+        Err(error) if should_retry_usage_record_insert(&error) => {
+            crate::db::schema::init_db(conn).map_err(|retry_error| retry_error.to_string())?;
+            insert_usage_record(
+                conn,
+                &id,
+                conversation_id,
+                conversation_title,
+                request_preview,
+                model,
+                usage,
+            )
+            .map_err(|retry_error| retry_error.to_string())
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn emit_error(app: &tauri::AppHandle, conversation_id: &str, error: String) {
@@ -425,6 +476,7 @@ pub async fn send_message(
             &conversation_id,
             "user",
             &user_display_content,
+            Some(&content),
             &now,
         )?;
         for attachment in &prepared_attachments {
@@ -536,18 +588,24 @@ pub async fn send_message(
             &conversation_id,
             "assistant",
             &full_content,
+            None,
             &done_at,
         )?;
         touch_conversation(&conn, &conversation_id, &done_at)?;
         if let Some(usage) = final_usage.as_ref() {
-            save_usage_record(
+            if let Err(error) = save_usage_record(
                 &conn,
                 &conversation_id,
                 &conversation_title,
                 &user_display_content,
                 &model,
                 usage,
-            )?;
+            ) {
+                eprintln!(
+                    "failed to save usage record for conversation {}: {}",
+                    conversation_id, error
+                );
+            }
         }
     }
 
@@ -567,4 +625,73 @@ pub async fn send_message(
 pub fn stop_generation() -> Result<(), String> {
     STOP_FLAG.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::save_usage_record;
+    use crate::llm::types::Usage;
+    use rusqlite::{params, Connection};
+
+    #[test]
+    fn save_usage_record_repairs_legacy_schema_before_retrying() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+
+        conn.execute_batch(
+            "
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT 'New Chat',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                deleted_at TEXT
+            );
+
+            CREATE TABLE usage_records (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                request_preview TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            ",
+        )
+        .expect("legacy schema");
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?1, ?2, datetime('now'), datetime('now'))",
+            params!["conv-1", "Recovered title"],
+        )
+        .expect("insert conversation");
+
+        save_usage_record(
+            &conn,
+            "conv-1",
+            "Recovered title",
+            "hello world",
+            "grok-4",
+            &Usage {
+                prompt_tokens: 10,
+                completion_tokens: 20,
+                total_tokens: 30,
+            },
+        )
+        .expect("save usage record");
+
+        let (title, preview): (String, String) = conn
+            .query_row(
+                "SELECT conversation_title, request_preview
+                 FROM usage_records
+                 WHERE request_preview = ?1
+                 LIMIT 1",
+                params!["hello world"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read usage record");
+
+        assert_eq!(title, "Recovered title");
+        assert_eq!(preview, "hello world");
+    }
 }

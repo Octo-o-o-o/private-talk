@@ -15,6 +15,8 @@ import * as api from "../../lib/tauri";
 import type {
   Attachment,
   Assistant,
+  Message as ChatMessageRecord,
+  MessageResendPayload,
   ProviderModelRegistry,
   Provider,
   StreamChunkPayload,
@@ -23,7 +25,11 @@ import type {
 } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import type { LayoutMode } from "../layout/useLayoutMode";
-import { ChatInput, type ChatInputSubmission } from "./ChatInput";
+import {
+  ChatInput,
+  type ChatInputDraft,
+  type ChatInputSubmission,
+} from "./ChatInput";
 import { MessageItem } from "./MessageItem";
 
 interface ChatViewProps {
@@ -35,6 +41,100 @@ interface ChatViewProps {
 
 type Unlisten = () => void;
 const EMPTY_ATTACHMENTS: Attachment[] = [];
+
+function createEmptyDraft(): ChatInputDraft {
+  return {
+    content: "",
+    mode: "chat",
+    referenceImage: null,
+    attachments: [],
+  };
+}
+
+function stripImagePrefix(value: string): string {
+  return value.replace(/^\/img\b\s*/iu, "").replace(/^🖼\s*/u, "").trim();
+}
+
+function looksLikeAttachmentSummary(value: string, attachmentCount: number): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || attachmentCount === 0) {
+    return false;
+  }
+
+  if (attachmentCount === 1) {
+    return /^已附加文件：.+$/u.test(trimmed) || /^Attached file: .+$/iu.test(trimmed);
+  }
+
+  return /^已附加 \d+ 个文件$/u.test(trimmed) || /^Attached \d+ files?$/iu.test(trimmed);
+}
+
+function normalizeStoredUserInput(
+  message: ChatMessageRecord,
+  payload: MessageResendPayload,
+): string {
+  const rawContent = payload.raw_content.trim()
+    ? payload.raw_content
+    : message.raw_content?.trim()
+      ? message.raw_content
+      : message.content;
+
+  if (
+    payload.attachments_upload.length > 0 &&
+    looksLikeAttachmentSummary(rawContent, payload.attachments_upload.length)
+  ) {
+    return "";
+  }
+
+  return rawContent;
+}
+
+function isStoredImageRequest(rawContent: string, displayContent: string): boolean {
+  const candidate = rawContent.trim() || displayContent.trim();
+  return candidate.startsWith("/img") || candidate.startsWith("🖼");
+}
+
+function buildSubmissionFromHistoryMessage(
+  message: ChatMessageRecord,
+  payload: MessageResendPayload,
+): ChatInputSubmission {
+  const rawContent = normalizeStoredUserInput(message, payload);
+  if (isStoredImageRequest(rawContent, message.content)) {
+    const referenceAttachment =
+      payload.attachments_upload.find((attachment) => attachment.mime_type.startsWith("image/")) ??
+      null;
+
+    return {
+      content: stripImagePrefix(rawContent || message.content),
+      mode: "image",
+      referenceImage: referenceAttachment
+        ? {
+            name: referenceAttachment.file_name,
+            mimeType: referenceAttachment.mime_type,
+            base64: referenceAttachment.data_base64,
+          }
+        : null,
+      attachments: referenceAttachment
+        ? payload.attachments_upload.filter((attachment) => attachment !== referenceAttachment)
+        : payload.attachments_upload,
+    };
+  }
+
+  return {
+    content: rawContent,
+    mode: "chat",
+    referenceImage: null,
+    attachments: payload.attachments_upload,
+  };
+}
+
+function draftFromSubmission(submission: ChatInputSubmission): ChatInputDraft {
+  return {
+    content: submission.content,
+    mode: submission.mode,
+    referenceImage: submission.referenceImage,
+    attachments: submission.attachments,
+  };
+}
 
 export function ChatView({
   layout,
@@ -63,6 +163,8 @@ export function ChatView({
   const createConversation = useAppStore((state) => state.createConversation);
   const selectAssistant = useAppStore((state) => state.selectAssistant);
   const openSettings = useAppStore((state) => state.openSettings);
+  const loadMessages = useAppStore((state) => state.loadMessages);
+  const loadConversations = useAppStore((state) => state.loadConversations);
   const setSelectedProvider = useAppStore(
     (state) => state.setSelectedProvider,
   );
@@ -74,6 +176,12 @@ export function ChatView({
   const isPhone = layout === "phone";
   const [isImageGenerating, setIsImageGenerating] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [composerDraft, setComposerDraft] = useState<ChatInputDraft | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [messageAction, setMessageAction] = useState<{
+    messageId: string;
+    kind: "edit" | "retry" | "delete";
+  } | null>(null);
   const imageEnabled =
     imageGenConfig.enabled &&
     imageGenConfig.provider_id.trim().length > 0 &&
@@ -177,6 +285,9 @@ export function ChatView({
     setStreamingContent("");
     setIsImageGenerating(false);
     autoScrollRef.current = true;
+    setEditingMessageId(null);
+    setMessageAction(null);
+    setComposerDraft(createEmptyDraft());
   }, [currentConversationId]);
 
   useEffect(() => {
@@ -245,7 +356,35 @@ export function ChatView({
       element.scrollHeight - element.scrollTop - element.clientHeight < 100;
   }
 
-  async function handleSend(submission: ChatInputSubmission): Promise<void> {
+  function clearMessageRewriteState(): void {
+    setEditingMessageId(null);
+    setComposerDraft(createEmptyDraft());
+  }
+
+  async function refreshConversationAfterRewrite(conversationId: string): Promise<void> {
+    await Promise.all([
+      loadMessages(conversationId),
+      loadConversations(),
+    ]);
+  }
+
+  async function truncateConversationAtMessage(messageId: string): Promise<void> {
+    if (!currentConversationId) {
+      return;
+    }
+
+    await api.truncateConversationFromMessage(messageId);
+    await refreshConversationAfterRewrite(currentConversationId);
+  }
+
+  async function loadSubmissionFromMessage(
+    message: ChatMessageRecord,
+  ): Promise<ChatInputSubmission> {
+    const payload = await api.getMessageResendPayload(message.id);
+    return buildSubmissionFromHistoryMessage(message, payload);
+  }
+
+  async function performSend(submission: ChatInputSubmission): Promise<void> {
     const rawContent = submission.content.trim();
     const isImageRequest = submission.mode === "image" || rawContent.startsWith("/img");
     const fallbackProvider =
@@ -392,6 +531,64 @@ export function ChatView({
     }
   }
 
+  async function handleSend(submission: ChatInputSubmission): Promise<void> {
+    if (editingMessageId) {
+      await truncateConversationAtMessage(editingMessageId);
+      clearMessageRewriteState();
+    }
+
+    await performSend(submission);
+  }
+
+  async function handleEditMessage(message: ChatMessageRecord): Promise<void> {
+    setMessageAction({ messageId: message.id, kind: "edit" });
+    try {
+      const submission = await loadSubmissionFromMessage(message);
+      setEditingMessageId(message.id);
+      setComposerDraft(draftFromSubmission(submission));
+    } catch (error) {
+      console.error("Failed to prepare message edit:", error);
+    } finally {
+      setMessageAction(null);
+    }
+  }
+
+  async function handleRetryMessage(message: ChatMessageRecord): Promise<void> {
+    setMessageAction({ messageId: message.id, kind: "retry" });
+    try {
+      const submission = await loadSubmissionFromMessage(message);
+      await truncateConversationAtMessage(message.id);
+      clearMessageRewriteState();
+      await performSend(submission);
+    } catch (error) {
+      console.error("Failed to retry message:", error);
+    } finally {
+      setMessageAction(null);
+    }
+  }
+
+  async function handleDeleteMessage(message: ChatMessageRecord): Promise<void> {
+    const confirmed = window.confirm(
+      t(
+        "删除这条消息后，它以及后面的所有输入和回复都会一起删除。确定继续吗？",
+        "Deleting this message also removes everything after it. Continue?",
+      ),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setMessageAction({ messageId: message.id, kind: "delete" });
+    try {
+      await truncateConversationAtMessage(message.id);
+      clearMessageRewriteState();
+    } catch (error) {
+      console.error("Failed to delete message:", error);
+    } finally {
+      setMessageAction(null);
+    }
+  }
+
   function handleBack(): void {
     if (isStreaming) {
       void api.stopGeneration();
@@ -424,6 +621,7 @@ export function ChatView({
         (currentConversation?.assistant_id ?? currentAssistantId ?? null),
     ) ?? null;
   const hasConversation = !!currentConversationId;
+  const messageActionsDisabled = !!messageAction || isStreaming || isImageGenerating;
   const title = hasConversation
     ? currentConversation?.title.trim() || t("新对话", "New Conversation")
     : "Private Talk";
@@ -500,6 +698,25 @@ export function ChatView({
                   role={message.role}
                   content={message.content}
                   attachments={message.attachments}
+                  onEdit={
+                    message.role === "user"
+                      ? () => void handleEditMessage(message)
+                      : null
+                  }
+                  onRetry={
+                    message.role === "user"
+                      ? () => void handleRetryMessage(message)
+                      : null
+                  }
+                  onDelete={
+                    message.role === "user"
+                      ? () => void handleDeleteMessage(message)
+                      : null
+                  }
+                  actionsDisabled={messageActionsDisabled}
+                  pendingAction={
+                    messageAction?.messageId === message.id ? messageAction.kind : null
+                  }
                 />
               ))}
 
@@ -544,6 +761,16 @@ export function ChatView({
         showStop={isStreaming}
         canSendOverride={!!effectiveProviderId && !!effectiveModel}
         imageEnabled={imageEnabled}
+        draft={composerDraft}
+        editingLabel={
+          editingMessageId
+            ? t(
+                "编辑后会覆盖后续对话",
+                "Sending replaces the later thread",
+              )
+            : null
+        }
+        onCancelEdit={editingMessageId ? clearMessageRewriteState : undefined}
       />
     </div>
   );

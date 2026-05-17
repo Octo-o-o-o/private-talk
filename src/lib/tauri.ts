@@ -10,6 +10,7 @@ import type {
   ImageGenConfig,
   ImportConfigResult,
   Message,
+  MessageResendPayload,
   PreviewBootstrap,
   Provider,
   TtsResult,
@@ -231,6 +232,14 @@ export function renameConversation(id: string, title: string): Promise<void> {
 
 export function getMessages(conversationId: string): Promise<Message[]> {
   return cmd("get_messages", { conversationId });
+}
+
+export function getMessageResendPayload(messageId: string): Promise<MessageResendPayload> {
+  return cmd("get_message_resend_payload", { messageId });
+}
+
+export function truncateConversationFromMessage(messageId: string): Promise<void> {
+  return cmd("truncate_conversation_from_message", { messageId });
 }
 
 export function listAssistants(): Promise<Assistant[]> {
