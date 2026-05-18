@@ -119,21 +119,11 @@ fn context_message_limit(setting: Option<String>) -> usize {
 
 fn assistant_preset_instruction(preset: &str) -> &'static str {
     match preset {
-        "coder" => {
-            "You are a senior software engineer. Give pragmatic, technically rigorous answers, point out risks clearly, and prefer concrete implementation details."
-        }
-        "writer" => {
-            "You are a writing assistant. Improve clarity, structure, and tone while preserving the user's intent and keeping the response polished."
-        }
-        "translator" => {
-            "You are a translation assistant. Preserve meaning, formatting, and terminology accurately, and avoid adding commentary unless the user asks for it."
-        }
-        "research" => {
-            "You are a research assistant. Synthesize findings carefully, compare options, and call out assumptions, evidence quality, and tradeoffs."
-        }
-        _ => {
-            "You are Private Talk, a clear, helpful, and concise assistant. Balance practicality with accuracy and keep responses grounded in the user's request."
-        }
+        "coder" => "You are a senior software engineer. Give pragmatic, technically rigorous answers, point out risks clearly, and prefer concrete implementation details.",
+        "writer" => "You are a writing assistant. Improve clarity, structure, and tone while preserving the user's intent and keeping the response polished.",
+        "translator" => "You are a translation assistant. Preserve meaning, formatting, and terminology accurately, and avoid adding commentary unless the user asks for it.",
+        "research" => "You are a research assistant. Synthesize findings carefully, compare options, and call out assumptions, evidence quality, and tradeoffs.",
+        _ => "You are Private Talk, a clear, helpful, and concise assistant. Balance practicality with accuracy and keep responses grounded in the user's request.",
     }
 }
 
@@ -157,17 +147,18 @@ fn build_system_message(
 ) -> Option<ChatMessage> {
     let mut instructions = Vec::new();
 
-    if let Some(prompt) = assistant_prompt
+    let trimmed_prompt = assistant_prompt
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
+        .filter(|value| !value.is_empty());
+
+    if let Some(prompt) = trimmed_prompt {
         instructions.push(prompt);
     } else {
-        let preset = assistant_preset.unwrap_or_else(|| "default".to_string());
+        let preset = assistant_preset.as_deref().unwrap_or("default");
         let custom_prompt = custom_prompt.unwrap_or_default().trim().to_string();
 
         if preset != "default" {
-            instructions.push(assistant_preset_instruction(&preset).to_string());
+            instructions.push(assistant_preset_instruction(preset).to_string());
         }
 
         if !custom_prompt.is_empty() {
@@ -321,6 +312,7 @@ fn load_history(
             });
     }
 
+    let allow_inline_images = is_vision_model(model);
     Ok(messages
         .into_iter()
         .map(|(id, role, content)| ChatMessage {
@@ -328,7 +320,7 @@ fn load_history(
             content: message_content_with_attachments(
                 &content,
                 grouped.get(&id).map(Vec::as_slice).unwrap_or(&[]),
-                is_vision_model(model),
+                allow_inline_images,
             ),
         })
         .collect())
@@ -342,22 +334,22 @@ fn save_usage_record(
     model: &str,
     usage: &Usage,
 ) -> Result<(), String> {
-    fn insert_usage_record(
-        conn: &Connection,
-        id: &str,
-        conversation_id: &str,
-        conversation_title: &str,
-        request_preview: &str,
-        model: &str,
-        usage: &Usage,
-    ) -> rusqlite::Result<()> {
+    fn should_retry_usage_record_insert(error: &rusqlite::Error) -> bool {
+        let message = error.to_string();
+        message.contains("usage_records")
+            && (message.contains("conversation_title")
+                || message.contains("no such table: usage_records"))
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let insert = || -> rusqlite::Result<()> {
         conn.execute(
             "INSERT INTO usage_records (
                 id, conversation_id, conversation_title, request_preview, model,
                 prompt_tokens, completion_tokens, total_tokens, created_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                id,
+                id.as_str(),
                 conversation_id,
                 conversation_title,
                 request_preview,
@@ -369,39 +361,13 @@ fn save_usage_record(
             ],
         )?;
         Ok(())
-    }
+    };
 
-    fn should_retry_usage_record_insert(error: &rusqlite::Error) -> bool {
-        let message = error.to_string();
-        message.contains("usage_records")
-            && (message.contains("conversation_title")
-                || message.contains("no such table: usage_records"))
-    }
-
-    let id = uuid::Uuid::new_v4().to_string();
-
-    match insert_usage_record(
-        conn,
-        &id,
-        conversation_id,
-        conversation_title,
-        request_preview,
-        model,
-        usage,
-    ) {
+    match insert() {
         Ok(()) => Ok(()),
         Err(error) if should_retry_usage_record_insert(&error) => {
             crate::db::schema::init_db(conn).map_err(|retry_error| retry_error.to_string())?;
-            insert_usage_record(
-                conn,
-                &id,
-                conversation_id,
-                conversation_title,
-                request_preview,
-                model,
-                usage,
-            )
-            .map_err(|retry_error| retry_error.to_string())
+            insert().map_err(|retry_error| retry_error.to_string())
         }
         Err(error) => Err(error.to_string()),
     }
@@ -447,16 +413,15 @@ pub async fn send_message(
 
     let now = now_timestamp();
     let uploads = attachments_upload.unwrap_or_default();
-    let prepared_attachments = {
+    let prepared_attachments: Vec<_> = {
         let app_dir = app
             .path()
             .app_data_dir()
             .map_err(|error| error.to_string())?;
-        let mut prepared = Vec::new();
-        for upload in &uploads {
-            prepared.push(attachments::save_upload(&app_dir, upload)?);
-        }
-        prepared
+        uploads
+            .iter()
+            .map(|upload| attachments::save_upload(&app_dir, upload))
+            .collect::<Result<_, _>>()?
     };
 
     let (
@@ -484,11 +449,11 @@ pub async fn send_message(
         }
         touch_conversation(&conn, &conversation_id, &now)?;
 
-        let provider = load_provider(&conn, &provider_id)?;
+        let (base_url, api_key) = load_provider(&conn, &provider_id)?;
         let title = conn
             .query_row(
                 "SELECT title FROM conversations WHERE id = ?1",
-                params![conversation_id.clone()],
+                params![conversation_id.as_str()],
                 |row| row.get::<_, String>(0),
             )
             .unwrap_or_else(|_| "New Chat".to_string());
@@ -511,8 +476,8 @@ pub async fn send_message(
         let reply_language = load_setting(&conn, "assistant_language")?;
         let custom_prompt = load_setting(&conn, "assistant_custom_prompt")?;
         (
-            provider.0,
-            provider.1,
+            base_url,
+            api_key,
             history,
             title,
             conversation_assistant_prompt,

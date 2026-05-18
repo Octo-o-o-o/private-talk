@@ -33,9 +33,9 @@ pub struct MessageResendPayload {
 }
 
 #[derive(Debug)]
-struct StoredMessage {
-    id: String,
-    content: String,
+pub(crate) struct StoredMessage {
+    pub(crate) id: String,
+    pub(crate) content: String,
 }
 
 fn decode_local_image_uri(value: &str) -> Option<String> {
@@ -168,7 +168,7 @@ fn update_conversation_assistant_db(
              FROM conversations
              WHERE id = ?1
                AND deleted_at IS NULL",
-            params![id.clone()],
+            params![id.as_str()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|error| format!("Conversation not found: {error}"))?;
@@ -176,7 +176,7 @@ fn update_conversation_assistant_db(
     let sent_message_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1 AND role != 'system'",
-            params![id.clone()],
+            params![id.as_str()],
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
@@ -191,7 +191,7 @@ fn update_conversation_assistant_db(
          SET assistant_id = ?1, updated_at = ?2
          WHERE id = ?3
            AND deleted_at IS NULL",
-        params![assistant_id, now, id.clone()],
+        params![assistant_id, now, id.as_str()],
     )
     .map_err(|error| error.to_string())?;
 
@@ -380,17 +380,18 @@ fn get_message_resend_payload_db(
         return Err("Only user messages can be resent.".to_string());
     }
 
+    let attachments_upload =
+        crate::attachments::get_attachment_uploads_for_message(conn, &message_id)?;
+    let raw_content = if raw_content.trim().is_empty() {
+        content
+    } else {
+        raw_content
+    };
+
     Ok(MessageResendPayload {
-        message_id: message_id.clone(),
-        raw_content: if raw_content.trim().is_empty() {
-            content
-        } else {
-            raw_content
-        },
-        attachments_upload: crate::attachments::get_attachment_uploads_for_message(
-            conn,
-            &message_id,
-        )?,
+        message_id,
+        raw_content,
+        attachments_upload,
     })
 }
 
