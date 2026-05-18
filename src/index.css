@@ -124,6 +124,21 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   --pin-lock-background: rgba(14, 14, 16, 0.82);
   --mobile-main-background: linear-gradient(180deg, rgba(5, 5, 6, 0.98), rgba(0, 0, 0, 1));
+
+  --user-bubble-background: #ffffff;
+  --user-bubble-foreground: #050506;
+  --user-bubble-shadow: 0 14px 32px -26px rgba(0, 0, 0, 0.9);
+  --user-action-background: rgba(15, 23, 42, 0.08);
+  --user-action-background-hover: rgba(15, 23, 42, 0.14);
+  --user-action-foreground: rgba(15, 23, 42, 0.78);
+  --user-action-foreground-hover: rgba(15, 23, 42, 0.96);
+
+  --assistant-bubble-shadow: 0 14px 32px -26px rgba(0, 0, 0, 0.9);
+
+  --control-h-xs: 28px;
+  --control-h-sm: 32px;
+  --control-h-md: 40px;
+  --control-h-lg: 44px;
 }
 
 :root[data-theme="light"] {
@@ -217,6 +232,16 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
   --pin-lock-background: rgba(255, 255, 255, 0.82);
   --mobile-main-background: linear-gradient(180deg, rgba(252, 250, 245, 0.98), rgba(243, 238, 229, 1));
+
+  --user-bubble-background: var(--accent);
+  --user-bubble-foreground: var(--text-on-accent);
+  --user-bubble-shadow: 0 14px 32px -28px rgba(82, 63, 32, 0.32);
+  --user-action-background: rgba(255, 255, 255, 0.14);
+  --user-action-background-hover: rgba(255, 255, 255, 0.22);
+  --user-action-foreground: rgba(255, 255, 255, 0.86);
+  --user-action-foreground-hover: #ffffff;
+
+  --assistant-bubble-shadow: 0 14px 30px -24px rgba(82, 63, 32, 0.22);
 }
 
 * {
@@ -345,11 +370,6 @@ select option {
   html[data-platform="macos"] .pt-pin-lock-card {
     padding-top: max(26px, calc(var(--safe-top) + 26px));
   }
-}
-
-:root[data-theme="light"] .pt-message__bubble--user {
-  background: var(--accent);
-  color: var(--text-on-accent);
 }
 
 :root[data-theme="light"] .pt-compose__send:hover:not(.is-disabled) {
@@ -573,7 +593,7 @@ select option {
   background: var(--surface-subtle);
   color: var(--text-primary);
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   transition:
     transform 180ms var(--curve-bounce),
     background 180ms ease,
@@ -606,7 +626,7 @@ select option {
 
 .pt-field-group__label {
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
@@ -715,7 +735,7 @@ select option {
   background: var(--surface-subtle-hover);
   color: var(--text-secondary);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -780,14 +800,14 @@ select option {
   margin-bottom: 4px;
   color: var(--text-tertiary);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .pt-sidebar__title {
   font-size: 30px;
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: -0.05em;
 }
 
@@ -824,13 +844,13 @@ select option {
 
 .pt-sidebar__notice-title {
   font-size: 14px;
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .pt-sidebar__notice-copy {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -852,7 +872,7 @@ select option {
 .pt-sidebar__section-count {
   color: var(--text-tertiary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -970,7 +990,7 @@ select option {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 500;
   letter-spacing: -0.02em;
 }
 
@@ -978,7 +998,7 @@ select option {
   margin-left: auto;
   flex-shrink: 0;
   color: var(--text-tertiary);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .pt-conversation-row__preview {
@@ -1012,10 +1032,10 @@ select option {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  min-height: 46px;
+  min-height: var(--control-h-lg);
   padding: 0 16px;
   border: 1px solid var(--border-light);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-subtle);
   font-size: 14px;
   font-weight: 600;
@@ -1036,7 +1056,6 @@ select option {
 
 .pt-nav-button {
   justify-content: flex-start;
-  min-height: 48px;
   color: var(--text-secondary);
 }
 
@@ -1087,8 +1106,8 @@ select option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15.5px;
-  font-weight: 620;
+  font-size: 15px;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
@@ -1097,8 +1116,8 @@ select option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-tertiary);
-  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .pt-pane-header__actions {
@@ -1162,6 +1181,18 @@ select option {
 
 .pt-chat__scroll {
   padding: 26px 24px 18px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
 }
 
 .pt-chat__column {
@@ -1232,19 +1263,19 @@ select option {
   flex-shrink: 0;
   width: 42px;
   height: 42px;
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-subtle-hover);
 }
 
 .pt-helper-card__title {
   font-size: 14px;
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .pt-helper-card__copy {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -1272,7 +1303,7 @@ select option {
 .pt-assistant-inline__label {
   color: var(--text-secondary);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1280,7 +1311,7 @@ select option {
 .pt-assistant-inline__detail {
   margin: 0;
   color: var(--text-tertiary);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1294,9 +1325,8 @@ select option {
 }
 
 .pt-message__bubble {
-  max-width: min(78%, 68ch);
+  max-width: 78%;
   padding: 14px 20px;
-  box-shadow: 0 14px 32px -26px rgba(0, 0, 0, 0.9);
   font-size: 14px;
   line-height: 1.56;
   overflow-wrap: anywhere;
@@ -1304,8 +1334,9 @@ select option {
 
 .pt-message__bubble--user {
   border-radius: 20px 20px 6px 20px;
-  background: white;
-  color: var(--text-dark);
+  background: var(--user-bubble-background);
+  color: var(--user-bubble-foreground);
+  box-shadow: var(--user-bubble-shadow);
   white-space: pre-wrap;
 }
 
@@ -1314,6 +1345,7 @@ select option {
   border-radius: 20px 20px 20px 6px;
   background: var(--assistant-bubble-background);
   color: var(--text-primary);
+  box-shadow: var(--assistant-bubble-shadow);
 }
 
 .pt-message__plain {
@@ -1332,13 +1364,13 @@ select option {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
+  min-height: var(--control-h-xs);
   padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: rgba(15, 23, 42, 0.78);
-  font-size: 11.5px;
-  font-weight: 620;
+  border-radius: 10px;
+  background: var(--user-action-background);
+  color: var(--user-action-foreground);
+  font-size: 12px;
+  font-weight: 600;
   transition:
     background 180ms ease,
     color 180ms ease,
@@ -1347,8 +1379,8 @@ select option {
 }
 
 .pt-message__action:hover:not(:disabled) {
-  background: rgba(15, 23, 42, 0.14);
-  color: rgba(15, 23, 42, 0.96);
+  background: var(--user-action-background-hover);
+  color: var(--user-action-foreground-hover);
 }
 
 .pt-message__action:disabled {
@@ -1460,7 +1492,7 @@ select option {
 .pt-markdown th {
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -1496,8 +1528,8 @@ select option {
   padding: 8px 10px;
   background: var(--code-toolbar-background);
   color: var(--text-secondary);
-  font-size: 10.5px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1592,12 +1624,12 @@ select option {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 560;
+  font-weight: 500;
 }
 
 .pt-attachment-card__meta {
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .pt-attachment-card__image {
@@ -1682,11 +1714,11 @@ select option {
 .pt-compose__field {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
   min-height: 52px;
-  padding: 6px 6px 6px 18px;
+  padding: 6px;
   border: 1px solid var(--border-light);
-  border-radius: 26px;
+  border-radius: 24px;
   background: var(--compose-field-background);
   box-shadow: var(--compose-field-shadow);
 }
@@ -1701,7 +1733,7 @@ select option {
   flex: 1;
   overflow-y: auto;
   color: var(--text-primary);
-  padding: 8px 0;
+  padding: 8px;
   font-size: 14px;
   line-height: 1.5;
   outline: none;
@@ -1832,9 +1864,12 @@ select option {
 }
 
 .pt-settings-menu-card {
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
   border: 1px solid var(--border-light);
-  border-radius: 24px;
+  border-radius: 20px;
   background: var(--surface-card);
   box-shadow: var(--shadow-card);
 }
@@ -1844,18 +1879,15 @@ select option {
   align-items: center;
   gap: 14px;
   width: 100%;
-  min-height: 74px;
-  padding: 16px;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-radius: 14px;
   text-align: left;
   transition:
     transform 180ms var(--curve-bounce),
     background 180ms ease,
     box-shadow 180ms ease,
     border-color 180ms ease;
-}
-
-.pt-settings-menu-button + .pt-settings-menu-button {
-  border-top: 1px solid var(--border-light);
 }
 
 .pt-settings-menu-button:hover {
@@ -1874,7 +1906,7 @@ select option {
   flex-shrink: 0;
   width: 38px;
   height: 38px;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--border-light);
   background: var(--surface-subtle);
   color: var(--text-secondary);
@@ -1890,15 +1922,15 @@ select option {
 }
 
 .pt-settings-menu-button__title {
-  font-size: 14.5px;
-  font-weight: 580;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .pt-settings-menu-button__detail {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1918,8 +1950,8 @@ select option {
 
 .pt-settings-panel__eyebrow {
   color: var(--text-tertiary);
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1927,7 +1959,7 @@ select option {
 .pt-settings-panel__title {
   margin-top: 8px;
   font-size: 28px;
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: -0.05em;
 }
 
@@ -1943,8 +1975,8 @@ select option {
   padding-left: 4px;
   margin-bottom: 12px;
   color: var(--text-tertiary);
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2026,15 +2058,15 @@ select option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 500;
   letter-spacing: -0.02em;
 }
 
 .pt-settings-row__detail,
 .pt-settings-row__value {
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .pt-settings-row__detail {
@@ -2123,15 +2155,15 @@ select option {
 }
 
 .pt-settings-toolbar__title {
-  font-size: 14.5px;
-  font-weight: 580;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .pt-settings-toolbar__detail {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -2143,8 +2175,8 @@ select option {
 
 .pt-settings-subgroup__label {
   color: var(--text-tertiary);
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2159,7 +2191,7 @@ select option {
   max-width: 56ch;
   padding: 7px 4px 0;
   color: var(--text-tertiary);
-  font-size: 10.75px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -2187,7 +2219,7 @@ select option {
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--border-light);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-card);
 }
 
@@ -2225,7 +2257,7 @@ select option {
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border-light);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-card);
 }
 
@@ -2248,14 +2280,14 @@ select option {
 .pt-usage-stat__value {
   margin-top: 10px;
   font-size: 22px;
-  font-weight: 620;
+  font-weight: 600;
   letter-spacing: -0.045em;
 }
 
 .pt-usage-stat__detail {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -2324,7 +2356,7 @@ select option {
 .pt-usage-row__detail {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.45;
   overflow: hidden;
   display: -webkit-box;
@@ -2349,14 +2381,14 @@ select option {
   min-width: 96px;
   padding-left: 12px;
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .pt-usage-row__summary strong {
   color: var(--text-primary);
   font-size: 16px;
-  font-weight: 620;
+  font-weight: 600;
   letter-spacing: -0.035em;
 }
 
@@ -2370,7 +2402,7 @@ select option {
   border-radius: 999px;
   background: var(--surface-subtle);
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -2435,7 +2467,7 @@ select option {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .pt-usage-inline-metrics {
@@ -2454,7 +2486,7 @@ select option {
 
 .pt-usage-model-row__stat {
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -2469,7 +2501,7 @@ select option {
   flex-wrap: wrap;
   gap: 8px;
   color: var(--text-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .pt-assistant-library,
@@ -2486,7 +2518,7 @@ select option {
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border-light);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-card);
 }
 
@@ -2524,7 +2556,7 @@ select option {
 .pt-assistant-card__prompt {
   margin-top: 8px;
   color: var(--text-tertiary);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   display: -webkit-box;
   overflow: hidden;
@@ -2538,7 +2570,7 @@ select option {
   gap: 14px;
   padding: 14px;
   border: 1px solid var(--border-light);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--surface-card);
 }
 
@@ -2636,7 +2668,7 @@ select option {
     26px
     max(26px, calc(var(--safe-bottom) + 26px));
   border: 1px solid var(--border-light);
-  border-radius: 34px;
+  border-radius: 32px;
   background: var(--pin-lock-background);
   backdrop-filter: var(--blur-panel);
   -webkit-backdrop-filter: var(--blur-panel);
@@ -2664,7 +2696,7 @@ select option {
 .pt-pin-lock__copy {
   margin-top: 8px;
   color: var(--text-secondary);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .pt-pin-lock__dots {
@@ -2780,8 +2812,8 @@ select option {
 
 @media (max-width: 959px) {
   .pt-provider-controls .pt-select {
-    min-width: 132px;
-    max-width: 176px;
+    min-width: 120px;
+    max-width: 156px;
   }
 
   .pt-chat__column,

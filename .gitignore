@@ -26,6 +26,7 @@ dist-ssr
 # Tooling artifacts
 .codex-artifacts/
 .playwright-mcp/
+.claude/
 
 # Local design/demo scratch files
 demo.html
