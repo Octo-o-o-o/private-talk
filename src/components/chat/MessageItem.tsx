@@ -225,6 +225,20 @@ function AssistantMessage({
     }
   }
 
+  const speechLabel = isSpeaking
+    ? t("停止朗读", "Stop playback")
+    : t("朗读消息", "Speak message");
+
+  function renderSpeechIcon() {
+    if (isSpeaking) {
+      return <Square size={13} fill="currentColor" />;
+    }
+    if (isStreaming) {
+      return <Loader2 size={14} className="pt-spinner" />;
+    }
+    return <Volume2 size={14} />;
+  }
+
   return (
     <div className="pt-message pt-message--assistant">
       <div className="pt-message__bubble pt-message__bubble--assistant">
@@ -234,16 +248,10 @@ function AssistantMessage({
               type="button"
               className="pt-message__tool"
               onClick={() => void toggleSpeech()}
-              aria-label={isSpeaking ? t("停止朗读", "Stop playback") : t("朗读消息", "Speak message")}
-              title={isSpeaking ? t("停止朗读", "Stop playback") : t("朗读消息", "Speak message")}
+              aria-label={speechLabel}
+              title={speechLabel}
             >
-              {isSpeaking ? (
-                <Square size={13} fill="currentColor" />
-              ) : isStreaming ? (
-                <Loader2 size={14} className="pt-spinner" />
-              ) : (
-                <Volume2 size={14} />
-              )}
+              {renderSpeechIcon()}
             </button>
           </div>
         ) : null}
@@ -261,6 +269,16 @@ function AssistantMessage({
       </div>
     </div>
   );
+}
+
+function renderAttachmentIcon(fileType: string) {
+  if (fileType === "image") {
+    return <FileImage size={16} />;
+  }
+  if (fileType === "pdf" || fileType === "text_file") {
+    return <FileText size={16} />;
+  }
+  return <File size={16} />;
 }
 
 function attachmentHref(path: string): string | null {
@@ -293,12 +311,7 @@ function AttachmentList({ attachments }: { attachments: Attachment[] }) {
 function AttachmentCard({ attachment }: { attachment: Attachment }) {
   const href = attachmentHref(attachment.file_path);
   const isImage = attachment.file_type === "image" && !!href;
-  const icon =
-    attachment.file_type === "image"
-      ? <FileImage size={16} />
-      : attachment.file_type === "pdf" || attachment.file_type === "text_file"
-        ? <FileText size={16} />
-        : <File size={16} />;
+  const icon = renderAttachmentIcon(attachment.file_type);
 
   async function handleOpen(): Promise<void> {
     if (!attachment.file_path) {

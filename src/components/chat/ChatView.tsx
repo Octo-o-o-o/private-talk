@@ -55,6 +55,19 @@ function stripImagePrefix(value: string): string {
   return value.replace(/^\/img\b\s*/iu, "").replace(/^🖼\s*/u, "").trim();
 }
 
+function optimisticAttachmentType(mimeType: string): string {
+  if (mimeType === "application/pdf") {
+    return "pdf";
+  }
+  if (mimeType.startsWith("text/") || mimeType === "application/json") {
+    return "text_file";
+  }
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
+  return "file";
+}
+
 function looksLikeAttachmentSummary(value: string, attachmentCount: number): boolean {
   const trimmed = value.trim();
   if (!trimmed || attachmentCount === 0) {
@@ -72,11 +85,14 @@ function normalizeStoredUserInput(
   message: ChatMessageRecord,
   payload: MessageResendPayload,
 ): string {
-  const rawContent = payload.raw_content.trim()
-    ? payload.raw_content
-    : message.raw_content?.trim()
-      ? message.raw_content
-      : message.content;
+  let rawContent: string;
+  if (payload.raw_content.trim()) {
+    rawContent = payload.raw_content;
+  } else if (message.raw_content?.trim()) {
+    rawContent = message.raw_content;
+  } else {
+    rawContent = message.content;
+  }
 
   if (
     payload.attachments_upload.length > 0 &&
@@ -361,20 +377,16 @@ export function ChatView({
     setComposerDraft(createEmptyDraft());
   }
 
-  async function refreshConversationAfterRewrite(conversationId: string): Promise<void> {
-    await Promise.all([
-      loadMessages(conversationId),
-      loadConversations(),
-    ]);
-  }
-
   async function truncateConversationAtMessage(messageId: string): Promise<void> {
     if (!currentConversationId) {
       return;
     }
 
     await api.truncateConversationFromMessage(messageId);
-    await refreshConversationAfterRewrite(currentConversationId);
+    await Promise.all([
+      loadMessages(currentConversationId),
+      loadConversations(),
+    ]);
   }
 
   async function loadSubmissionFromMessage(
@@ -426,14 +438,7 @@ export function ChatView({
     const optimisticAttachments: Attachment[] = submission.attachments.map((attachment, index) => ({
       id: `pending-${index}`,
       message_id: userMessageId,
-      file_type:
-        attachment.mime_type === "application/pdf"
-          ? "pdf"
-          : attachment.mime_type.startsWith("text/") || attachment.mime_type === "application/json"
-            ? "text_file"
-            : attachment.mime_type.startsWith("image/")
-              ? "image"
-              : "file",
+      file_type: optimisticAttachmentType(attachment.mime_type),
       file_name: attachment.file_name,
       file_path: "",
       mime_type: attachment.mime_type,
@@ -443,20 +448,18 @@ export function ChatView({
     const normalizedImagePrompt =
       rawContent ||
       t("按参考图生成一张图片", "Generate an image from the reference image");
+    const fallbackReferenceFromAttachments = submission.attachments.find((attachment) =>
+      attachment.mime_type.startsWith("image/"),
+    );
     const effectiveReferenceImage =
       submission.referenceImage ??
-      (() => {
-        const imageAttachment = submission.attachments.find((attachment) =>
-          attachment.mime_type.startsWith("image/"),
-        );
-        return imageAttachment
-          ? {
-              name: imageAttachment.file_name,
-              mimeType: imageAttachment.mime_type,
-              base64: imageAttachment.data_base64,
-            }
-          : null;
-      })();
+      (fallbackReferenceFromAttachments
+        ? {
+            name: fallbackReferenceFromAttachments.file_name,
+            mimeType: fallbackReferenceFromAttachments.mime_type,
+            base64: fallbackReferenceFromAttachments.data_base64,
+          }
+        : null);
     const displayAttachments = isImageRequest ? [] : optimisticAttachments;
     const userContent = isImageRequest
       ? `🖼 ${normalizedImagePrompt}`

@@ -184,20 +184,18 @@ export function MarkdownCodeBlock({
   const resolvedTheme = useAppStore((state) => state.resolvedTheme);
   const normalizedLanguage = normalizeCodeLanguage(language);
   const label = displayLanguageLabel(language);
-
-  if (normalizedLanguage === "text") {
-    return (
-      <CodeBlockFrame
-        copied={copied}
-        code={code}
-        copyLabel={copyLabel}
-        label={label}
-        onCopy={onCopy}
+  const body = normalizedLanguage === "text"
+    ? <pre className="pt-code-block__fallback">{code}</pre>
+    : (
+      <SyntaxHighlighter
+        style={resolvedTheme === "light" ? oneLight : oneDark}
+        language={normalizedLanguage}
+        PreTag="div"
+        customStyle={CODE_BLOCK_STYLE}
       >
-        <pre className="pt-code-block__fallback">{code}</pre>
-      </CodeBlockFrame>
+        {code}
+      </SyntaxHighlighter>
     );
-  }
 
   return (
     <CodeBlockFrame
@@ -207,14 +205,7 @@ export function MarkdownCodeBlock({
       label={label}
       onCopy={onCopy}
     >
-      <SyntaxHighlighter
-        style={resolvedTheme === "light" ? oneLight : oneDark}
-        language={normalizedLanguage}
-        PreTag="div"
-        customStyle={CODE_BLOCK_STYLE}
-      >
-        {code}
-      </SyntaxHighlighter>
+      {body}
     </CodeBlockFrame>
   );
 }

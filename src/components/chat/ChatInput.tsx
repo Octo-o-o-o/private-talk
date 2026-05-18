@@ -141,29 +141,41 @@ export function ChatInput({
     getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
   const sendDisabled =
     !shouldShowStop && (!hasSendPayload || !canSend || isRecording || isTranscribing || busy);
-  const placeholder = mode === "image"
-    ? t(
+
+  function buildPlaceholder(): string {
+    if (mode === "image") {
+      return t(
         "描述你想生成的图片，也可以继续写 --ratio / --quality / --count / --bg",
         "Describe the image you want, or keep using --ratio / --quality / --count / --bg flags",
-      )
-    : !canSend
-      ? hasTextProviders
+      );
+    }
+    if (!canSend) {
+      return hasTextProviders
         ? t("先选择一个文本模型，再开始聊天", "Choose a text model before chatting")
         : t(
             "先去设置里的“模型与能力”配置一个文本模型，再开始聊天",
             "Configure a text model in Settings > Models & Capabilities before chatting",
-          )
-      : currentConversationId
-        ? t("给 Private Talk 发消息", "Message Private Talk")
-        : t("开始一个新对话", "Start a new conversation");
-  const imageToggleLabel = imageEnabled
-    ? mode === "image"
-      ? t("切回聊天模式", "Switch to chat mode")
-      : t("切到图片模式", "Switch to image mode")
-    : t(
+          );
+    }
+    return currentConversationId
+      ? t("给 Private Talk 发消息", "Message Private Talk")
+      : t("开始一个新对话", "Start a new conversation");
+  }
+
+  function buildImageToggleLabel(): string {
+    if (!imageEnabled) {
+      return t(
         "先在“模型与能力”里启用图片路由",
         "Enable image routing in Models & Capabilities first",
       );
+    }
+    return mode === "image"
+      ? t("切回聊天模式", "Switch to chat mode")
+      : t("切到图片模式", "Switch to image mode");
+  }
+
+  const placeholder = buildPlaceholder();
+  const imageToggleLabel = buildImageToggleLabel();
   const recordingAvailable =
     typeof navigator !== "undefined" &&
     typeof navigator.mediaDevices?.getUserMedia === "function" &&
@@ -426,15 +438,31 @@ export function ChatInput({
     recorderRef.current?.stop();
   }
 
-  const composeNotice = transcriptionError
-    ? transcriptionError
-    : isRecording
-      ? t("正在录音，点击麦克风结束并转写。", "Recording... tap the microphone again to stop and transcribe.")
-      : isTranscribing
-        ? t("正在转写语音...", "Transcribing audio...")
-        : null;
+  function buildComposeNotice(): string | null {
+    if (transcriptionError) {
+      return transcriptionError;
+    }
+    if (isRecording) {
+      return t(
+        "正在录音，点击麦克风结束并转写。",
+        "Recording... tap the microphone again to stop and transcribe.",
+      );
+    }
+    if (isTranscribing) {
+      return t("正在转写语音...", "Transcribing audio...");
+    }
+    return null;
+  }
+
+  const composeNotice = buildComposeNotice();
   const showComposeMeta =
     !!editingLabel || mode === "image" || !!referenceImage || attachments.length > 0;
+  const micLabel = isRecording
+    ? t("结束录音", "Stop recording")
+    : t("录音转文字", "Record voice to text");
+  const sendLabel = shouldShowStop
+    ? t("停止生成", "Stop generation")
+    : t("发送消息", "Send message");
 
   return (
     <div className={`pt-compose pt-compose--${layout}`}>
@@ -557,16 +585,8 @@ export function ChatInput({
             className={`pt-compose__tool${isRecording ? " is-active" : ""}`}
             onClick={isRecording ? stopRecording : () => void startRecording()}
             disabled={isTranscribing || busy}
-            aria-label={
-              isRecording
-                ? t("结束录音", "Stop recording")
-                : t("录音转文字", "Record voice to text")
-            }
-            title={
-              isRecording
-                ? t("结束录音", "Stop recording")
-                : t("录音转文字", "Record voice to text")
-            }
+            aria-label={micLabel}
+            title={micLabel}
           >
             {isTranscribing ? (
               <Loader2 size={16} className="pt-spinner" />
@@ -582,8 +602,8 @@ export function ChatInput({
             }${shouldShowStop ? " is-stop" : ""}`}
             onClick={shouldShowStop ? onStop : send}
             disabled={sendDisabled}
-            aria-label={shouldShowStop ? t("停止生成", "Stop generation") : t("发送消息", "Send message")}
-            title={shouldShowStop ? t("停止生成", "Stop generation") : t("发送消息", "Send message")}
+            aria-label={sendLabel}
+            title={sendLabel}
           >
             {shouldShowStop ? (
               <Square size={13} fill="currentColor" />
