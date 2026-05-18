@@ -20,6 +20,10 @@ const DEFAULT_CONFIG: ImageGenConfig = {
   max_images_per_request: 4,
 };
 
+function pickFirstAvailable(available: string[], current: string): string {
+  return available.includes(current) ? current : available[0] ?? current;
+}
+
 export function ImageRoutingSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
@@ -69,15 +73,11 @@ export function ImageRoutingSettingsSection() {
   );
   const resolvedDraftModel =
     availableDraftModels.length > 0
-      ? availableDraftModels.includes(draftConfig.model)
-        ? draftConfig.model
-        : availableDraftModels[0] ?? ""
+      ? pickFirstAvailable(availableDraftModels, draftConfig.model)
       : draftConfig.model;
   const summaryModel =
     availableCurrentModels.length > 0
-      ? availableCurrentModels.includes(savedConfig.model)
-        ? savedConfig.model
-        : availableCurrentModels[0] ?? savedConfig.model
+      ? pickFirstAvailable(availableCurrentModels, savedConfig.model)
       : "";
   const canSave =
     !draftConfig.enabled ||
@@ -91,6 +91,22 @@ export function ImageRoutingSettingsSection() {
         "当前服务商还没有标记为“图片”用途的模型。去上面的模型服务商表单里补上用途。",
         "This provider does not have an image-tagged model yet. Add that purpose in the provider form above.",
       );
+
+  function summaryDetail(): string {
+    if (!savedConfig.enabled) {
+      return t("当前关闭", "Disabled");
+    }
+    if (!currentProvider) {
+      return t("未选择图片服务商", "No image provider selected");
+    }
+    if (availableCurrentModels.length === 0) {
+      return t(
+        `${currentProvider.name} · 未标记图片模型`,
+        `${currentProvider.name} · No image model tagged`,
+      );
+    }
+    return `${currentProvider.name} · ${summaryModel}`;
+  }
 
   function restoreSaved(): void {
     setDraftConfig(savedConfig);
@@ -155,18 +171,7 @@ export function ImageRoutingSettingsSection() {
             <p className="pt-settings-row__title">{t("生图服务商与模型", "Image Provider & Model")}</p>
             <ChevronDown size={16} className={`pt-row-chevron${expanded ? " is-open" : ""}`} />
           </div>
-          <p className="pt-settings-row__detail">
-            {savedConfig.enabled
-              ? currentProvider
-                ? availableCurrentModels.length > 0
-                  ? `${currentProvider.name} · ${summaryModel}`
-                  : t(
-                      `${currentProvider.name} · 未标记图片模型`,
-                      `${currentProvider.name} · No image model tagged`,
-                    )
-                : t("未选择图片服务商", "No image provider selected")
-              : t("当前关闭", "Disabled")}
-          </p>
+          <p className="pt-settings-row__detail">{summaryDetail()}</p>
         </div>
       </button>
 
@@ -192,26 +197,22 @@ export function ImageRoutingSettingsSection() {
             <select
               className="pt-select"
               value={draftConfig.provider_id}
-              onChange={(event) =>
+              onChange={(event) => {
+                const nextProviderId = event.target.value;
+                const nextProvider =
+                  providers.find((provider) => provider.id === nextProviderId) ?? null;
+                const nextModels = nextProvider
+                  ? getProviderModelsForPurpose(nextProvider, providerModelRegistry, "image")
+                  : [];
                 setDraftConfig((current) => ({
                   ...current,
-                  provider_id: event.target.value,
+                  provider_id: nextProviderId,
                   model:
-                    (() => {
-                      const nextProvider =
-                        providers.find((provider) => provider.id === event.target.value) ?? null;
-                      const nextModels = nextProvider
-                        ? getProviderModelsForPurpose(nextProvider, providerModelRegistry, "image")
-                        : [];
-                      if (nextModels.length === 0) {
-                        return current.model;
-                      }
-                      return nextModels.includes(current.model)
-                        ? current.model
-                        : nextModels[0] ?? current.model;
-                    })(),
-                }))
-              }
+                    nextModels.length === 0
+                      ? current.model
+                      : pickFirstAvailable(nextModels, current.model),
+                }));
+              }}
             >
               <option value="">{t("选择服务商", "Select a provider")}</option>
               {imageProviders.map((provider) => (

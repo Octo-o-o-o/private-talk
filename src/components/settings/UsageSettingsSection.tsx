@@ -111,29 +111,36 @@ export function UsageSettingsSection() {
     }
   }, [expanded, hasLoaded, loading]);
 
-  const totalRequestCount = useMemo(
-    () => {
-      if (conversationUsages.length > 0) {
-        return conversationUsages.reduce((sum, usage) => sum + usage.total_requests, 0);
-      }
-      return dailyUsages.reduce((sum, usage) => sum + totalRequests(usage.model_usages), 0);
-    },
-    [conversationUsages, dailyUsages],
-  );
-  const totalTokenCount = useMemo(
-    () => {
-      if (conversationUsages.length > 0) {
-        return conversationUsages.reduce(
-          (sum, usage) => sum + totalTokens(usage.model_usages),
-          0,
-        );
-      }
-      return dailyUsages.reduce((sum, usage) => sum + totalTokens(usage.model_usages), 0);
-    },
-    [conversationUsages, dailyUsages],
-  );
+  const totalRequestCount = useMemo(() => {
+    if (conversationUsages.length > 0) {
+      return conversationUsages.reduce((sum, usage) => sum + usage.total_requests, 0);
+    }
+    return dailyUsages.reduce((sum, usage) => sum + totalRequests(usage.model_usages), 0);
+  }, [conversationUsages, dailyUsages]);
+  const totalTokenCount = useMemo(() => {
+    if (conversationUsages.length > 0) {
+      return conversationUsages.reduce(
+        (sum, usage) => sum + totalTokens(usage.model_usages),
+        0,
+      );
+    }
+    return dailyUsages.reduce((sum, usage) => sum + totalTokens(usage.model_usages), 0);
+  }, [conversationUsages, dailyUsages]);
   const currentCount = view === "conversation" ? conversationUsages.length : dailyUsages.length;
   const hasUsage = conversationUsages.length > 0 || dailyUsages.length > 0;
+
+  function summaryDetail(): string {
+    if (hasUsage) {
+      return t(
+        `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} 次请求`,
+        `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} requests`,
+      );
+    }
+    if (hasLoaded) {
+      return t("还没有记录到任何 token 用量。", "No token usage recorded yet.");
+    }
+    return t("按会话和日期查看本地 token 消耗", "View local token usage by chat or day");
+  }
 
   return (
     <SettingsSection
@@ -158,16 +165,7 @@ export function UsageSettingsSection() {
               className={`pt-row-chevron${expanded ? " is-open" : ""}`}
             />
           </div>
-          <p className="pt-settings-row__detail">
-            {hasUsage
-              ? t(
-                  `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} 次请求`,
-                  `${formatTokens(totalTokenCount)} tokens · ${totalRequestCount} requests`,
-                )
-              : hasLoaded
-                ? t("还没有记录到任何 token 用量。", "No token usage recorded yet.")
-                : t("按会话和日期查看本地 token 消耗", "View local token usage by chat or day")}
-          </p>
+          <p className="pt-settings-row__detail">{summaryDetail()}</p>
         </div>
       </button>
 
@@ -240,42 +238,42 @@ export function UsageSettingsSection() {
             <p className="pt-settings-help">{t("正在加载用量...", "Loading usage...")}</p>
           ) : null}
 
-          {!loading && !error ? (
-            view === "conversation" ? (
-              <div className="pt-usage-list">
-                {conversationUsages.length === 0 ? (
-                  <p className="pt-settings-help">
-                    {t("还没有记录到任何 token 用量。", "No token usage recorded yet.")}
-                  </p>
-                ) : (
-                  conversationUsages.map((usage) => (
-                    <ConversationUsageCard
-                      key={usage.conversation_id}
-                      locale={locale}
-                      usage={usage}
-                      t={t}
-                    />
-                  ))
-                )}
-              </div>
-            ) : (
-              <div className="pt-usage-list">
-                {dailyUsages.length === 0 ? (
-                  <p className="pt-settings-help">
-                    {t("还没有按日期汇总的用量。", "No daily usage summary yet.")}
-                  </p>
-                ) : (
-                  dailyUsages.map((usage) => (
-                    <DailyUsageCard
-                      key={usage.date}
-                      locale={locale}
-                      usage={usage}
-                      t={t}
-                    />
-                  ))
-                )}
-              </div>
-            )
+          {!loading && !error && view === "conversation" ? (
+            <div className="pt-usage-list">
+              {conversationUsages.length === 0 ? (
+                <p className="pt-settings-help">
+                  {t("还没有记录到任何 token 用量。", "No token usage recorded yet.")}
+                </p>
+              ) : (
+                conversationUsages.map((usage) => (
+                  <ConversationUsageCard
+                    key={usage.conversation_id}
+                    locale={locale}
+                    usage={usage}
+                    t={t}
+                  />
+                ))
+              )}
+            </div>
+          ) : null}
+
+          {!loading && !error && view === "date" ? (
+            <div className="pt-usage-list">
+              {dailyUsages.length === 0 ? (
+                <p className="pt-settings-help">
+                  {t("还没有按日期汇总的用量。", "No daily usage summary yet.")}
+                </p>
+              ) : (
+                dailyUsages.map((usage) => (
+                  <DailyUsageCard
+                    key={usage.date}
+                    locale={locale}
+                    usage={usage}
+                    t={t}
+                  />
+                ))
+              )}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -303,6 +301,8 @@ function ConversationUsageCard({
         "Messages were deleted, but local usage history is still preserved.",
       )
     : usage.first_message_preview || t("暂无预览", "No preview");
+  const modelExtraSuffix =
+    usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : "";
 
   return (
     <article className={`pt-usage-row${open ? " is-open" : ""}`}>
@@ -329,7 +329,7 @@ function ConversationUsageCard({
             {modelLabel ? (
               <span className="pt-usage-pill pt-usage-pill--muted">
                 {modelLabel}
-                {usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : ""}
+                {modelExtraSuffix}
               </span>
             ) : null}
           </div>
@@ -373,6 +373,8 @@ function DailyUsageCard({
 }) {
   const [open, setOpen] = useState(false);
   const modelLabel = leadModelLabel(usage.model_usages);
+  const modelExtraSuffix =
+    usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : "";
 
   return (
     <article className={`pt-usage-row${open ? " is-open" : ""}`}>
@@ -396,7 +398,7 @@ function DailyUsageCard({
             {modelLabel ? (
               <span className="pt-usage-pill pt-usage-pill--muted">
                 {modelLabel}
-                {usage.model_usages.length > 1 ? ` +${usage.model_usages.length - 1}` : ""}
+                {modelExtraSuffix}
               </span>
             ) : null}
           </div>

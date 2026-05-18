@@ -6,6 +6,10 @@ import { useAppStore } from "../../stores/appStore";
 import { buttonStyles, Field } from "./formControls";
 import { SettingsSection } from "./SettingsPage";
 
+function pickFirstAvailable(available: string[], current: string): string {
+  return available.includes(current) ? current : available[0] ?? current;
+}
+
 export function SpeechRoutingSettingsSection() {
   const { t } = useI18n();
   const providers = useAppStore((state) => state.providers);
@@ -51,15 +55,11 @@ export function SpeechRoutingSettingsSection() {
   );
   const resolvedDraftModel =
     availableDraftModels.length > 0
-      ? availableDraftModels.includes(draftModel)
-        ? draftModel
-        : availableDraftModels[0] ?? ""
+      ? pickFirstAvailable(availableDraftModels, draftModel)
       : draftModel;
   const summaryModel =
     availableEffectiveModels.length > 0
-      ? availableEffectiveModels.includes(sttModel)
-        ? sttModel
-        : availableEffectiveModels[0] ?? sttModel
+      ? pickFirstAvailable(availableEffectiveModels, sttModel)
       : "";
   const canSave = availableDraftModels.length > 0;
   const missingDraftHint = !draftEffectiveProvider
@@ -87,6 +87,19 @@ export function SpeechRoutingSettingsSection() {
     await setSttProviderId(draftProviderId || null);
     await setSttModel(resolvedDraftModel);
     setExpanded(false);
+  }
+
+  function summaryDetail(): string {
+    if (!effectiveProvider) {
+      return t("跟随当前聊天服务商", "Follow current chat provider");
+    }
+    if (availableEffectiveModels.length === 0) {
+      return t(
+        `${effectiveProvider.name} · 未标记转写模型`,
+        `${effectiveProvider.name} · No transcription model tagged`,
+      );
+    }
+    return `${effectiveProvider.name} · ${summaryModel}`;
   }
 
   return (
@@ -117,16 +130,7 @@ export function SpeechRoutingSettingsSection() {
               className={`pt-row-chevron${expanded ? " is-open" : ""}`}
             />
           </div>
-          <p className="pt-settings-row__detail">
-            {effectiveProvider
-              ? availableEffectiveModels.length > 0
-                ? `${effectiveProvider.name} · ${summaryModel}`
-                : t(
-                    `${effectiveProvider.name} · 未标记转写模型`,
-                    `${effectiveProvider.name} · No transcription model tagged`,
-                  )
-              : t("跟随当前聊天服务商", "Follow current chat provider")}
-          </p>
+          <p className="pt-settings-row__detail">{summaryDetail()}</p>
         </div>
       </button>
 

@@ -368,12 +368,12 @@ export function ProviderForm() {
     setError(null);
 
     try {
-      const providerId = editingId
-        ? editingId
-        : (await api.createProvider(name, baseUrl, apiKey, modelNames)).id;
-
+      let providerId: string;
       if (editingId) {
         await api.updateProvider(editingId, name, baseUrl, apiKey, modelNames);
+        providerId = editingId;
+      } else {
+        providerId = (await api.createProvider(name, baseUrl, apiKey, modelNames)).id;
       }
 
       const nextRegistry = {
@@ -426,6 +426,16 @@ export function ProviderForm() {
           : t("删除服务商失败。", "Failed to delete provider."),
       );
     }
+  }
+
+  function submitLabel(): string {
+    if (submitting) {
+      return t("保存中...", "Saving...");
+    }
+    if (editingId) {
+      return t("保存服务商", "Save Provider");
+    }
+    return t("创建服务商", "Create Provider");
   }
 
   async function handleSetDefault(id: string): Promise<void> {
@@ -690,11 +700,7 @@ export function ProviderForm() {
               className={buttonStyles.primary}
               disabled={submitting}
             >
-              {submitting
-                ? t("保存中...", "Saving...")
-                : editingId
-                  ? t("保存服务商", "Save Provider")
-                  : t("创建服务商", "Create Provider")}
+              {submitLabel()}
             </button>
           </div>
         </form>

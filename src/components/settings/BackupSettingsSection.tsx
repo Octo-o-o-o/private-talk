@@ -241,17 +241,21 @@ export function BackupSettingsSection() {
                 </div>
               ) : null}
 
-              {validation?.has_local_config ? (
+              {validation?.has_local_config && importMode === "replace" ? (
                 <p className="pt-settings-help">
-                  {importMode === "replace"
-                    ? t(
-                        "当前设备里已经有本地配置。Replace 会清空现有 provider 和相关设置后再导入。",
-                        "This device already has local config. Replace will clear current providers and related settings before import.",
-                      )
-                    : t(
-                        "当前设备里已经有本地配置。Merge 会在保留现有配置的前提下合并导入。",
-                        "This device already has local config. Merge will import on top of the current setup.",
-                      )}
+                  {t(
+                    "当前设备里已经有本地配置。Replace 会清空现有 provider 和相关设置后再导入。",
+                    "This device already has local config. Replace will clear current providers and related settings before import.",
+                  )}
+                </p>
+              ) : null}
+
+              {validation?.has_local_config && importMode === "merge" ? (
+                <p className="pt-settings-help">
+                  {t(
+                    "当前设备里已经有本地配置。Merge 会在保留现有配置的前提下合并导入。",
+                    "This device already has local config. Merge will import on top of the current setup.",
+                  )}
                 </p>
               ) : null}
 

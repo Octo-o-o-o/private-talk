@@ -176,15 +176,14 @@ export function SettingsPage({ layout, onBack }: SettingsPageProps) {
 
   const selectedGroup =
     groups.find((group) => group.id === selectedGroupId) ?? groups[0];
-  const headerTitle =
-    isPhone && selectedGroupId ? selectedGroup.title : t("设置", "Settings");
-  const headerSubtitle =
-    isPhone && selectedGroupId
-      ? selectedGroup.description
-      : t(
-          "按分组管理模型、助手与本地安全设置",
-          "Manage models, assistants, and local security by group.",
-        );
+  const showPhoneDetailHeader = isPhone && selectedGroupId !== null;
+  const headerTitle = showPhoneDetailHeader ? selectedGroup.title : t("设置", "Settings");
+  const headerSubtitle = showPhoneDetailHeader
+    ? selectedGroup.description
+    : t(
+        "按分组管理模型、助手与本地安全设置",
+        "Manage models, assistants, and local security by group.",
+      );
 
   function handleBack(): void {
     if (isPhone && selectedGroupId) {

@@ -41,6 +41,10 @@ export function ConversationAssistantsSection() {
     [assistants],
   );
 
+  function updateField<K extends keyof FormState>(key: K, value: FormState[K]): void {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
   function resetForm(): void {
     setForm(EMPTY_FORM);
     setEditingAssistant(null);
@@ -190,18 +194,14 @@ export function ConversationAssistantsSection() {
             <TextField
               label={t("名称", "Name")}
               value={form.name}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, name: event.target.value }))
-              }
+              onChange={(event) => updateField("name", event.target.value)}
               placeholder={t("例如：面试教练", "For example: Interview Coach")}
             />
 
             <TextField
               label={t("描述", "Description")}
               value={form.description}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, description: event.target.value }))
-              }
+              onChange={(event) => updateField("description", event.target.value)}
               placeholder={t(
                 "给新会话选择器看的简短摘要",
                 "Short summary shown in the new chat picker",
@@ -236,12 +236,7 @@ export function ConversationAssistantsSection() {
                 className="pt-input pt-input--textarea"
                 rows={7}
                 value={form.systemPrompt}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    systemPrompt: event.target.value,
-                  }))
-                }
+                onChange={(event) => updateField("systemPrompt", event.target.value)}
                 placeholder={t(
                   "定义这个助手在整段会话里的身份、边界和回答方式。",
                   "Define this assistant's role, boundaries, and response style for the whole conversation.",
