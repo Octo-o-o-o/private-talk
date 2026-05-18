@@ -6,12 +6,12 @@ function readPreferredLocale(): string {
     return "";
   }
 
-  const preferredLocale =
+  const preferred =
     navigator.languages.find((locale) => locale && locale.trim()) ??
     navigator.language ??
     "";
 
-  return preferredLocale.trim().toLowerCase();
+  return preferred.trim().toLowerCase();
 }
 
 export function normalizeUiLanguage(value: string | null | undefined): UiLanguage {
@@ -26,9 +26,5 @@ export function resolveUiLanguage(language: UiLanguage): ResolvedUiLanguage {
     return language;
   }
 
-  if (readPreferredLocale().startsWith("zh")) {
-    return "zh-CN";
-  }
-
-  return "en";
+  return readPreferredLocale().startsWith("zh") ? "zh-CN" : "en";
 }

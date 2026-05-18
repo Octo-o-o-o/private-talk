@@ -66,6 +66,22 @@ const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
   max_images_per_request: 4,
 };
 
+function resolveSpeechModel(
+  providerId: string | null,
+  availableModels: string[],
+  storedModel: string | null | undefined,
+  defaultModel: string,
+): string {
+  const fallback = storedModel?.trim() || defaultModel;
+  if (!providerId || availableModels.length === 0) {
+    return fallback;
+  }
+  if (availableModels.includes(storedModel ?? "")) {
+    return fallback;
+  }
+  return availableModels[0] ?? defaultModel;
+}
+
 export function previewFromContent(content: string): string {
   return content
     .replace(/!\[[^\]]*]\([^)]+\)/g, "🖼 Image")
@@ -347,8 +363,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectConversation: async (id) => {
     const conversation =
       get().conversations.find((item) => item.id === id) ?? null;
-      set({ currentConversationId: id, view: "chat" });
-    set({ currentAssistantId: conversation?.assistant_id ?? null });
+    set({
+      currentConversationId: id,
+      currentAssistantId: conversation?.assistant_id ?? null,
+      view: "chat",
+    });
     await get().loadMessages(id);
   },
   clearConversationSelection: () => {
@@ -490,22 +509,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? getProviderModelsForPurpose(provider, providerModelRegistry, "image")
       : [];
 
-    const nextConfig =
-      !provider
-        ? {
-            ...config,
-            enabled: false,
-            provider_id: "",
-            model: "",
-          }
-        : availableModels.length > 0
-        ? {
-            ...config,
-            provider_id: provider.id,
-            model:
-              availableModels.includes(config.model) ? config.model : availableModels[0] ?? "",
-          }
-        : config;
+    let nextConfig: ImageGenConfig;
+    if (!provider) {
+      nextConfig = { ...config, enabled: false, provider_id: "", model: "" };
+    } else if (availableModels.length > 0) {
+      nextConfig = {
+        ...config,
+        provider_id: provider.id,
+        model: availableModels.includes(config.model)
+          ? config.model
+          : availableModels[0] ?? "",
+      };
+    } else {
+      nextConfig = config;
+    }
 
     set({ imageGenConfig: nextConfig });
 
@@ -522,12 +539,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadSpeechSettings: async () => {
     const [storedProviderId, storedModel, storedTtsProviderId, storedTtsModel, storedTtsVoice] =
       await Promise.all([
-      api.getSetting(STT_PROVIDER_SETTING_KEY),
-      api.getSetting(STT_MODEL_SETTING_KEY),
-      api.getSetting(TTS_PROVIDER_SETTING_KEY),
-      api.getSetting(TTS_MODEL_SETTING_KEY),
-      api.getSetting(TTS_VOICE_SETTING_KEY),
-    ]);
+        api.getSetting(STT_PROVIDER_SETTING_KEY),
+        api.getSetting(STT_MODEL_SETTING_KEY),
+        api.getSetting(TTS_PROVIDER_SETTING_KEY),
+        api.getSetting(TTS_MODEL_SETTING_KEY),
+        api.getSetting(TTS_VOICE_SETTING_KEY),
+      ]);
     const { providers, providerModelRegistry } = get();
     const sttProvider =
       providers.find((provider) => provider.id === storedProviderId) ?? null;
@@ -541,20 +558,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       : [];
     const nextSttProviderId = sttProvider?.id ?? null;
     const nextTtsProviderId = ttsProvider?.id ?? null;
-    const nextSttModel = nextSttProviderId
-      ? availableSttModels.length > 0
-        ? availableSttModels.includes(storedModel ?? "")
-          ? storedModel?.trim() || DEFAULT_STT_MODEL
-          : availableSttModels[0] ?? DEFAULT_STT_MODEL
-        : storedModel?.trim() || DEFAULT_STT_MODEL
-      : storedModel?.trim() || DEFAULT_STT_MODEL;
-    const nextTtsModel = nextTtsProviderId
-      ? availableTtsModels.length > 0
-        ? availableTtsModels.includes(storedTtsModel ?? "")
-          ? storedTtsModel?.trim() || DEFAULT_TTS_MODEL
-          : availableTtsModels[0] ?? DEFAULT_TTS_MODEL
-        : storedTtsModel?.trim() || DEFAULT_TTS_MODEL
-      : storedTtsModel?.trim() || DEFAULT_TTS_MODEL;
+    const nextSttModel = resolveSpeechModel(
+      nextSttProviderId,
+      availableSttModels,
+      storedModel,
+      DEFAULT_STT_MODEL,
+    );
+    const nextTtsModel = resolveSpeechModel(
+      nextTtsProviderId,
+      availableTtsModels,
+      storedTtsModel,
+      DEFAULT_TTS_MODEL,
+    );
     const nextTtsVoice = storedTtsVoice?.trim() || DEFAULT_TTS_VOICE;
 
     set({

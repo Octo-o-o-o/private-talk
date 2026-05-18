@@ -11,7 +11,7 @@ export const DEFAULT_APPEARANCE_MODE: AppearanceMode = "dark";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const MIN_ZOOM_FACTOR = 0.8;
 export const MAX_ZOOM_FACTOR = 2;
-export const ZOOM_STEP = 0.1;
+const ZOOM_STEP = 0.1;
 const LIGHT_NATIVE_BACKGROUND = "#fcfaf5";
 const DARK_NATIVE_BACKGROUND = "#050506";
 
@@ -85,14 +85,8 @@ export function detectDesktopPlatform(): DesktopPlatform {
     return "unknown";
   }
 
-  const navigatorWithUaData = navigator as Navigator & {
-    userAgentData?: unknown;
-  };
-  const uaData =
-    typeof navigatorWithUaData.userAgentData === "object" &&
-    navigatorWithUaData.userAgentData !== null
-      ? (navigatorWithUaData.userAgentData as { platform?: string })
-      : null;
+  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData;
   const platform = (
     uaData?.platform ??
     navigator.platform ??

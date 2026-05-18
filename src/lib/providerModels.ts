@@ -71,6 +71,24 @@ export function inferModelPurposes(modelId: string): ModelPurpose[] {
   return Array.from(purposes);
 }
 
+function parseRegistryEntry(entry: unknown): ProviderModelProfile | null {
+  if (typeof entry === "string") {
+    return { id: entry, purposes: inferModelPurposes(entry) };
+  }
+
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const record = entry as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : "";
+  const purposes = Array.isArray(record.purposes)
+    ? (record.purposes.map(normalizePurpose).filter(Boolean) as ModelPurpose[])
+    : inferModelPurposes(id);
+
+  return { id, purposes };
+}
+
 export function parseProviderModelRegistry(
   raw: string | null | undefined,
 ): ProviderModelRegistry {
@@ -93,28 +111,7 @@ export function parseProviderModelRegistry(
 
       const profiles = normalizeProviderModelProfiles(
         value
-          .map((entry) => {
-            if (typeof entry === "string") {
-              return {
-                id: entry,
-                purposes: inferModelPurposes(entry),
-              } satisfies ProviderModelProfile;
-            }
-
-            if (!entry || typeof entry !== "object") {
-              return null;
-            }
-
-            const record = entry as Record<string, unknown>;
-            return {
-              id: typeof record.id === "string" ? record.id : "",
-              purposes: Array.isArray(record.purposes)
-                ? record.purposes
-                    .map((purpose) => normalizePurpose(purpose))
-                    .filter(Boolean) as ModelPurpose[]
-                : inferModelPurposes(typeof record.id === "string" ? record.id : ""),
-            } satisfies ProviderModelProfile;
-          })
+          .map(parseRegistryEntry)
           .filter(Boolean) as ProviderModelProfile[],
       );
 

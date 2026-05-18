@@ -281,14 +281,14 @@ export function applyPreviewBootstrap(preview: PreviewBootstrap): boolean {
   const hasSeededContent = dataset !== "empty" || screen === "chat";
   const providers = hasSeededContent ? [PREVIEW_PROVIDER] : [];
   const lang = normalizedLang(preview.lang);
-  const resolvedLang: ResolvedUiLanguage = lang === "zh-CN" ? "zh-CN" : lang === "en" ? "en" : "en";
+  const resolvedLang: ResolvedUiLanguage = lang === "zh-CN" ? "zh-CN" : "en";
   const uiLang: UiLanguage = lang ?? "auto";
   const conversationBundle = resolvedLang === "zh-CN" ? PREVIEW_CONVERSATIONS_ZH : PREVIEW_CONVERSATIONS_EN;
   const messageBundle = resolvedLang === "zh-CN" ? PREVIEW_MESSAGES_ZH : PREVIEW_MESSAGES_EN;
   const conversations =
     screen === "welcome" || dataset === "empty" ? [] : conversationBundle;
   const currentConversationId =
-    screen === "chat" ? conversationBundle[0]?.id ?? null : null;
+    screen === "chat" ? (conversationBundle[0]?.id ?? null) : null;
   const viewTarget = screen === "settings" ? "settings" : "chat";
 
   useAppStore.setState({

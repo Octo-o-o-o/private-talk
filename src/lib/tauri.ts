@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { previewSettingValue } from "./preview";
 import type {
   Assistant,
   AttachmentUpload,
@@ -17,7 +18,6 @@ import type {
   ValidateBackupResult,
 } from "./types";
 
-const PREVIEW_PROVIDER_ID = "preview-provider-openai";
 const PREVIEW_ASSISTANTS: Assistant[] = [
   {
     id: "preset-default-assistant",
@@ -134,65 +134,6 @@ const PREVIEW_USAGE_BY_DATE: DailyUsage[] = [
     ],
   },
 ];
-
-function previewSettingValue(key: string): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const params = new URLSearchParams(window.location.search);
-  const screen = (
-    params.get("preview") ??
-    params.get("screen") ??
-    params.get("previewScreen") ??
-    ""
-  )
-    .trim()
-    .toLowerCase();
-
-  if (!screen) {
-    return null;
-  }
-
-  switch (key) {
-    case "ui_language":
-      return "zh-CN";
-    case "assistant_preset":
-      return "default";
-    case "assistant_language":
-      return "auto";
-    case "assistant_custom_prompt":
-      return "";
-    case "context_max_messages":
-      return "50";
-    case "appearance_mode":
-      return "dark";
-    case "ui_zoom_factor":
-      return "1.00";
-    case "stt_provider_id":
-      return PREVIEW_PROVIDER_ID;
-    case "stt_model":
-      return "whisper-1";
-    case "tts_provider_id":
-      return PREVIEW_PROVIDER_ID;
-    case "tts_model":
-      return "tts-1";
-    case "tts_voice":
-      return "alloy";
-    case "image_gen_config":
-      return JSON.stringify({
-        enabled: true,
-        provider_id: PREVIEW_PROVIDER_ID,
-        model: "gpt-image-1",
-        default_aspect_ratio: "1:1",
-        default_quality: "standard",
-        default_background: "auto",
-        max_images_per_request: 4,
-      } satisfies ImageGenConfig);
-    default:
-      return null;
-  }
-}
 
 // Thin wrapper around `invoke` to keep the public API consistent.
 function cmd<T>(name: string, args?: Record<string, unknown>): Promise<T> {
