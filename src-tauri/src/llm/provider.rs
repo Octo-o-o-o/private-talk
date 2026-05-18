@@ -32,17 +32,17 @@ pub async fn stream_chat(
 
     let response = Client::new()
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {api_key}"))
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| format!("Request failed: {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("API error {}: {}", status, body));
+        return Err(format!("API error {status}: {body}"));
     }
 
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -54,7 +54,7 @@ pub async fn stream_chat(
             let bytes = match chunk_result {
                 Ok(bytes) => bytes,
                 Err(e) => {
-                    let _ = tx.send(Err(format!("Stream error: {}", e))).await;
+                    let _ = tx.send(Err(format!("Stream error: {e}"))).await;
                     return;
                 }
             };
@@ -97,7 +97,7 @@ pub async fn stream_chat(
                     }
                     Err(e) => {
                         let _ = tx
-                            .send(Err(format!("Parse error: {} for data: {}", e, data)))
+                            .send(Err(format!("Parse error: {e} for data: {data}")))
                             .await;
                     }
                 }

@@ -119,18 +119,12 @@ async fn parse_image_response(
     let mut images = Vec::new();
 
     for item in items {
-        if let Some(value) = item.get("b64_json").and_then(|value| value.as_str()) {
-            let data = BASE64
-                .decode(value)
-                .map_err(|error| format!("Invalid base64 image payload: {error}"))?;
-            images.push(GeneratedImage {
-                data,
-                mime_type: "image/png".to_string(),
-            });
-            continue;
-        }
+        let inline_base64 = item
+            .get("b64_json")
+            .and_then(|value| value.as_str())
+            .or_else(|| item.get("base64").and_then(|value| value.as_str()));
 
-        if let Some(value) = item.get("base64").and_then(|value| value.as_str()) {
+        if let Some(value) = inline_base64 {
             let data = BASE64
                 .decode(value)
                 .map_err(|error| format!("Invalid base64 image payload: {error}"))?;

@@ -21,16 +21,14 @@ pub fn collect_rows<T, P, F>(
     conn: &Connection,
     sql: &str,
     params: P,
-    mut map: F,
+    map: F,
 ) -> Result<Vec<T>, String>
 where
     P: rusqlite::Params,
     F: FnMut(&Row<'_>) -> rusqlite::Result<T>,
 {
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params, |row| map(row))
-        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params, map).map_err(|e| e.to_string())?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())
 }

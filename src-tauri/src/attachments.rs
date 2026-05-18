@@ -221,10 +221,8 @@ pub fn get_attachments_for_messages(
         return Ok(vec![]);
     }
 
-    let placeholders = message_ids
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!("?{}", index + 1))
+    let placeholders = (1..=message_ids.len())
+        .map(|index| format!("?{index}"))
         .collect::<Vec<_>>()
         .join(",");
 
@@ -301,23 +299,21 @@ pub fn read_pdf_text_content(file_path: &str) -> Result<String, String> {
 
 pub fn read_image_as_base64(file_path: &str) -> Result<(String, String), String> {
     let bytes = std::fs::read(file_path).map_err(|error| error.to_string())?;
-    let mime_type = match Path::new(file_path)
+    let extension = Path::new(file_path)
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+        .to_ascii_lowercase();
+    let mime_type = match extension.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "gif" => "image/gif",
         _ => "image/png",
-    }
-    .to_string();
+    };
 
     Ok((
         base64::engine::general_purpose::STANDARD.encode(bytes),
-        mime_type,
+        mime_type.to_string(),
     ))
 }
 
