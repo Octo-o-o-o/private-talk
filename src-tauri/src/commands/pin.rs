@@ -1,4 +1,4 @@
-use crate::db::{query_optional, DbState};
+use crate::db::{collect_rows, query_optional, DbState};
 use crate::pin;
 use rusqlite::{params, Connection};
 use tauri::{Manager, State};
@@ -73,17 +73,9 @@ fn disable_pin_db(conn: &Connection, current_pin: &str) -> Result<bool, String> 
 pub(crate) fn reset_all_data_db(
     conn: &Connection,
 ) -> Result<Vec<crate::attachments::Attachment>, String> {
-    let message_ids: Vec<String> = {
-        let mut stmt = conn
-            .prepare("SELECT id FROM messages")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        rows
-    };
+    let message_ids = collect_rows(conn, "SELECT id FROM messages", [], |row| {
+        row.get::<_, String>(0)
+    })?;
 
     let attachments = if message_ids.is_empty() {
         vec![]

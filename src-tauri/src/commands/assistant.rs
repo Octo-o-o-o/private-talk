@@ -169,7 +169,7 @@ fn delete_assistant_db(conn: &Connection, id: String) -> Result<(), String> {
 }
 
 fn duplicate_assistant_db(conn: &Connection, id: String) -> Result<Assistant, String> {
-    let source = conn
+    let (name, description, system_prompt, icon) = conn
         .query_row(
             "SELECT name, description, system_prompt, icon FROM assistants WHERE id = ?1",
             params![id],
@@ -184,22 +184,22 @@ fn duplicate_assistant_db(conn: &Connection, id: String) -> Result<Assistant, St
         )
         .map_err(|error| format!("Assistant not found: {error}"))?;
 
-    let copy_name = format!("{} Copy", source.0.trim());
+    let copy_name = format!("{} Copy", name.trim());
     let new_id = uuid::Uuid::new_v4().to_string();
     let now = now_timestamp();
     conn.execute(
         "INSERT INTO assistants (id, name, description, system_prompt, icon, is_preset, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
-        params![new_id, copy_name, source.1, source.2, source.3, now, now],
+        params![new_id, copy_name, description, system_prompt, icon, now, now],
     )
     .map_err(|error| error.to_string())?;
 
     Ok(Assistant {
         id: new_id,
         name: copy_name,
-        description: source.1,
-        system_prompt: source.2,
-        icon: source.3,
+        description,
+        system_prompt,
+        icon,
         is_preset: false,
         created_at: now.clone(),
         updated_at: now,

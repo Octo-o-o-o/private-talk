@@ -46,12 +46,10 @@ fn load_image_config(conn: &rusqlite::Connection) -> Result<ImageGenConfig, Stri
         )
         .ok();
 
-    if let Some(value) = raw {
-        let parsed = serde_json::from_str::<ImageGenConfig>(&value)
-            .map_err(|error| format!("Invalid image generation config: {error}"))?;
-        Ok(parsed)
-    } else {
-        Ok(default_config())
+    match raw {
+        Some(value) => serde_json::from_str::<ImageGenConfig>(&value)
+            .map_err(|error| format!("Invalid image generation config: {error}")),
+        None => Ok(default_config()),
     }
 }
 
@@ -113,14 +111,14 @@ pub async fn generate_image_message(
             );
         }
 
-        let provider = conn
+        let (base_url, api_key) = conn
             .query_row(
                 "SELECT base_url, api_key FROM providers WHERE id = ?1",
                 params![config.provider_id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .map_err(|error| format!("Image provider not found: {error}"))?;
-        (config, provider.0, provider.1)
+        (config, base_url, api_key)
     };
 
     let mut request = image_generation::parse_img_command(
@@ -129,9 +127,8 @@ pub async fn generate_image_message(
         &config.default_quality,
         &config.default_background,
     )?;
-    let normalized_reference_mime_type = reference_mime_type
-        .clone()
-        .unwrap_or_else(|| "image/png".to_string());
+    let normalized_reference_mime_type =
+        reference_mime_type.unwrap_or_else(|| "image/png".to_string());
 
     if let Some(reference_b64) = reference_image_base64.as_ref() {
         let decoded = base64::engine::general_purpose::STANDARD
@@ -151,7 +148,7 @@ pub async fn generate_image_message(
         }
     }
 
-    let prepared_reference_attachment = if let Some(reference_b64) = reference_image_base64.clone() {
+    let prepared_reference_attachment = if let Some(reference_b64) = reference_image_base64 {
         let app_dir = app
             .path()
             .app_data_dir()

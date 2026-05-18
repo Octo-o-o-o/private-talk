@@ -1,4 +1,4 @@
-use crate::db::DbState;
+use crate::db::{collect_rows, DbState};
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -147,13 +147,11 @@ fn decrypt(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
 }
 
 fn collect_providers(conn: &rusqlite::Connection) -> Result<Vec<ProviderData>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT name, api_type, base_url, api_key, models, is_default FROM providers ORDER BY created_at ASC",
-        )
-        .map_err(|error| error.to_string())?;
-    let rows = stmt
-        .query_map([], |row| {
+    collect_rows(
+        conn,
+        "SELECT name, api_type, base_url, api_key, models, is_default FROM providers ORDER BY created_at ASC",
+        [],
+        |row| {
             let models_raw: String = row.get(4)?;
             Ok(ProviderData {
                 name: row.get(0)?,
@@ -163,10 +161,8 @@ fn collect_providers(conn: &rusqlite::Connection) -> Result<Vec<ProviderData>, S
                 models: serde_json::from_str(&models_raw).unwrap_or_default(),
                 is_default: row.get::<_, i64>(5)? != 0,
             })
-        })
-        .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+        },
+    )
 }
 
 fn collect_settings(conn: &rusqlite::Connection) -> Result<Vec<SettingEntry>, String> {
@@ -177,34 +173,27 @@ fn collect_settings(conn: &rusqlite::Connection) -> Result<Vec<SettingEntry>, St
         .collect::<Vec<_>>()
         .join(",");
     let sql = format!("SELECT key, value FROM settings WHERE key IN ({placeholders})");
-    let mut stmt = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let params = EXPORTABLE_SETTINGS
         .iter()
         .map(|key| key as &dyn rusqlite::types::ToSql)
         .collect::<Vec<_>>();
-    let rows = stmt
-        .query_map(params.as_slice(), |row| {
-            Ok(SettingEntry {
-                key: row.get(0)?,
-                value: row.get(1)?,
-            })
+    collect_rows(conn, &sql, params.as_slice(), |row| {
+        Ok(SettingEntry {
+            key: row.get(0)?,
+            value: row.get(1)?,
         })
-        .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+    })
 }
 
 fn collect_assistants(conn: &rusqlite::Connection) -> Result<Vec<AssistantData>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, name, description, system_prompt, icon, created_at, updated_at
+    collect_rows(
+        conn,
+        "SELECT id, name, description, system_prompt, icon, created_at, updated_at
              FROM assistants
              WHERE is_preset = 0
              ORDER BY created_at ASC",
-        )
-        .map_err(|error| error.to_string())?;
-    let rows = stmt
-        .query_map([], |row| {
+        [],
+        |row| {
             Ok(AssistantData {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -214,10 +203,8 @@ fn collect_assistants(conn: &rusqlite::Connection) -> Result<Vec<AssistantData>,
                 created_at: row.get(5)?,
                 updated_at: row.get(6)?,
             })
-        })
-        .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+        },
+    )
 }
 
 fn has_any_config(conn: &rusqlite::Connection) -> Result<bool, String> {
