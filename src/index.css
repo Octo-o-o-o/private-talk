@@ -2877,46 +2877,27 @@ select option {
 
   .app-sidebar-pane,
   .app-main-pane {
-    position: absolute;
-    inset: 0;
-    transition:
-      transform 520ms var(--curve-fluid),
-      opacity 320ms ease,
-      filter 320ms ease;
-    will-change: transform;
+    position: relative;
+    width: 100%;
+    height: 100%;
   }
 
   .app-sidebar-pane {
-    z-index: 1;
-  }
-
-  .app-sidebar-pane::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 260ms ease;
+    display: flex;
+    flex-direction: column;
   }
 
   .app-main-pane {
-    z-index: 2;
-    transform: translateX(100%);
-  }
-
-  .app-shell.is-detail-visible .app-main-pane {
-    transform: translateX(0);
+    display: none;
   }
 
   .app-shell.is-detail-visible .app-sidebar-pane {
-    transform: scale(0.95) translateX(-3%);
-    opacity: 0.58;
-    filter: saturate(0.8);
+    display: none;
   }
 
-  .app-shell.is-detail-visible .app-sidebar-pane::after {
-    opacity: 1;
+  .app-shell.is-detail-visible .app-main-pane {
+    display: flex;
+    flex-direction: column;
   }
 
   .app-panel {
