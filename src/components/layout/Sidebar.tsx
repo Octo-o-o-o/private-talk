@@ -79,8 +79,7 @@ export function Sidebar({
   const isPhone = layout === "phone";
   const hasTextProviders =
     getProvidersForPurpose(providers, providerModelRegistry, "chat").length > 0;
-  const showProviderNotice = !hasTextProviders;
-  const desktopDragProps = !isPhone ? { "data-tauri-drag-region": true } : {};
+  const desktopDragProps = isPhone ? {} : { "data-tauri-drag-region": true };
 
   return (
     <div className={`pt-sidebar pt-sidebar--${layout}`}>
@@ -112,7 +111,7 @@ export function Sidebar({
       </header>
 
       <div className="pt-sidebar__content">
-        {showProviderNotice ? (
+        {hasTextProviders ? null : (
           <section className="pt-sidebar__notice">
             <div className="pt-sidebar__notice-icon">
               <Sparkles size={16} />
@@ -136,7 +135,7 @@ export function Sidebar({
               </p>
             </div>
           </section>
-        ) : null}
+        )}
 
         <div className="pt-sidebar__section">
           <div className="pt-sidebar__section-header">
@@ -159,7 +158,7 @@ export function Sidebar({
         </button>
       </div>
 
-      {!isPhone ? (
+      {isPhone ? null : (
         <footer className="pt-sidebar__footer">
           <button
             type="button"
@@ -171,7 +170,7 @@ export function Sidebar({
             <span>{t("设置", "Settings")}</span>
           </button>
         </footer>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -292,6 +291,13 @@ function ConversationRow({
   confirmRenameLabel,
   cancelRenameLabel,
 }: ConversationRowProps) {
+  function handleRowKeyDown(event: React.KeyboardEvent): void {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect();
+    }
+  }
+
   return (
     <div
       className={`pt-conversation-row${active ? " is-active" : ""}${
@@ -300,16 +306,7 @@ function ConversationRow({
       onClick={editing ? undefined : onSelect}
       role={editing ? undefined : "button"}
       tabIndex={editing ? undefined : 0}
-      onKeyDown={
-        editing
-          ? undefined
-          : (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelect();
-              }
-            }
-      }
+      onKeyDown={editing ? undefined : handleRowKeyDown}
     >
       <div className="pt-conversation-row__avatar">
         <span>{conversationAvatar(conversation.title, untitledLabel)}</span>
@@ -382,7 +379,7 @@ function ConversationRow({
         )}
       </div>
 
-      {!editing ? (
+      {editing ? null : (
         <div className="pt-conversation-row__actions">
           <button
             type="button"
@@ -407,7 +404,7 @@ function ConversationRow({
             <Trash2 size={13} />
           </button>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

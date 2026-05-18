@@ -48,8 +48,8 @@ function App() {
       loadSpeechSettings,
       refreshResolvedLanguage,
       setSystemTheme,
-    } =
-      useAppStore.getState();
+    } = useAppStore.getState();
+
     void (async () => {
       const browserPreview = readBrowserPreviewBootstrap();
       if (browserPreview && applyPreviewBootstrap(browserPreview)) {

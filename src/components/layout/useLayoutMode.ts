@@ -2,10 +2,6 @@ import { useEffect, useState } from "react";
 
 export type LayoutMode = "phone" | "tablet" | "desktop";
 
-export interface LayoutProfile {
-  mode: LayoutMode;
-}
-
 const PHONE_MAX_WIDTH = 767;
 const TABLET_MAX_WIDTH = 959;
 
@@ -28,20 +24,12 @@ function readLayoutMode(): LayoutMode {
 }
 
 export function useLayoutMode(): LayoutMode {
-  return useLayoutProfile().mode;
-}
-
-export function useLayoutProfile(): LayoutProfile {
-  const [profile, setProfile] = useState<LayoutProfile>(() => ({
-    mode: readLayoutMode(),
-  }));
+  const [mode, setMode] = useState<LayoutMode>(readLayoutMode);
 
   useEffect(() => {
     const update = (): void => {
       const nextMode = readLayoutMode();
-      setProfile((current) =>
-        current.mode === nextMode ? current : { mode: nextMode },
-      );
+      setMode((current) => (current === nextMode ? current : nextMode));
     };
 
     update();
@@ -52,5 +40,5 @@ export function useLayoutProfile(): LayoutProfile {
     };
   }, []);
 
-  return profile;
+  return mode;
 }
