@@ -15,6 +15,7 @@
 		6317C0F9B2E1B20FBE3777D6 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 687451FC20C33119536148F7 /* WebKit.framework */; };
 		6B2B84C6BBF3A4A63724B968 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0DB91FBF863141E33AE1C6BA /* Assets.xcassets */; };
 		718B90E4372E05930D8AA069 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2B4579C1D781AA8AFB933B7B /* LaunchScreen.storyboard */; };
+		5F0B61A501C6AB0C0D000006 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5F0B61A501C6AB0C0D000005 /* PrivacyInfo.xcprivacy */; };
 		831BBE87769E8DEDB4F24D09 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F186E412F3941AD3170FDA08 /* UIKit.framework */; };
 		93AAC282E98C9606F61164D0 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 123F3247B907E0EC74ED7616 /* assets */; };
 		9AB40A12D27B379B5E2F88D4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69F842BFB5832777B9B5CA89 /* Metal.framework */; };
@@ -47,6 +48,7 @@
 		72FFFA4B0F08ABFDC594461F /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		77DCA7AF36D15C5E3279668D /* provider.rs */ = {isa = PBXFileReference; path = provider.rs; sourceTree = "<group>"; };
 		7D4D60A183335AA99F9C00B8 /* private-talk_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "private-talk_iOS.entitlements"; sourceTree = "<group>"; };
+		5F0B61A501C6AB0C0D000005 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		82554293D51FABAEFF15820E /* tts.rs */ = {isa = PBXFileReference; path = tts.rs; sourceTree = "<group>"; };
 		85F63D33003E649D97EE1523 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		85F862992BB41F2B3CAAD9CE /* private-talk_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "private-talk_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -196,6 +198,7 @@
 			children = (
 				0F0AA12620DEC19BC55D9125 /* Info.plist */,
 				7D4D60A183335AA99F9C00B8 /* private-talk_iOS.entitlements */,
+				5F0B61A501C6AB0C0D000005 /* PrivacyInfo.xcprivacy */,
 			);
 			path = "private-talk_iOS";
 			sourceTree = "<group>";
@@ -314,6 +317,7 @@
 				718B90E4372E05930D8AA069 /* LaunchScreen.storyboard in Resources */,
 				93AAC282E98C9606F61164D0 /* assets in Resources */,
 				9AC4B3933DC636F60265C7ED /* libapp.a in Resources */,
+				5F0B61A501C6AB0C0D000006 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

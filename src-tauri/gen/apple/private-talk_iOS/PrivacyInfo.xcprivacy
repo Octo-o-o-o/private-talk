@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Apple Privacy Manifest (iOS 17+, mandatory for App Store submission as of 2024).
+
+  Private Talk doesn't track users, doesn't collect analytics, and doesn't ship
+  any embedded analytics SDKs. The declarations below cover the Required
+  Reason API categories that Tauri / Rust crates may touch under the hood:
+
+    * UserDefaults (CA92.1) — Tauri reads bundle / runtime configuration via
+      NSUserDefaults internally; reason CA92.1 covers app-functionality reads
+      and writes that stay on-device.
+
+    * File timestamp (C617.1) — file-system operations (sqlite, attachment IO,
+      backup import/export) inevitably consult creation/modification times via
+      Foundation. Reason C617.1 covers using timestamps for app-internal logic.
+
+    * Disk space (E174.1) — Tauri / std::fs may query available space when
+      writing attachments and backups. E174.1 covers writing files to space
+      the user already gave permission to use.
+
+    * System boot time (35F9.1) — Foundation's monotonic clocks
+      (CACurrentMediaTime / dispatch_time) read boot time. 35F9.1 covers
+      using it for measuring time elapsed inside the app process.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>E174.1</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>35F9.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
