@@ -385,6 +385,30 @@ export function ttsSynthesize(
   });
 }
 
+export interface NativeAudioRecording {
+  audio_base64: string;
+  mime_type: string;
+}
+
+export function audioStartRecording(): Promise<void> {
+  return cmd("audio_start_recording");
+}
+
+export function audioStopRecording(): Promise<NativeAudioRecording> {
+  return cmd("audio_stop_recording");
+}
+
+export function audioPlay(
+  audioBase64: string,
+  mimeType?: string,
+): Promise<void> {
+  return cmd("audio_play", { audioBase64, mimeType });
+}
+
+export function audioStopPlayback(): Promise<void> {
+  return cmd("audio_stop_playback");
+}
+
 export function getUsageByConversation(): Promise<ConversationUsage[]> {
   if (!isTauri()) {
     return Promise.resolve(PREVIEW_USAGE_BY_CONVERSATION);

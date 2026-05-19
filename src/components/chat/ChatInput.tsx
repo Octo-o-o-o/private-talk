@@ -9,7 +9,9 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { detectPlatform, isMobilePlatform } from "../../lib/appearance";
 import { useI18n } from "../../lib/i18n";
 import { getProvidersForPurpose } from "../../lib/providerModels";
 import * as api from "../../lib/tauri";
@@ -176,7 +178,16 @@ export function ChatInput({
 
   const placeholder = buildPlaceholder();
   const imageToggleLabel = buildImageToggleLabel();
-  const recordingAvailable =
+  // On iOS/Android Tauri we delegate capture to AVAudioRecorder /
+  // MediaRecorder-replacement bridges (commands/audio.rs) because WKWebView's
+  // MediaRecorder is too unreliable to ship. Everywhere else, fall back to
+  // the standard web APIs. The check is stable for the process lifetime, so
+  // memoize it once.
+  const usesNativeAudio = useMemo(
+    () => isTauri() && isMobilePlatform(detectPlatform()),
+    [],
+  );
+  const webRecordingAvailable =
     typeof navigator !== "undefined" &&
     typeof navigator.mediaDevices?.getUserMedia === "function" &&
     typeof MediaRecorder !== "undefined";
@@ -208,8 +219,13 @@ export function ChatInput({
     return () => {
       recorderRef.current?.stop();
       recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (usesNativeAudio) {
+        // Best-effort: drain the native session if the user navigates away
+        // mid-recording. We intentionally ignore failures here.
+        void api.audioStopRecording().catch(() => {});
+      }
     };
-  }, []);
+  }, [usesNativeAudio]);
 
   useEffect(() => {
     if (!imageEnabled && mode === "image") {
@@ -330,12 +346,15 @@ export function ChatInput({
     }
   }
 
-  async function transcribeBlob(blob: Blob, mimeType: string, providerId: string): Promise<void> {
+  async function transcribeAudio(
+    audioBase64: string,
+    mimeType: string,
+    providerId: string,
+  ): Promise<void> {
     setIsTranscribing(true);
     setTranscriptionError(null);
 
     try {
-      const audioBase64 = await blobToBase64(blob);
       const transcript = await api.sttTranscribe(audioBase64, providerId, mimeType);
       const cleaned = transcript.trim();
 
@@ -361,6 +380,11 @@ export function ChatInput({
     }
   }
 
+  async function transcribeBlob(blob: Blob, mimeType: string, providerId: string): Promise<void> {
+    const audioBase64 = await blobToBase64(blob);
+    await transcribeAudio(audioBase64, mimeType, providerId);
+  }
+
   async function startRecording(): Promise<void> {
     if (!transcriptionProviderId) {
       setTranscriptionError(
@@ -369,7 +393,22 @@ export function ChatInput({
       return;
     }
 
-    if (!recordingAvailable) {
+    if (usesNativeAudio) {
+      try {
+        await api.audioStartRecording();
+        setTranscriptionError(null);
+        setIsRecording(true);
+      } catch (error) {
+        setTranscriptionError(
+          error instanceof Error
+            ? error.message
+            : t("无法启动原生录音。", "Failed to start native recording."),
+        );
+      }
+      return;
+    }
+
+    if (!webRecordingAvailable) {
       setTranscriptionError(
         t("当前环境不支持浏览器录音。", "This environment does not support browser recording."),
       );
@@ -434,7 +473,33 @@ export function ChatInput({
     });
   }
 
-  function stopRecording(): void {
+  async function stopRecording(): Promise<void> {
+    if (usesNativeAudio) {
+      setIsRecording(false);
+      if (!transcriptionProviderId) {
+        // Drain the recording so we don't leave the audio session active.
+        try {
+          await api.audioStopRecording();
+        } catch (error) {
+          console.warn("Failed to drain native recording without provider:", error);
+        }
+        return;
+      }
+      try {
+        const result = await api.audioStopRecording();
+        if (result.audio_base64) {
+          void transcribeAudio(result.audio_base64, result.mime_type, transcriptionProviderId);
+        }
+      } catch (error) {
+        setTranscriptionError(
+          error instanceof Error
+            ? error.message
+            : t("录音停止失败。", "Failed to stop recording."),
+        );
+      }
+      return;
+    }
+
     recorderRef.current?.stop();
   }
 
@@ -583,7 +648,11 @@ export function ChatInput({
           <button
             type="button"
             className={`pt-compose__tool${isRecording ? " is-active" : ""}`}
-            onClick={isRecording ? stopRecording : () => void startRecording()}
+            onClick={
+              isRecording
+                ? () => void stopRecording()
+                : () => void startRecording()
+            }
             disabled={isTranscribing || busy}
             aria-label={micLabel}
             title={micLabel}
