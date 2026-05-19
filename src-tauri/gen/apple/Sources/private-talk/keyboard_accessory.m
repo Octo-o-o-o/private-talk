@@ -35,7 +35,7 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
 
 @interface PTKeyboardBridge : NSObject
 @property (nonatomic, weak) WKWebView *webView;
-@property (nonatomic, assign) CGFloat lastKeyboardHeight;
+@property (nonatomic, assign) CGFloat lastKeyboardInset;
 @property (nonatomic, assign) BOOL configuredScrollView;
 @end
 
@@ -52,10 +52,14 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
 
 - (instancetype)init {
     if ((self = [super init])) {
-        _lastKeyboardHeight = -1;
+        _lastKeyboardInset = -1;
         NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        // UIKeyboardWillChangeFrameNotification is the only notification that
+        // fires for every relevant transition — show, hide, floating/dock
+        // toggles, candidate-bar resizes, hardware-keyboard reveal/hide, and
+        // split-keyboard merges. Show/Hide notifications skip several of those.
         [center addObserver:self
-                   selector:@selector(keyboardFrameDidChange:)
+                   selector:@selector(keyboardFrameWillChange:)
                        name:UIKeyboardWillChangeFrameNotification
                      object:nil];
         [center addObserver:self
@@ -114,62 +118,107 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
     self.configuredScrollView = YES;
 }
 
-- (void)pushKeyboardHeight:(CGFloat)height {
+- (void)pushKeyboardInset:(CGFloat)inset
+            animationDuration:(NSTimeInterval)duration {
     WKWebView *webView = [self resolveWebView];
     if (!webView) {
         return;
     }
     [self configureScrollViewIfNeeded:webView];
 
-    CGFloat rounded = MAX(0, round(height));
-    if (fabs(rounded - self.lastKeyboardHeight) < 0.5) {
+    CGFloat rounded = MAX(0, round(inset));
+    if (fabs(rounded - self.lastKeyboardInset) < 0.5) {
         return;
     }
-    self.lastKeyboardHeight = rounded;
+    self.lastKeyboardInset = rounded;
 
+    NSInteger durationMs = (NSInteger)round(MAX(0, duration) * 1000.0);
+
+    // Convention: data-keyboard-visible is a boolean *presence* attribute —
+    // present means the keyboard is up, absent means it isn't. Don't set it to
+    // the string "false" or CSS selectors like [data-keyboard-visible] will
+    // still match. data-keyboard-source stays pinned to "native" so the JS
+    // viewport tracker can detect us and step aside.
     NSString *script = [NSString stringWithFormat:
-        @"(function(){var d=document.documentElement;if(!d)return;d.style.setProperty('--keyboard-inset','%.0fpx');"
-         "d.style.setProperty('--visual-viewport-height', 'calc(100vh - %.0fpx)');"
-         "d.dataset.keyboardVisible = %@;})();",
-        rounded, rounded, rounded > 0 ? @"'true'" : @"'false'"];
+        @"(function(){var d=document.documentElement;if(!d)return;"
+         "d.style.setProperty('--keyboard-inset','%.0fpx');"
+         "d.style.setProperty('--keyboard-animation-duration','%ldms');"
+         "d.dataset.keyboardSource='native';"
+         "if(%@){d.dataset.keyboardVisible='';}"
+         "else{delete d.dataset.keyboardVisible;}})();",
+        rounded,
+        (long)durationMs,
+        rounded > 0 ? @"true" : @"false"];
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [webView evaluateJavaScript:script completionHandler:nil];
     });
 }
 
-- (CGFloat)keyboardHeightFromNotification:(NSNotification *)note visible:(BOOL)visible {
-    if (!visible) {
+- (CGFloat)keyboardOverlapInWebView:(WKWebView *)webView
+                   fromNotification:(NSNotification *)note
+                            visible:(BOOL)visible {
+    if (!visible || !webView) {
         return 0;
     }
+
     NSValue *frameValue = note.userInfo[UIKeyboardFrameEndUserInfoKey];
     if (!frameValue) {
         return 0;
     }
-    CGRect frame = [frameValue CGRectValue];
-    UIWindow *window = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-        for (UIWindow *candidate in ((UIWindowScene *)scene).windows) {
-            if (candidate.isKeyWindow) { window = candidate; break; }
-        }
-        if (!window) {
-            window = ((UIWindowScene *)scene).windows.firstObject;
-        }
-        if (window) break;
+    CGRect keyboardFrameInScreen = [frameValue CGRectValue];
+
+    UIWindow *window = webView.window;
+    if (!window) {
+        return 0;
     }
-    CGRect screenBounds = window ? window.bounds : [UIScreen mainScreen].bounds;
-    CGFloat overlap = CGRectGetMaxY(screenBounds) - CGRectGetMinY(frame);
-    return MAX(0, overlap);
+
+    // UIKeyboardFrameEndUserInfoKey returns the frame in the screen's
+    // coordinate space. Convert it to the webView's local space so the math
+    // is correct under Split View, Slide Over, Stage Manager, and any other
+    // case where the webView doesn't fill the screen.
+    UIScreen *screen = window.screen;
+    id<UICoordinateSpace> sourceSpace = screen ? screen.coordinateSpace
+                                               : (id<UICoordinateSpace>)window;
+    CGRect keyboardFrameInView = [webView convertRect:keyboardFrameInScreen
+                                  fromCoordinateSpace:sourceSpace];
+
+    // Floating / undocked iPad keyboards report a frame somewhere in the
+    // middle of the webView; they should not push content. We require the
+    // overlap to actually touch the bottom edge.
+    CGRect overlap = CGRectIntersection(webView.bounds, keyboardFrameInView);
+    if (CGRectIsNull(overlap) || overlap.size.height <= 0) {
+        return 0;
+    }
+    CGFloat distanceFromBottom =
+        CGRectGetMaxY(webView.bounds) - CGRectGetMaxY(overlap);
+    if (distanceFromBottom > 1.0) {
+        return 0;
+    }
+
+    return overlap.size.height;
 }
 
-- (void)keyboardFrameDidChange:(NSNotification *)note {
-    CGFloat height = [self keyboardHeightFromNotification:note visible:YES];
-    [self pushKeyboardHeight:height];
+- (NSTimeInterval)animationDurationFromNotification:(NSNotification *)note {
+    NSNumber *value = note.userInfo[UIKeyboardAnimationDurationUserInfoKey];
+    if (![value isKindOfClass:[NSNumber class]]) {
+        return 0;
+    }
+    return value.doubleValue;
+}
+
+- (void)keyboardFrameWillChange:(NSNotification *)note {
+    WKWebView *webView = [self resolveWebView];
+    CGFloat inset = [self keyboardOverlapInWebView:webView
+                                  fromNotification:note
+                                           visible:YES];
+    [self pushKeyboardInset:inset
+            animationDuration:[self animationDurationFromNotification:note]];
 }
 
 - (void)keyboardWillHide:(NSNotification *)note {
-    [self pushKeyboardHeight:0];
+    [self pushKeyboardInset:0
+            animationDuration:[self animationDurationFromNotification:note]];
 }
 
 @end

@@ -6,7 +6,9 @@ import {
   applyNativeAppearance,
   applyZoomFactor,
   DEFAULT_ZOOM_FACTOR,
-  detectDesktopPlatform,
+  detectPlatform,
+  detectSystemTextScale,
+  listenSystemTextScaleChanges,
   listenToWindowThemeChanges,
   normalizeZoomFactor,
   readWindowTheme,
@@ -33,7 +35,8 @@ function App() {
   const appearanceMode = useAppStore((s) => s.appearanceMode);
   const resolvedTheme = useAppStore((s) => s.resolvedTheme);
   const zoomFactor = useAppStore((s) => s.zoomFactor);
-  const platform = detectDesktopPlatform();
+  const systemTextScale = useAppStore((s) => s.systemTextScale);
+  const platform = detectPlatform();
 
   useEffect(() => {
     const {
@@ -183,10 +186,21 @@ function App() {
   }, [appearanceMode, resolvedTheme]);
 
   useEffect(() => {
-    void applyZoomFactor(zoomFactor).catch((error) => {
+    void applyZoomFactor(zoomFactor, {
+      platform,
+      systemTextScale,
+    }).catch((error) => {
       console.warn("Failed to apply zoom factor:", error);
     });
-  }, [zoomFactor]);
+  }, [platform, systemTextScale, zoomFactor]);
+
+  useEffect(() => {
+    const { setSystemTextScale } = useAppStore.getState();
+    setSystemTextScale(detectSystemTextScale(platform));
+    return listenSystemTextScaleChanges((scale) => {
+      useAppStore.getState().setSystemTextScale(scale);
+    }, platform);
+  }, [platform]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {

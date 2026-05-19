@@ -261,6 +261,32 @@ html {
   background: var(--app-html-background);
 }
 
+html[data-zoom-mode="css"] {
+  zoom: var(--ui-scale, 1);
+}
+
+/*
+ * Keyboard inset is published by either the iOS native bridge
+ * (src-tauri/gen/apple/.../keyboard_accessory.m) or the web visualViewport
+ * tracker (src/lib/viewport.ts). When a soft keyboard is open we shrink the
+ * #root content area by that amount so the compose bar sits flush against the
+ * keyboard's top edge and the chat scroll naturally shrinks above it.
+ *
+ * We gate on data-keyboard-visible (so desktop windows aren't affected when
+ * --keyboard-inset happens to be set) and target the root layout box on every
+ * mobile width (iPad landscape included).
+ *
+ * `min-height` is used instead of `padding-bottom`: the global Tailwind
+ * preflight (`*, ::before, ::after { padding: 0 }`) wins the cascade for
+ * padding on every element, so shrinking the box via padding doesn't work.
+ * Switching to a layout-height adjustment dodges that reset entirely.
+ */
+html[data-keyboard-visible] #root {
+  height: calc(100% - var(--keyboard-inset, 0px));
+  transition: height var(--keyboard-animation-duration, 220ms)
+    var(--curve-fluid);
+}
+
 body {
   overflow: hidden;
   color: var(--text-primary);
@@ -272,7 +298,7 @@ body {
 
 #root {
   position: relative;
-  height: var(--visual-viewport-height, 100%);
+  height: 100%;
   isolation: isolate;
   overflow: hidden;
 }

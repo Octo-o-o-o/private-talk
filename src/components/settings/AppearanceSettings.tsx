@@ -1,5 +1,6 @@
 import { Minus, Plus } from "lucide-react";
 import {
+  DEFAULT_SYSTEM_TEXT_SCALE,
   formatZoomLabel,
   MAX_ZOOM_FACTOR,
   MIN_ZOOM_FACTOR,
@@ -40,6 +41,7 @@ export function AppearanceSettingsSection() {
   const setAppearanceMode = useAppStore((state) => state.setAppearanceMode);
   const zoomFactor = useAppStore((state) => state.zoomFactor);
   const setZoomFactor = useAppStore((state) => state.setZoomFactor);
+  const systemTextScale = useAppStore((state) => state.systemTextScale);
   const valueLabel = appearanceLabel(appearanceMode, locale);
   const resolvedThemeLabel = appearanceLabel(resolvedTheme, locale);
   const detail =
@@ -60,6 +62,20 @@ export function AppearanceSettingsSection() {
   const currentZoomLabel = formatZoomLabel(zoomFactor);
   const canZoomOut = zoomFactor > MIN_ZOOM_FACTOR;
   const canZoomIn = zoomFactor < MAX_ZOOM_FACTOR;
+  const hasSystemTextScale =
+    Math.abs(systemTextScale - DEFAULT_SYSTEM_TEXT_SCALE) > 0.01;
+  const effectiveLabel = formatZoomLabel(zoomFactor * systemTextScale);
+  const systemPercentLabel = `${Math.round(systemTextScale * 100)}%`;
+  const zoomDetailBase = t(
+    "支持窗口缩放快捷键，也可以在这里直接调回 100%。",
+    "Use the standard zoom shortcuts or reset directly to 100% here.",
+  );
+  const zoomDetail = hasSystemTextScale
+    ? `${zoomDetailBase} ${t(
+        `已跟随系统字体大小（${systemPercentLabel}），实际界面比例约 ${effectiveLabel}。`,
+        `Following system text size (${systemPercentLabel}); effective scale ≈ ${effectiveLabel}.`,
+      )}`
+    : zoomDetailBase;
 
   return (
     <SettingsSection
@@ -88,12 +104,7 @@ export function AppearanceSettingsSection() {
           <p className="pt-settings-row__title">
             {t("界面缩放", "Interface Zoom")}
           </p>
-          <p className="pt-settings-row__detail">
-            {t(
-              "支持窗口缩放快捷键，也可以在这里直接调回 100%。",
-              "Use the standard zoom shortcuts or reset directly to 100% here.",
-            )}
-          </p>
+          <p className="pt-settings-row__detail">{zoomDetail}</p>
         </div>
 
         <div className="pt-settings-row__actions">

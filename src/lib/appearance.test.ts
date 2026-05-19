@@ -1,16 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyZoomFactor,
   DEFAULT_APPEARANCE_MODE,
+  DEFAULT_SYSTEM_TEXT_SCALE,
   DEFAULT_ZOOM_FACTOR,
+  MAX_SYSTEM_TEXT_SCALE,
   MAX_ZOOM_FACTOR,
+  MIN_SYSTEM_TEXT_SCALE,
   MIN_ZOOM_FACTOR,
   formatZoomLabel,
+  isDesktopPlatform,
+  isMobilePlatform,
   normalizeAppearanceMode,
+  normalizeSystemTextScale,
   normalizeZoomFactor,
   resolveAppearanceTheme,
   serializeZoomFactor,
   stepZoomFactor,
 } from "./appearance";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: () => false,
+}));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ setZoom: vi.fn() }),
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    theme: () => Promise.resolve("dark"),
+    setTheme: vi.fn(),
+    setBackgroundColor: vi.fn(),
+    onThemeChanged: () => Promise.resolve(() => {}),
+  }),
+}));
 
 describe("normalizeAppearanceMode", () => {
   it("accepts the three valid mode strings", () => {
@@ -96,5 +118,82 @@ describe("resolveAppearanceTheme", () => {
   it("falls back to systemTheme when mode is system", () => {
     expect(resolveAppearanceTheme("system", "light")).toBe("light");
     expect(resolveAppearanceTheme("system", "dark")).toBe("dark");
+  });
+});
+
+describe("normalizeSystemTextScale", () => {
+  it("falls back to the default for non-finite or non-positive input", () => {
+    expect(normalizeSystemTextScale(null)).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(undefined)).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale("")).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(Number.NaN)).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(0)).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(-2)).toBe(DEFAULT_SYSTEM_TEXT_SCALE);
+  });
+
+  it("clamps to [MIN, MAX] and rounds to 3 decimals", () => {
+    expect(normalizeSystemTextScale(0.01)).toBe(MIN_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(10)).toBe(MAX_SYSTEM_TEXT_SCALE);
+    expect(normalizeSystemTextScale(1.23456)).toBe(1.235);
+  });
+
+  it("preserves the default identity", () => {
+    expect(normalizeSystemTextScale(DEFAULT_SYSTEM_TEXT_SCALE)).toBe(
+      DEFAULT_SYSTEM_TEXT_SCALE,
+    );
+  });
+});
+
+describe("platform predicates", () => {
+  it("treats macos/windows/linux as desktop", () => {
+    expect(isDesktopPlatform("macos")).toBe(true);
+    expect(isDesktopPlatform("windows")).toBe(true);
+    expect(isDesktopPlatform("linux")).toBe(true);
+    expect(isDesktopPlatform("ios")).toBe(false);
+    expect(isDesktopPlatform("android")).toBe(false);
+    expect(isDesktopPlatform("unknown")).toBe(false);
+  });
+
+  it("treats ios/android as mobile", () => {
+    expect(isMobilePlatform("ios")).toBe(true);
+    expect(isMobilePlatform("android")).toBe(true);
+    expect(isMobilePlatform("macos")).toBe(false);
+    expect(isMobilePlatform("unknown")).toBe(false);
+  });
+});
+
+describe("applyZoomFactor (CSS fallback)", () => {
+  afterEach(() => {
+    const root = document.documentElement;
+    root.style.removeProperty("--ui-scale");
+    root.style.removeProperty("--ui-zoom-base");
+    root.style.removeProperty("--ui-system-text-scale");
+    delete root.dataset.zoomMode;
+  });
+
+  it("writes the CSS variables on the root in browser mode", async () => {
+    await applyZoomFactor(1.2, { platform: "unknown" });
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--ui-zoom-base")).toBe("1.200");
+    expect(root.style.getPropertyValue("--ui-system-text-scale")).toBe("1.000");
+    expect(root.style.getPropertyValue("--ui-scale")).toBe("1.200");
+    expect(root.dataset.zoomMode).toBe("css");
+  });
+
+  it("resets the scale variable at the default factor", async () => {
+    await applyZoomFactor(1, { platform: "unknown" });
+    expect(document.documentElement.style.getPropertyValue("--ui-scale")).toBe(
+      "1.000",
+    );
+  });
+
+  it("composes user zoom with the system text scale", async () => {
+    await applyZoomFactor(1.1, { platform: "ios", systemTextScale: 1.2 });
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--ui-zoom-base")).toBe("1.100");
+    expect(root.style.getPropertyValue("--ui-system-text-scale")).toBe("1.200");
+    // 1.1 * 1.2 = 1.32, rounded to 3 decimals
+    expect(root.style.getPropertyValue("--ui-scale")).toBe("1.320");
+    expect(root.dataset.zoomMode).toBe("css");
   });
 });

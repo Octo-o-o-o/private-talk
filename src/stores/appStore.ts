@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import {
   DEFAULT_APPEARANCE_MODE,
+  DEFAULT_SYSTEM_TEXT_SCALE,
   DEFAULT_ZOOM_FACTOR,
   normalizeAppearanceMode,
+  normalizeSystemTextScale,
   normalizeZoomFactor,
   resolveAppearanceTheme,
   serializeZoomFactor,
@@ -154,10 +156,12 @@ interface AppState {
   systemTheme: ResolvedAppearanceTheme;
   resolvedTheme: ResolvedAppearanceTheme;
   zoomFactor: number;
+  systemTextScale: number;
   loadAppearancePreferences: () => Promise<void>;
   setAppearanceMode: (mode: AppearanceMode) => Promise<void>;
   setSystemTheme: (theme: ResolvedAppearanceTheme) => void;
   setZoomFactor: (zoomFactor: number) => Promise<void>;
+  setSystemTextScale: (scale: number) => void;
 
   // Conversations
   conversations: Conversation[];
@@ -235,6 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   systemTheme: "dark",
   resolvedTheme: resolveAppearanceTheme(DEFAULT_APPEARANCE_MODE, "dark"),
   zoomFactor: DEFAULT_ZOOM_FACTOR,
+  systemTextScale: DEFAULT_SYSTEM_TEXT_SCALE,
   loadUiPreferences: async () => {
     const nextLanguage = normalizeUiLanguage(
       await api.getSetting(UI_LANGUAGE_SETTING_KEY),
@@ -315,6 +320,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       UI_ZOOM_FACTOR_SETTING_KEY,
       serializeZoomFactor(nextZoomFactor),
     );
+  },
+  setSystemTextScale: (scale) => {
+    set({ systemTextScale: normalizeSystemTextScale(scale) });
   },
 
   // Conversations

@@ -5,15 +5,22 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 export type AppearanceMode = "system" | "dark" | "light";
 export type ResolvedAppearanceTheme = "dark" | "light";
 export type DesktopPlatform = "macos" | "windows" | "linux" | "unknown";
+export type Platform = DesktopPlatform | "ios" | "android";
 type Unlisten = () => void;
 
 export const DEFAULT_APPEARANCE_MODE: AppearanceMode = "dark";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const MIN_ZOOM_FACTOR = 0.8;
 export const MAX_ZOOM_FACTOR = 2;
+export const DEFAULT_SYSTEM_TEXT_SCALE = 1;
+export const MIN_SYSTEM_TEXT_SCALE = 0.5;
+export const MAX_SYSTEM_TEXT_SCALE = 3;
 const ZOOM_STEP = 0.1;
 const LIGHT_NATIVE_BACKGROUND = "#fcfaf5";
 const DARK_NATIVE_BACKGROUND = "#050506";
+const SYSTEM_TEXT_SCALE_PROBE_ID = "pt-system-text-scale-probe";
+const IOS_DYNAMIC_TYPE_BASE_PX = 17;
+const REM_BASE_PX = 16;
 
 function readBrowserThemePreference(): ResolvedAppearanceTheme | null {
   if (
@@ -80,37 +87,96 @@ export function formatZoomLabel(zoomFactor: number): string {
   return `${Math.round(normalizeZoomFactor(zoomFactor) * 100)}%`;
 }
 
-export function detectDesktopPlatform(): DesktopPlatform {
+export function normalizeSystemTextScale(
+  value: number | string | null | undefined,
+): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : Number.parseFloat((value ?? "").trim());
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_SYSTEM_TEXT_SCALE;
+  }
+
+  return Number.parseFloat(
+    Math.min(
+      MAX_SYSTEM_TEXT_SCALE,
+      Math.max(MIN_SYSTEM_TEXT_SCALE, parsed),
+    ).toFixed(3),
+  );
+}
+
+export function detectPlatform(): Platform {
   if (typeof navigator === "undefined") {
     return "unknown";
   }
 
-  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } })
-    .userAgentData;
-  const platform = (
+  const ua = (navigator.userAgent ?? "").toLowerCase();
+  const uaData = (navigator as Navigator & {
+    userAgentData?: { platform?: string; mobile?: boolean };
+  }).userAgentData;
+  const rawPlatform = (
     uaData?.platform ??
     navigator.platform ??
     navigator.userAgent
   ).toLowerCase();
+  const maxTouchPoints =
+    typeof navigator.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
 
-  if (platform.includes("mac")) {
+  if (ua.includes("android")) {
+    return "android";
+  }
+
+  if (/iphone|ipod/.test(ua) || rawPlatform.includes("iphone")) {
+    return "ios";
+  }
+
+  if (
+    /ipad/.test(ua) ||
+    rawPlatform.includes("ipad") ||
+    (rawPlatform.includes("mac") && maxTouchPoints > 1)
+  ) {
+    return "ios";
+  }
+
+  if (rawPlatform.includes("mac")) {
     return "macos";
   }
 
-  if (platform.includes("win")) {
+  if (rawPlatform.includes("win")) {
     return "windows";
   }
 
-  if (platform.includes("linux")) {
+  if (rawPlatform.includes("linux")) {
     return "linux";
   }
 
   return "unknown";
 }
 
+export function isDesktopPlatform(
+  platform: Platform,
+): platform is "macos" | "windows" | "linux" {
+  return (
+    platform === "macos" ||
+    platform === "windows" ||
+    platform === "linux"
+  );
+}
+
+export function isMobilePlatform(platform: Platform): boolean {
+  return platform === "ios" || platform === "android";
+}
+
+export function detectDesktopPlatform(): DesktopPlatform {
+  const platform = detectPlatform();
+  return isDesktopPlatform(platform) ? platform : "unknown";
+}
+
 export function applyDocumentAppearance(
   theme: ResolvedAppearanceTheme,
-  platform: DesktopPlatform,
+  platform: Platform,
 ): void {
   if (typeof document === "undefined") {
     return;
@@ -119,6 +185,11 @@ export function applyDocumentAppearance(
   const root = document.documentElement;
   root.dataset.theme = theme;
   root.dataset.platform = platform;
+  root.dataset.platformKind = isMobilePlatform(platform)
+    ? "mobile"
+    : isDesktopPlatform(platform)
+      ? "desktop"
+      : "unknown";
   root.style.colorScheme = theme;
 
   const metaThemeColor = document.querySelector<HTMLMetaElement>(
@@ -164,17 +235,189 @@ export async function applyNativeAppearance(
   ]);
 }
 
-export async function applyZoomFactor(zoomFactor: number): Promise<void> {
+export async function applyZoomFactor(
+  zoomFactor: number,
+  options?: { platform?: Platform; systemTextScale?: number },
+): Promise<void> {
   const nextZoomFactor = normalizeZoomFactor(zoomFactor);
+  const platform = options?.platform ?? detectPlatform();
+  const systemTextScale = normalizeSystemTextScale(
+    options?.systemTextScale ?? DEFAULT_SYSTEM_TEXT_SCALE,
+  );
+  const effective = nextZoomFactor * systemTextScale;
+  const root = typeof document !== "undefined" ? document.documentElement : null;
 
-  if (isTauri()) {
-    await getCurrentWebview().setZoom(nextZoomFactor);
-    return;
+  if (root) {
+    root.style.setProperty("--ui-scale", effective.toFixed(3));
+    root.style.setProperty("--ui-zoom-base", nextZoomFactor.toFixed(3));
+    root.style.setProperty(
+      "--ui-system-text-scale",
+      systemTextScale.toFixed(3),
+    );
   }
 
-  if (typeof document !== "undefined") {
-    document.documentElement.style.setProperty("zoom", String(nextZoomFactor));
+  const onDesktopTauri = isTauri() && isDesktopPlatform(platform);
+
+  if (onDesktopTauri) {
+    try {
+      await getCurrentWebview().setZoom(effective);
+      if (root) {
+        root.dataset.zoomMode = "native";
+      }
+      return;
+    } catch (error) {
+      console.warn(
+        "Native webview.setZoom failed; falling back to CSS zoom:",
+        error,
+      );
+    }
   }
+
+  if (root) {
+    root.dataset.zoomMode = "css";
+  }
+}
+
+function getProbeContainer(): HTMLElement | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  let probe = document.getElementById(SYSTEM_TEXT_SCALE_PROBE_ID);
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.id = SYSTEM_TEXT_SCALE_PROBE_ID;
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = [
+      "position:fixed",
+      "top:0",
+      "left:0",
+      "pointer-events:none",
+      "visibility:hidden",
+      "contain:strict",
+      "width:0",
+      "height:0",
+      "overflow:hidden",
+      // Reset any inherited zoom so the probe sees the device-pixel value.
+      "zoom:1",
+    ].join(";");
+
+    const apple = document.createElement("span");
+    apple.dataset.kind = "apple-system-body";
+    // `font` shorthand sets size + family explicitly, so the measurement is
+    // immune to the root `font-size: 14px` baseline we apply elsewhere.
+    apple.style.font = "-apple-system-body";
+    probe.appendChild(apple);
+
+    const android = document.createElement("span");
+    android.dataset.kind = "android-px";
+    // Use an absolute px so Android WebView's `textZoom` (which scales px-based
+    // fonts) shows up as a delta from the requested value.
+    android.style.fontSize = `${REM_BASE_PX}px`;
+    probe.appendChild(android);
+
+    if (document.body) {
+      document.body.appendChild(probe);
+    } else {
+      // Defer until <body> exists, in case appearance bootstraps very early.
+      const attach = () => {
+        if (document.body && !document.body.contains(probe!)) {
+          document.body.appendChild(probe!);
+        }
+      };
+      document.addEventListener("DOMContentLoaded", attach, { once: true });
+    }
+  }
+
+  return probe;
+}
+
+export function detectSystemTextScale(
+  platform: Platform = detectPlatform(),
+): number {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return DEFAULT_SYSTEM_TEXT_SCALE;
+  }
+
+  const probe = getProbeContainer();
+  if (!probe || !document.body || !document.body.contains(probe)) {
+    return DEFAULT_SYSTEM_TEXT_SCALE;
+  }
+
+  // iOS exposes Dynamic Type through `-apple-system-body`. The default value
+  // is 17px; users can shrink to ~14 or grow well past 50 via Accessibility.
+  if (platform === "ios") {
+    const apple = probe.querySelector<HTMLElement>(
+      '[data-kind="apple-system-body"]',
+    );
+    if (apple) {
+      const size = Number.parseFloat(window.getComputedStyle(apple).fontSize);
+      if (Number.isFinite(size) && size > 0) {
+        return normalizeSystemTextScale(size / IOS_DYNAMIC_TYPE_BASE_PX);
+      }
+    }
+    return DEFAULT_SYSTEM_TEXT_SCALE;
+  }
+
+  // Android WebView scales px-based fonts by the user's "Font size" accessibility
+  // setting via WebSettings#textZoom. We request 16px and measure the actual
+  // computed size — when it differs from 16, the user has adjusted system fonts.
+  if (platform === "android") {
+    const android = probe.querySelector<HTMLElement>(
+      '[data-kind="android-px"]',
+    );
+    if (android) {
+      const size = Number.parseFloat(
+        window.getComputedStyle(android).fontSize,
+      );
+      if (Number.isFinite(size) && size > 0) {
+        return normalizeSystemTextScale(size / REM_BASE_PX);
+      }
+    }
+  }
+
+  return DEFAULT_SYSTEM_TEXT_SCALE;
+}
+
+export function listenSystemTextScaleChanges(
+  handler: (scale: number) => void,
+  platform: Platform = detectPlatform(),
+): () => void {
+  if (
+    typeof window === "undefined" ||
+    typeof document === "undefined" ||
+    !isMobilePlatform(platform)
+  ) {
+    return () => {};
+  }
+
+  let lastScale = detectSystemTextScale(platform);
+
+  const emit = () => {
+    const next = detectSystemTextScale(platform);
+    if (Math.abs(next - lastScale) > 0.005) {
+      lastScale = next;
+      handler(next);
+    }
+  };
+
+  const handleVisibility = () => {
+    if (!document.hidden) {
+      emit();
+    }
+  };
+
+  document.addEventListener("visibilitychange", handleVisibility);
+  window.addEventListener("pageshow", emit);
+  window.addEventListener("focus", emit);
+  window.addEventListener("resize", emit);
+
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibility);
+    window.removeEventListener("pageshow", emit);
+    window.removeEventListener("focus", emit);
+    window.removeEventListener("resize", emit);
+  };
 }
 
 export function listenToWindowThemeChanges(
