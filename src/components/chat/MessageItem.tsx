@@ -11,7 +11,8 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
-import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { detectPlatform, isMobilePlatform } from "../../lib/appearance";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -139,6 +140,14 @@ function AssistantMessage({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const activeTtsProviderId = ttsProviderId ?? selectedProviderId;
+  // iOS / Android Tauri delegates playback to AVAudioPlayer (commands/audio.rs)
+  // so the system can route through AirPods / CarPlay, respect the silent
+  // switch, and survive backgrounding without the WKWebView's audio-context
+  // restrictions kicking in.
+  const usesNativeAudio = useMemo(
+    () => isTauri() && isMobilePlatform(detectPlatform()),
+    [],
+  );
 
   function copyToClipboard(value: string): void {
     navigator.clipboard.writeText(value).catch((error) => {
@@ -156,8 +165,11 @@ function AssistantMessage({
       }
       audioRef.current = null;
       audioUrlRef.current = null;
+      if (usesNativeAudio) {
+        void api.audioStopPlayback().catch(() => {});
+      }
     };
-  }, []);
+  }, [usesNativeAudio]);
 
   function speechText(markdown: string): string {
     return markdown
@@ -177,6 +189,13 @@ function AssistantMessage({
 
   async function toggleSpeech(): Promise<void> {
     if (isSpeaking) {
+      if (usesNativeAudio) {
+        try {
+          await api.audioStopPlayback();
+        } catch (error) {
+          console.warn("Native TTS stop failed:", error);
+        }
+      }
       audioRef.current?.pause();
       if (audioUrlRef.current) {
         URL.revokeObjectURL(audioUrlRef.current);
@@ -200,6 +219,23 @@ function AssistantMessage({
 
     try {
       const result = await api.ttsSynthesize(text, activeTtsProviderId, ttsModel, ttsVoice, "mp3");
+
+      if (usesNativeAudio) {
+        // On iOS / Android, hand the synthesized bytes to AVAudioPlayer so
+        // the platform owns the audio session, routing, and interruption
+        // handling. The native bridge resolves once playback starts; we
+        // don't currently surface playback-completion events back to JS
+        // (the audio session deactivates itself), so the spinner clears
+        // optimistically after the call returns.
+        try {
+          await api.audioPlay(result.audio_base64, result.content_type);
+        } catch (playError) {
+          setIsSpeaking(false);
+          console.warn("Native TTS playback failed:", playError);
+        }
+        return;
+      }
+
       const blob = base64ToBlob(result.audio_base64, result.content_type);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
