@@ -91,6 +91,10 @@ pub fn run() {
             commands::pin::enable_pin,
             commands::pin::disable_pin,
             commands::pin::reset_all_data,
+            commands::audio::audio_start_recording,
+            commands::audio::audio_stop_recording,
+            commands::audio::audio_play,
+            commands::audio::audio_stop_playback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

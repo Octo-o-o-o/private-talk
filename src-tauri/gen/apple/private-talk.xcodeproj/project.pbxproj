@@ -12,6 +12,8 @@
 		622F9FA41037D1CCF8F8A080 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FAF2745F054509186F4DFB8 /* main.mm */; };
 		5F0B61A501C6AB0C0D000002 /* keyboard_accessory.m in Sources */ = {isa = PBXBuildFile; fileRef = 5F0B61A501C6AB0C0D000001 /* keyboard_accessory.m */; };
 		5F0B61A501C6AB0C0D000004 /* ios_privacy.m in Sources */ = {isa = PBXBuildFile; fileRef = 5F0B61A501C6AB0C0D000003 /* ios_privacy.m */; };
+		5F0B61A501C6AB0C0D000008 /* audio_bridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 5F0B61A501C6AB0C0D000007 /* audio_bridge.m */; };
+		5F0B61A501C6AB0C0D00000A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F0B61A501C6AB0C0D000009 /* AVFoundation.framework */; };
 		6317C0F9B2E1B20FBE3777D6 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 687451FC20C33119536148F7 /* WebKit.framework */; };
 		6B2B84C6BBF3A4A63724B968 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0DB91FBF863141E33AE1C6BA /* Assets.xcassets */; };
 		718B90E4372E05930D8AA069 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 2B4579C1D781AA8AFB933B7B /* LaunchScreen.storyboard */; };
@@ -32,6 +34,8 @@
 		1FAF2745F054509186F4DFB8 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		5F0B61A501C6AB0C0D000001 /* keyboard_accessory.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = keyboard_accessory.m; sourceTree = "<group>"; };
 		5F0B61A501C6AB0C0D000003 /* ios_privacy.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ios_privacy.m; sourceTree = "<group>"; };
+		5F0B61A501C6AB0C0D000007 /* audio_bridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = audio_bridge.m; sourceTree = "<group>"; };
+		5F0B61A501C6AB0C0D000009 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		220585B2A8BD178341071CC6 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		25C2802BD32992CF3C38A9D4 /* preview.rs */ = {isa = PBXFileReference; path = preview.rs; sourceTree = "<group>"; };
 		2B4579C1D781AA8AFB933B7B /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -77,6 +81,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				35BB032C2D19B1A48E0017F2 /* libapp.a in Frameworks */,
+				5F0B61A501C6AB0C0D00000A /* AVFoundation.framework in Frameworks */,
 				BE913D97B9CB8764468DEFA8 /* CoreGraphics.framework in Frameworks */,
 				9AB40A12D27B379B5E2F88D4 /* Metal.framework in Frameworks */,
 				F47B0F3BC7BC467DB88AE1AC /* MetalKit.framework in Frameworks */,
@@ -102,6 +107,7 @@
 		23967BB9BDC02629A7AB0CF3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				5F0B61A501C6AB0C0D000009 /* AVFoundation.framework */,
 				4CA2E5D223C902EFC50F70C9 /* CoreGraphics.framework */,
 				85F63D33003E649D97EE1523 /* libapp.a */,
 				69F842BFB5832777B9B5CA89 /* Metal.framework */,
@@ -188,6 +194,7 @@
 				1FAF2745F054509186F4DFB8 /* main.mm */,
 				5F0B61A501C6AB0C0D000001 /* keyboard_accessory.m */,
 				5F0B61A501C6AB0C0D000003 /* ios_privacy.m */,
+				5F0B61A501C6AB0C0D000007 /* audio_bridge.m */,
 				6F456C02CCC14D285F5F7284 /* bindings */,
 			);
 			path = "private-talk";
@@ -355,6 +362,7 @@
 				622F9FA41037D1CCF8F8A080 /* main.mm in Sources */,
 				5F0B61A501C6AB0C0D000002 /* keyboard_accessory.m in Sources */,
 				5F0B61A501C6AB0C0D000004 /* ios_privacy.m in Sources */,
+				5F0B61A501C6AB0C0D000008 /* audio_bridge.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
