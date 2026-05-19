@@ -190,6 +190,23 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
     if (CGRectIsNull(overlap) || overlap.size.height <= 0) {
         return 0;
     }
+
+    // Sanity clamp. During certain iOS 26 transitions (scene-size changes,
+    // Stage Manager geometry shifts, IME handoff between languages) the
+    // notification can briefly report the keyboard as occupying nearly the
+    // entire webview. Applying that inset would collapse `#root` to a sliver
+    // and visually park the compose bar near the top of the screen with a
+    // wall of black underneath. Discard such reports — iOS will fire the
+    // next notification with the correct frame and the UI snaps back.
+    if (overlap.size.height > webView.bounds.size.height * 0.85) {
+        NSLog(@"[PrivateTalk] discarding suspicious keyboard overlap %.0fpx "
+              @"(webview height %.0fpx, keyboard frame in view %@)",
+              overlap.size.height,
+              webView.bounds.size.height,
+              NSStringFromCGRect(keyboardFrameInView));
+        return 0;
+    }
+
     CGFloat distanceFromBottom =
         CGRectGetMaxY(webView.bounds) - CGRectGetMaxY(overlap);
     if (distanceFromBottom > 1.0) {
