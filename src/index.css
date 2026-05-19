@@ -2796,6 +2796,15 @@ select option {
     color 180ms ease;
 }
 
+.pt-pin-lock__key:disabled,
+.pt-pin-lock__action:disabled {
+  /* Cooldown lockout — render the keypad as visibly inert so users
+   * understand they can't type while waiting out the timer. */
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .pt-pin-lock__key:hover,
 .pt-pin-lock__action:hover {
   background: var(--surface-subtle-hover);

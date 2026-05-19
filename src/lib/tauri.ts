@@ -345,7 +345,12 @@ export function getPinLength(): Promise<number | null> {
   return cmd("get_pin_length");
 }
 
-export function verifyPin(inputPin: string): Promise<boolean> {
+export interface VerifyPinResult {
+  success: boolean;
+  lockout_remaining_seconds: number;
+}
+
+export function verifyPin(inputPin: string): Promise<VerifyPinResult> {
   return cmd("verify_pin_cmd", { inputPin });
 }
 

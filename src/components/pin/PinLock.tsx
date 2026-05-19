@@ -33,6 +33,10 @@ export function PinLock() {
     available: false,
     kind: "none",
   });
+  // Cooldown countdown: 0 means "no cooldown active". Set whenever the
+  // Rust backend reports `lockout_remaining_seconds > 0` and ticked
+  // every second by an effect below.
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   // The auto-prompt fires once per mount; without this guard, React StrictMode
   // (and any future re-renders) could re-trigger the system biometric sheet.
   const autoPromptStartedRef = useRef(false);
@@ -68,12 +72,17 @@ export function PinLock() {
   }, []);
 
   async function tryVerify(candidate: string): Promise<boolean> {
-    const ok = await api.verifyPin(candidate);
-    if (ok) {
+    const result = await api.verifyPin(candidate);
+    if (result.success) {
       hapticNotification("success");
       setLocked(false);
+      setCooldownSeconds(0);
+      return true;
     }
-    return ok;
+    if (result.lockout_remaining_seconds > 0) {
+      setCooldownSeconds(result.lockout_remaining_seconds);
+    }
+    return false;
   }
 
   async function tryBiometric(): Promise<void> {
@@ -93,6 +102,19 @@ export function PinLock() {
       console.warn("Biometric authentication failed:", err);
     }
   }
+
+  // Tick the cooldown countdown every second while it's > 0. Reaching 0
+  // unlocks the keypad; users can immediately try again (or wait for
+  // another wrong attempt to trigger another lockout).
+  useEffect(() => {
+    if (cooldownSeconds <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      setCooldownSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [cooldownSeconds]);
 
   useEffect(() => {
     if (autoPromptStartedRef.current) {
@@ -130,6 +152,11 @@ export function PinLock() {
   }
 
   function handleDigit(digit: string): void {
+    if (cooldownSeconds > 0) {
+      // Cooldown is in effect — ignore digit presses entirely so the user
+      // can't burn through their attempts while waiting.
+      return;
+    }
     if (pin.length >= pinLength) {
       return;
     }
@@ -195,7 +222,16 @@ export function PinLock() {
         </div>
 
         <div className="pt-pin-lock__error">
-          {error ? <span>{t("PIN 错误", "Incorrect PIN")}</span> : null}
+          {cooldownSeconds > 0 ? (
+            <span>
+              {t(
+                `连续输错多次，请 ${cooldownSeconds} 秒后再试`,
+                `Too many wrong attempts — try again in ${cooldownSeconds}s`,
+              )}
+            </span>
+          ) : error ? (
+            <span>{t("PIN 错误", "Incorrect PIN")}</span>
+          ) : null}
         </div>
 
         {showBiometricButton ? (
@@ -217,6 +253,7 @@ export function PinLock() {
               type="button"
               className="pt-pin-lock__key"
               onClick={() => handleDigit(digit)}
+              disabled={cooldownSeconds > 0}
               aria-label={t(`数字 ${digit}`, `Digit ${digit}`)}
             >
               {digit}
@@ -229,6 +266,7 @@ export function PinLock() {
             type="button"
             className="pt-pin-lock__key"
             onClick={() => handleDigit("0")}
+            disabled={cooldownSeconds > 0}
             aria-label={t("数字 0", "Digit 0")}
           >
             0
@@ -238,6 +276,7 @@ export function PinLock() {
             type="button"
             className="pt-pin-lock__action"
             onClick={pin.length > 0 ? handleDelete : () => void handleSubmit()}
+            disabled={cooldownSeconds > 0}
             aria-label={pin.length > 0 ? t("删除", "Delete") : t("提交 PIN", "Submit PIN")}
           >
             <Delete size={20} />

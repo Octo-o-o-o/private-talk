@@ -1,7 +1,73 @@
 use crate::db::{collect_rows, query_optional, DbState};
 use crate::pin;
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
+
+/// How many consecutive wrong PINs we tolerate before the next failed
+/// attempt arms a cooldown. 5 matches the iPhone passcode threshold and
+/// roughly the OWASP MASVS guidance on rate-limited brute force.
+const PIN_MAX_ATTEMPTS_BEFORE_COOLDOWN: u32 = 5;
+
+/// Duration of the cooldown once it arms. 60s matches what banking and
+/// password-manager apps ship; combined with PBKDF2 200k it raises a
+/// 4-digit brute force from minutes to days.
+const PIN_COOLDOWN_SECONDS: u64 = 60;
+
+/// Result of a PIN verification attempt. We can't just return `bool`
+/// anymore because the JS side needs to distinguish "wrong PIN" from
+/// "cooled down, try later in N seconds" so it can show the right UI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VerifyPinResult {
+    pub success: bool,
+    pub lockout_remaining_seconds: u64,
+}
+
+impl VerifyPinResult {
+    fn success() -> Self {
+        Self {
+            success: true,
+            lockout_remaining_seconds: 0,
+        }
+    }
+    fn failure() -> Self {
+        Self {
+            success: false,
+            lockout_remaining_seconds: 0,
+        }
+    }
+    fn locked(seconds: u64) -> Self {
+        Self {
+            success: false,
+            lockout_remaining_seconds: seconds,
+        }
+    }
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn read_lockout_until_ms(conn: &Connection) -> Result<Option<u64>, String> {
+    Ok(get_setting_value(conn, "pin_lockout_until_ms")?
+        .and_then(|v| v.parse::<u64>().ok()))
+}
+
+fn read_failed_attempts(conn: &Connection) -> Result<u32, String> {
+    Ok(get_setting_value(conn, "pin_failed_attempts")?
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0))
+}
+
+fn clear_failure_state(conn: &Connection) -> Result<(), String> {
+    delete_setting(conn, "pin_failed_attempts")?;
+    delete_setting(conn, "pin_lockout_until_ms")?;
+    Ok(())
+}
 
 fn get_setting_value(conn: &Connection, key: &str) -> Result<Option<String>, String> {
     query_optional(
@@ -39,7 +105,10 @@ fn get_pin_length_db(conn: &Connection) -> Result<Option<usize>, String> {
         .transpose()
 }
 
-fn verify_pin_db(conn: &Connection, input_pin: &str) -> Result<bool, String> {
+/// Pure hash-check helper. Returns true iff the input matches the
+/// stored hash. Lazy-migrates legacy SHA-256 records to PBKDF2 on
+/// successful verify.
+fn check_pin_hash(conn: &Connection, input_pin: &str) -> Result<bool, String> {
     let Some(stored_hash) = get_setting_value(conn, "pin_hash")? else {
         return Ok(false);
     };
@@ -48,7 +117,6 @@ fn verify_pin_db(conn: &Connection, input_pin: &str) -> Result<bool, String> {
 
     if kdf == pin::KDF_PBKDF2_SHA256 {
         let Some(salt_b64) = get_setting_value(conn, "pin_salt")? else {
-            // Bookkeeping is corrupted — refuse rather than fall back silently.
             return Ok(false);
         };
         let Some(salt) = pin::decode_b64(&salt_b64) else {
@@ -72,6 +140,37 @@ fn verify_pin_db(conn: &Connection, input_pin: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+fn verify_pin_db(conn: &Connection, input_pin: &str) -> Result<VerifyPinResult, String> {
+    // If a cooldown is still in effect, refuse immediately. The UI uses
+    // the remaining-seconds field to render a countdown rather than a
+    // generic "wrong PIN" toast.
+    if let Some(until_ms) = read_lockout_until_ms(conn)? {
+        let now = now_millis();
+        if until_ms > now {
+            let remaining = ((until_ms - now) / 1000) + 1;
+            return Ok(VerifyPinResult::locked(remaining));
+        }
+        // Cooldown expired — clear the marker so we don't keep reading it.
+        let _ = delete_setting(conn, "pin_lockout_until_ms");
+    }
+
+    if check_pin_hash(conn, input_pin)? {
+        let _ = clear_failure_state(conn);
+        return Ok(VerifyPinResult::success());
+    }
+
+    let attempts = read_failed_attempts(conn)?.saturating_add(1);
+    let _ = upsert_setting(conn, "pin_failed_attempts", &attempts.to_string());
+
+    if attempts >= PIN_MAX_ATTEMPTS_BEFORE_COOLDOWN {
+        let until_ms = now_millis() + PIN_COOLDOWN_SECONDS * 1000;
+        let _ = upsert_setting(conn, "pin_lockout_until_ms", &until_ms.to_string());
+        return Ok(VerifyPinResult::locked(PIN_COOLDOWN_SECONDS));
+    }
+
+    Ok(VerifyPinResult::failure())
+}
+
 fn enable_pin_db(conn: &Connection, new_pin: &str) -> Result<(), String> {
     let salt = pin::generate_salt();
     let hash = pin::derive_pin(new_pin, &salt);
@@ -88,7 +187,8 @@ fn disable_pin_db(conn: &Connection, current_pin: &str) -> Result<bool, String> 
         // No PIN stored — treat as already disabled.
         return Ok(true);
     }
-    if !verify_pin_db(conn, current_pin)? {
+    let result = verify_pin_db(conn, current_pin)?;
+    if !result.success {
         return Ok(false);
     }
     delete_setting(conn, "pin_hash")?;
@@ -96,6 +196,7 @@ fn disable_pin_db(conn: &Connection, current_pin: &str) -> Result<bool, String> 
     delete_setting(conn, "pin_kdf")?;
     delete_setting(conn, "pin_enabled")?;
     delete_setting(conn, "pin_length")?;
+    let _ = clear_failure_state(conn);
     Ok(true)
 }
 
@@ -155,7 +256,10 @@ pub fn get_pin_length(db: State<DbState>) -> Result<Option<usize>, String> {
 }
 
 #[tauri::command]
-pub fn verify_pin_cmd(db: State<DbState>, input_pin: String) -> Result<bool, String> {
+pub fn verify_pin_cmd(
+    db: State<DbState>,
+    input_pin: String,
+) -> Result<VerifyPinResult, String> {
     let conn = db.lock()?;
     verify_pin_db(&conn, &input_pin)
 }
@@ -211,8 +315,8 @@ mod tests {
         assert!(is_pin_enabled_db(&conn).unwrap());
         assert_eq!(get_pin_length_db(&conn).unwrap(), Some(4));
 
-        assert!(verify_pin_db(&conn, "1234").unwrap());
-        assert!(!verify_pin_db(&conn, "9999").unwrap());
+        assert!(verify_pin_db(&conn, "1234").unwrap().success);
+        assert!(!verify_pin_db(&conn, "9999").unwrap().success);
 
         assert!(disable_pin_db(&conn, "1234").unwrap());
         assert!(!is_pin_enabled_db(&conn).unwrap());
@@ -229,7 +333,7 @@ mod tests {
         // Setting state must still be intact.
         assert!(is_pin_enabled_db(&conn).unwrap());
         assert_eq!(get_pin_length_db(&conn).unwrap(), Some(6));
-        assert!(verify_pin_db(&conn, "248163").unwrap());
+        assert!(verify_pin_db(&conn, "248163").unwrap().success);
     }
 
     #[test]
@@ -242,7 +346,7 @@ mod tests {
     #[test]
     fn verify_pin_returns_false_when_no_pin_was_set() {
         let conn = fresh();
-        assert!(!verify_pin_db(&conn, "1234").unwrap());
+        assert!(!verify_pin_db(&conn, "1234").unwrap().success);
     }
 
     #[test]
@@ -251,8 +355,8 @@ mod tests {
         enable_pin_db(&conn, "1111").unwrap();
         enable_pin_db(&conn, "22222").unwrap();
 
-        assert!(!verify_pin_db(&conn, "1111").unwrap());
-        assert!(verify_pin_db(&conn, "22222").unwrap());
+        assert!(!verify_pin_db(&conn, "1111").unwrap().success);
+        assert!(verify_pin_db(&conn, "22222").unwrap().success);
         assert_eq!(get_pin_length_db(&conn).unwrap(), Some(5));
     }
 
@@ -353,8 +457,8 @@ mod tests {
         let conn = fresh();
         seed_legacy_pin(&conn, "248163");
 
-        assert!(verify_pin_db(&conn, "248163").unwrap());
-        assert!(!verify_pin_db(&conn, "248164").unwrap());
+        assert!(verify_pin_db(&conn, "248163").unwrap().success);
+        assert!(!verify_pin_db(&conn, "248164").unwrap().success);
     }
 
     #[test]
@@ -373,7 +477,7 @@ mod tests {
         assert!(kdf_before.is_none());
 
         // Successful verify triggers the migration.
-        assert!(verify_pin_db(&conn, "248163").unwrap());
+        assert!(verify_pin_db(&conn, "248163").unwrap().success);
 
         let kdf_after: String = conn
             .query_row(
@@ -396,8 +500,8 @@ mod tests {
         assert_eq!(decoded.len(), crate::pin::PIN_HASH_LEN);
 
         // And subsequent verifies use the new path.
-        assert!(verify_pin_db(&conn, "248163").unwrap());
-        assert!(!verify_pin_db(&conn, "999999").unwrap());
+        assert!(verify_pin_db(&conn, "248163").unwrap().success);
+        assert!(!verify_pin_db(&conn, "999999").unwrap().success);
     }
 
     #[test]
@@ -405,7 +509,7 @@ mod tests {
         let conn = fresh();
         seed_legacy_pin(&conn, "248163");
 
-        assert!(!verify_pin_db(&conn, "wrong").unwrap());
+        assert!(!verify_pin_db(&conn, "wrong").unwrap().success);
 
         let kdf_after: Option<String> = conn
             .query_row(
@@ -438,7 +542,75 @@ mod tests {
         conn.execute("DELETE FROM settings WHERE key = 'pin_salt'", [])
             .unwrap();
 
-        assert!(!verify_pin_db(&conn, "1234").unwrap());
+        assert!(!verify_pin_db(&conn, "1234").unwrap().success);
+    }
+
+    // ---------- PIN failure cooldown ----------
+
+    #[test]
+    fn five_wrong_pins_in_a_row_arm_the_cooldown() {
+        let conn = fresh();
+        enable_pin_db(&conn, "1234").unwrap();
+
+        // First four wrong attempts: no cooldown yet.
+        for _ in 0..4 {
+            let res = verify_pin_db(&conn, "9999").unwrap();
+            assert!(!res.success);
+            assert_eq!(res.lockout_remaining_seconds, 0);
+        }
+        // Fifth wrong attempt: cooldown arms.
+        let armed = verify_pin_db(&conn, "9999").unwrap();
+        assert!(!armed.success);
+        assert!(armed.lockout_remaining_seconds > 0);
+
+        // Even the correct PIN is refused while the cooldown is active.
+        let blocked = verify_pin_db(&conn, "1234").unwrap();
+        assert!(!blocked.success);
+        assert!(blocked.lockout_remaining_seconds > 0);
+    }
+
+    #[test]
+    fn successful_pin_resets_the_failure_counter() {
+        let conn = fresh();
+        enable_pin_db(&conn, "1234").unwrap();
+        // Two wrong attempts then one right one.
+        assert!(!verify_pin_db(&conn, "9999").unwrap().success);
+        assert!(!verify_pin_db(&conn, "9999").unwrap().success);
+        assert!(verify_pin_db(&conn, "1234").unwrap().success);
+
+        // Counter has been cleared — another 4 wrong attempts should not
+        // trip the cooldown yet (cooldown needs the 5th in a row).
+        for _ in 0..4 {
+            let res = verify_pin_db(&conn, "9999").unwrap();
+            assert_eq!(res.lockout_remaining_seconds, 0);
+        }
+        let armed = verify_pin_db(&conn, "9999").unwrap();
+        assert!(armed.lockout_remaining_seconds > 0);
+    }
+
+    #[test]
+    fn expired_cooldown_clears_itself_on_next_verify() {
+        let conn = fresh();
+        enable_pin_db(&conn, "1234").unwrap();
+        // Manually seed an already-expired lockout marker.
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_lockout_until_ms', '1')",
+            [],
+        )
+        .unwrap();
+        // Correct PIN should now succeed and the marker should be gone.
+        assert!(verify_pin_db(&conn, "1234").unwrap().success);
+        let still_there: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_lockout_until_ms'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        assert!(
+            still_there.is_none(),
+            "expired lockout marker must be removed",
+        );
     }
 
     // ---------- reset_all_data ----------
