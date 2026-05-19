@@ -121,6 +121,18 @@ function App() {
 
   useEffect(() => {
     applyDocumentAppearance(resolvedTheme, platform);
+    // Keep the iOS status-bar glyphs readable against the new background.
+    // Light glyphs over dark theme, dark glyphs over light theme. Non-iOS
+    // builds hit the no-op fallback in the Rust command.
+    if (platform === "ios") {
+      void api
+        .statusBarSetStyle(
+          resolvedTheme === "dark" ? "light-content" : "dark-content",
+        )
+        .catch((error) => {
+          console.warn("Failed to update status bar style:", error);
+        });
+    }
   }, [platform, resolvedTheme]);
 
   useEffect(() => {

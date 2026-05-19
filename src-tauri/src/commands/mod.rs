@@ -10,6 +10,7 @@ pub mod pin;
 pub mod preview;
 pub mod provider;
 pub mod settings;
+pub mod status_bar;
 pub mod stt;
 pub mod tts;
 pub mod usage;

@@ -441,6 +441,12 @@ export function hapticSelection(): Promise<void> {
   return cmd("haptic_selection");
 }
 
+export type StatusBarStyle = "default" | "light-content" | "dark-content";
+
+export function statusBarSetStyle(style: StatusBarStyle): Promise<void> {
+  return cmd("status_bar_set_style", { style });
+}
+
 export function getUsageByConversation(): Promise<ConversationUsage[]> {
   if (!isTauri()) {
     return Promise.resolve(PREVIEW_USAGE_BY_CONVERSATION);

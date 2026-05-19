@@ -100,6 +100,7 @@ pub fn run() {
             commands::haptic::haptic_impact,
             commands::haptic::haptic_notification,
             commands::haptic::haptic_selection,
+            commands::status_bar::status_bar_set_style,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
