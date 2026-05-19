@@ -47,6 +47,7 @@ const CHAT_MODEL_SETTING_KEY = "chat_model";
 const UI_LANGUAGE_SETTING_KEY = "ui_language";
 const APPEARANCE_MODE_SETTING_KEY = "appearance_mode";
 const UI_ZOOM_FACTOR_SETTING_KEY = "ui_zoom_factor";
+const BIOMETRIC_UNLOCK_SETTING_KEY = "biometric_unlock_enabled";
 const CONTEXT_MAX_MESSAGES_SETTING_KEY = "context_max_messages";
 const STT_PROVIDER_SETTING_KEY = "stt_provider_id";
 const STT_MODEL_SETTING_KEY = "stt_model";
@@ -215,8 +216,11 @@ interface AppState {
   // PIN
   isLocked: boolean;
   pinEnabled: boolean;
+  biometricUnlockEnabled: boolean;
   setLocked: (locked: boolean) => void;
   checkPinStatus: () => Promise<void>;
+  loadBiometricPreference: () => Promise<void>;
+  setBiometricUnlockEnabled: (enabled: boolean) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -666,9 +670,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   // PIN
   isLocked: false,
   pinEnabled: false,
+  biometricUnlockEnabled: false,
   setLocked: (locked) => set({ isLocked: locked }),
   checkPinStatus: async () => {
     const enabled = await api.isPinEnabled();
     set({ pinEnabled: enabled, isLocked: enabled });
+  },
+  loadBiometricPreference: async () => {
+    const raw = await api.getSetting(BIOMETRIC_UNLOCK_SETTING_KEY);
+    set({ biometricUnlockEnabled: raw === "true" });
+  },
+  setBiometricUnlockEnabled: async (enabled) => {
+    set({ biometricUnlockEnabled: enabled });
+    await api.setSetting(BIOMETRIC_UNLOCK_SETTING_KEY, enabled ? "true" : "false");
   },
 }));

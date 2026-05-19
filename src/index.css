@@ -2745,6 +2745,30 @@ select option {
   font-size: 13px;
 }
 
+.pt-pin-lock__biometric {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 180ms ease, color 180ms ease, transform 180ms var(--curve-bounce);
+}
+
+.pt-pin-lock__biometric:hover {
+  background: var(--surface-subtle-hover);
+  color: var(--text-primary);
+}
+
+.pt-pin-lock__biometric:active {
+  transform: scale(0.97);
+}
+
 .pt-pin-lock__keypad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

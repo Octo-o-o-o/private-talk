@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
+import type { BiometryAvailability } from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
 import { SettingsSection } from "./SettingsPage";
 import { buttonStyles, FormError, TextField } from "./formControls";
@@ -36,6 +37,10 @@ export function PinSettings() {
 export function PinSettingsSection() {
   const { t } = useI18n();
   const pinEnabled = useAppStore((state) => state.pinEnabled);
+  const biometricUnlockEnabled = useAppStore((state) => state.biometricUnlockEnabled);
+  const setBiometricUnlockEnabled = useAppStore(
+    (state) => state.setBiometricUnlockEnabled,
+  );
   const checkPinStatus = useAppStore((state) => state.checkPinStatus);
   const loadConversations = useAppStore((state) => state.loadConversations);
   const loadProviders = useAppStore((state) => state.loadProviders);
@@ -45,6 +50,66 @@ export function PinSettingsSection() {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [biometry, setBiometry] = useState<BiometryAvailability>({
+    available: false,
+    kind: "none",
+  });
+  const [biometryError, setBiometryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .biometricAvailability()
+      .then((info) => {
+        if (!cancelled) {
+          setBiometry(info);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to query biometry availability:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const biometryLabel =
+    biometry.kind === "face-id"
+      ? t("Face ID", "Face ID")
+      : biometry.kind === "optic-id"
+        ? t("Optic ID", "Optic ID")
+        : t("Touch ID", "Touch ID");
+
+  async function handleToggleBiometric(): Promise<void> {
+    if (!biometry.available || !pinEnabled) {
+      return;
+    }
+    // Enabling: confirm with the system sheet first so the user proves they
+    // are the device owner before we tie biometrics to the PIN. Disabling
+    // just flips the preference — they're already past the PIN screen.
+    if (!biometricUnlockEnabled) {
+      setBiometryError(null);
+      try {
+        const reason = t(
+          `用 ${biometryLabel} 解锁 Private Talk`,
+          `Unlock Private Talk with ${biometryLabel}`,
+        );
+        const ok = await api.biometricEvaluate(reason);
+        if (!ok) {
+          return;
+        }
+        await setBiometricUnlockEnabled(true);
+      } catch (err) {
+        setBiometryError(
+          err instanceof Error
+            ? err.message
+            : t(`无法启用 ${biometryLabel}。`, `Could not enable ${biometryLabel}.`),
+        );
+      }
+      return;
+    }
+    await setBiometricUnlockEnabled(false);
+  }
 
   function resetFields(): void {
     setPin("");
@@ -167,6 +232,37 @@ export function PinSettingsSection() {
             aria-checked={pinEnabled}
           />
         </button>
+
+        {pinEnabled && biometry.available ? (
+          <button
+            type="button"
+            className="pt-settings-row pt-settings-row--interactive"
+            onClick={() => void handleToggleBiometric()}
+          >
+            <div className="pt-settings-row__copy">
+              <p className="pt-settings-row__title">
+                {t(
+                  `用 ${biometryLabel} 快速解锁`,
+                  `Unlock with ${biometryLabel}`,
+                )}
+              </p>
+              <p className="pt-settings-row__detail">
+                {biometryError ??
+                  t(
+                    `下次启动 Private Talk 时直接用 ${biometryLabel}，失败仍可输入 PIN。`,
+                    `Use ${biometryLabel} the next time Private Talk launches; falling back to the PIN keypad is always available.`,
+                  )}
+              </p>
+            </div>
+
+            <span
+              className="pt-toggle"
+              data-state={biometricUnlockEnabled ? "on" : "off"}
+              role="switch"
+              aria-checked={biometricUnlockEnabled}
+            />
+          </button>
+        ) : null}
 
         {expanded ? (
           <div className="pt-settings-expand">

@@ -46,5 +46,7 @@
 	<string>Private Talk needs microphone access for voice input and voice messages.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Private Talk needs Speech Recognition access to transcribe voice input with macOS native speech recognition.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Private Talk can use Face ID as a faster way to unlock your private conversations instead of typing the PIN every time.</string>
 </dict>
 </plist>

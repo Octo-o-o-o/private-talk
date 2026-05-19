@@ -49,6 +49,7 @@ function App() {
       loadChatSettings,
       loadImageGenConfig,
       loadSpeechSettings,
+      loadBiometricPreference,
       refreshResolvedLanguage,
       setSystemTheme,
     } = useAppStore.getState();
@@ -71,6 +72,7 @@ function App() {
       try {
         setSystemTheme(await readWindowTheme());
         await checkPinStatus();
+        await loadBiometricPreference();
         await loadAppearancePreferences();
         await loadUiPreferences();
         await loadChatSettings();

@@ -1,5 +1,6 @@
 pub mod assistant;
 pub mod audio;
+pub mod biometric;
 pub mod chat;
 pub mod config_io;
 pub mod conversation;

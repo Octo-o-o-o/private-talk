@@ -409,6 +409,22 @@ export function audioStopPlayback(): Promise<void> {
   return cmd("audio_stop_playback");
 }
 
+export interface BiometryAvailability {
+  available: boolean;
+  kind: "none" | "touch-id" | "face-id" | "optic-id";
+}
+
+export function biometricAvailability(): Promise<BiometryAvailability> {
+  if (!isTauri()) {
+    return Promise.resolve({ available: false, kind: "none" });
+  }
+  return cmd("biometric_availability");
+}
+
+export function biometricEvaluate(reason: string): Promise<boolean> {
+  return cmd("biometric_evaluate", { reason });
+}
+
 export function getUsageByConversation(): Promise<ConversationUsage[]> {
   if (!isTauri()) {
     return Promise.resolve(PREVIEW_USAGE_BY_CONVERSATION);

@@ -1,7 +1,8 @@
-import { Delete, Lock } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Delete, Fingerprint, Lock, ScanFace } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
+import type { BiometryAvailability } from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
 
 const PIN_LENGTH = 6;
@@ -19,10 +20,18 @@ function dotClass(filled: boolean, isError: boolean): string {
 export function PinLock() {
   const { t } = useI18n();
   const setLocked = useAppStore((s) => s.setLocked);
+  const biometricUnlockEnabled = useAppStore((s) => s.biometricUnlockEnabled);
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [shake, setShake] = useState(false);
   const [pinLength, setPinLength] = useState(PIN_LENGTH);
+  const [biometry, setBiometry] = useState<BiometryAvailability>({
+    available: false,
+    kind: "none",
+  });
+  // The auto-prompt fires once per mount; without this guard, React StrictMode
+  // (and any future re-renders) could re-trigger the system biometric sheet.
+  const autoPromptStartedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +47,17 @@ export function PinLock() {
         console.warn("Unable to read PIN length:", err);
       });
 
+    void api
+      .biometricAvailability()
+      .then((info) => {
+        if (!cancelled) {
+          setBiometry(info);
+        }
+      })
+      .catch((err) => {
+        console.warn("Unable to query biometry availability:", err);
+      });
+
     return () => {
       cancelled = true;
     };
@@ -50,6 +70,49 @@ export function PinLock() {
     }
     return ok;
   }
+
+  async function tryBiometric(): Promise<void> {
+    const reason = t(
+      "用 Face ID 解锁 Private Talk",
+      "Unlock Private Talk with Face ID",
+    );
+    try {
+      const ok = await api.biometricEvaluate(reason);
+      if (ok) {
+        setLocked(false);
+      }
+    } catch (err) {
+      // Surface only in the console — the PIN keypad is right there for the
+      // user, so we shouldn't pop a banner just because the system sheet
+      // failed.
+      console.warn("Biometric authentication failed:", err);
+    }
+  }
+
+  useEffect(() => {
+    if (autoPromptStartedRef.current) {
+      return;
+    }
+    if (!biometricUnlockEnabled || !biometry.available) {
+      return;
+    }
+    autoPromptStartedRef.current = true;
+    void tryBiometric();
+    // tryBiometric is stable for this component's lifetime and only reads
+    // state via closures; including it would loop because reason text is
+    // localized.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [biometricUnlockEnabled, biometry.available]);
+
+  const biometryLabel =
+    biometry.kind === "face-id"
+      ? t("用 Face ID 解锁", "Unlock with Face ID")
+      : biometry.kind === "optic-id"
+        ? t("用 Optic ID 解锁", "Unlock with Optic ID")
+        : t("用 Touch ID 解锁", "Unlock with Touch ID");
+  const showBiometricButton =
+    biometricUnlockEnabled && biometry.available && biometry.kind !== "none";
+  const BiometryIcon = biometry.kind === "face-id" ? ScanFace : Fingerprint;
 
   function failVerification(): void {
     setError(true);
@@ -127,6 +190,18 @@ export function PinLock() {
         <div className="pt-pin-lock__error">
           {error ? <span>{t("PIN 错误", "Incorrect PIN")}</span> : null}
         </div>
+
+        {showBiometricButton ? (
+          <button
+            type="button"
+            className="pt-pin-lock__biometric"
+            onClick={() => void tryBiometric()}
+            aria-label={biometryLabel}
+          >
+            <BiometryIcon size={18} />
+            <span>{biometryLabel}</span>
+          </button>
+        ) : null}
 
         <div className="pt-pin-lock__keypad">
           {DIGITS.map((digit) => (

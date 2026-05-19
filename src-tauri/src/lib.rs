@@ -95,6 +95,8 @@ pub fn run() {
             commands::audio::audio_stop_recording,
             commands::audio::audio_play,
             commands::audio::audio_stop_playback,
+            commands::biometric::biometric_availability,
+            commands::biometric::biometric_evaluate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
