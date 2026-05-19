@@ -48,6 +48,14 @@ const UI_LANGUAGE_SETTING_KEY = "ui_language";
 const APPEARANCE_MODE_SETTING_KEY = "appearance_mode";
 const UI_ZOOM_FACTOR_SETTING_KEY = "ui_zoom_factor";
 const BIOMETRIC_UNLOCK_SETTING_KEY = "biometric_unlock_enabled";
+const PIN_AUTO_LOCK_SETTING_KEY = "pin_auto_lock_seconds";
+/**
+ * Auto-lock thresholds the user can pick. -1 means "never auto-lock",
+ * 0 means "lock the moment the app backgrounds", anything else is
+ * seconds-since-backgrounding. Default = 60 (one minute) matches what
+ * Signal / 1Password ship out of the box.
+ */
+export const DEFAULT_PIN_AUTO_LOCK_SECONDS = 60;
 const CONTEXT_MAX_MESSAGES_SETTING_KEY = "context_max_messages";
 const STT_PROVIDER_SETTING_KEY = "stt_provider_id";
 const STT_MODEL_SETTING_KEY = "stt_model";
@@ -217,10 +225,13 @@ interface AppState {
   isLocked: boolean;
   pinEnabled: boolean;
   biometricUnlockEnabled: boolean;
+  autoLockSeconds: number;
   setLocked: (locked: boolean) => void;
   checkPinStatus: () => Promise<void>;
   loadBiometricPreference: () => Promise<void>;
   setBiometricUnlockEnabled: (enabled: boolean) => Promise<void>;
+  loadAutoLockPreference: () => Promise<void>;
+  setAutoLockSeconds: (seconds: number) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -671,6 +682,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isLocked: false,
   pinEnabled: false,
   biometricUnlockEnabled: false,
+  autoLockSeconds: DEFAULT_PIN_AUTO_LOCK_SECONDS,
   setLocked: (locked) => set({ isLocked: locked }),
   checkPinStatus: async () => {
     const enabled = await api.isPinEnabled();
@@ -683,5 +695,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBiometricUnlockEnabled: async (enabled) => {
     set({ biometricUnlockEnabled: enabled });
     await api.setSetting(BIOMETRIC_UNLOCK_SETTING_KEY, enabled ? "true" : "false");
+  },
+  loadAutoLockPreference: async () => {
+    const raw = await api.getSetting(PIN_AUTO_LOCK_SETTING_KEY);
+    if (raw === null || raw === undefined || raw === "") {
+      set({ autoLockSeconds: DEFAULT_PIN_AUTO_LOCK_SECONDS });
+      return;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    set({
+      autoLockSeconds: Number.isFinite(parsed) ? parsed : DEFAULT_PIN_AUTO_LOCK_SECONDS,
+    });
+  },
+  setAutoLockSeconds: async (seconds) => {
+    set({ autoLockSeconds: seconds });
+    await api.setSetting(PIN_AUTO_LOCK_SETTING_KEY, seconds.toString());
   },
 }));

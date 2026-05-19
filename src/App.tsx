@@ -50,6 +50,7 @@ function App() {
       loadImageGenConfig,
       loadSpeechSettings,
       loadBiometricPreference,
+      loadAutoLockPreference,
       refreshResolvedLanguage,
       setSystemTheme,
     } = useAppStore.getState();
@@ -73,6 +74,7 @@ function App() {
         setSystemTheme(await readWindowTheme());
         await checkPinStatus();
         await loadBiometricPreference();
+        await loadAutoLockPreference();
         await loadAppearancePreferences();
         await loadUiPreferences();
         await loadChatSettings();
@@ -171,6 +173,59 @@ function App() {
 
     return () => {
       window.removeEventListener("languagechange", handleLanguageChange);
+    };
+  }, []);
+
+  // Auto-lock: if the user switches away from the app and stays away
+  // longer than the configured threshold, re-engage the PIN screen.
+  // Threshold -1 disables auto-lock entirely; threshold 0 locks the
+  // moment the app loses visibility. Native iOS apps in the same
+  // privacy class (Signal / 1Password / banking) ship this by default.
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    let hiddenAt: number | null = null;
+
+    const onVisibility = () => {
+      const {
+        pinEnabled,
+        isLocked,
+        autoLockSeconds,
+        setLocked,
+      } = useAppStore.getState();
+
+      if (!pinEnabled || autoLockSeconds < 0) {
+        // PIN off, or user picked "Never" — nothing to enforce.
+        hiddenAt = null;
+        return;
+      }
+
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        if (autoLockSeconds === 0 && !isLocked) {
+          setLocked(true);
+        }
+        return;
+      }
+
+      if (document.visibilityState === "visible") {
+        const wasHiddenAt = hiddenAt;
+        hiddenAt = null;
+        if (wasHiddenAt === null || isLocked) {
+          return;
+        }
+        const elapsedMs = Date.now() - wasHiddenAt;
+        if (elapsedMs >= autoLockSeconds * 1000) {
+          setLocked(true);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

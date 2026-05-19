@@ -4,7 +4,12 @@ import * as api from "../../lib/tauri";
 import type { BiometryAvailability } from "../../lib/tauri";
 import { useAppStore } from "../../stores/appStore";
 import { SettingsSection } from "./SettingsPage";
-import { buttonStyles, FormError, TextField } from "./formControls";
+import {
+  buttonStyles,
+  FormError,
+  SelectSettingRow,
+  TextField,
+} from "./formControls";
 
 const PIN_MIN = 4;
 const PIN_MAX = 6;
@@ -34,6 +39,41 @@ export function PinSettings() {
   return <PinSettingsSection />;
 }
 
+type AutoLockChoice = "0" | "30" | "60" | "300" | "900" | "-1";
+
+const AUTO_LOCK_CHOICES: AutoLockChoice[] = ["0", "30", "60", "300", "900", "-1"];
+
+function autoLockChoiceLabel(
+  choice: AutoLockChoice,
+  t: (zh: string, en: string) => string,
+): string {
+  switch (choice) {
+    case "0":
+      return t("立即", "Immediately");
+    case "30":
+      return t("30 秒后", "After 30 seconds");
+    case "60":
+      return t("1 分钟后", "After 1 minute");
+    case "300":
+      return t("5 分钟后", "After 5 minutes");
+    case "900":
+      return t("15 分钟后", "After 15 minutes");
+    case "-1":
+      return t("永不", "Never");
+  }
+}
+
+function clampAutoLockChoice(seconds: number): AutoLockChoice {
+  // Snap arbitrary stored values onto the nearest preset so the UI stays
+  // honest about what the radio actually does.
+  if (seconds < 0) return "-1";
+  if (seconds <= 0) return "0";
+  if (seconds <= 30) return "30";
+  if (seconds <= 60) return "60";
+  if (seconds <= 300) return "300";
+  return "900";
+}
+
 export function PinSettingsSection() {
   const { t } = useI18n();
   const pinEnabled = useAppStore((state) => state.pinEnabled);
@@ -41,6 +81,8 @@ export function PinSettingsSection() {
   const setBiometricUnlockEnabled = useAppStore(
     (state) => state.setBiometricUnlockEnabled,
   );
+  const autoLockSeconds = useAppStore((state) => state.autoLockSeconds);
+  const setAutoLockSeconds = useAppStore((state) => state.setAutoLockSeconds);
   const checkPinStatus = useAppStore((state) => state.checkPinStatus);
   const loadConversations = useAppStore((state) => state.loadConversations);
   const loadProviders = useAppStore((state) => state.loadProviders);
@@ -262,6 +304,26 @@ export function PinSettingsSection() {
               aria-checked={biometricUnlockEnabled}
             />
           </button>
+        ) : null}
+
+        {pinEnabled ? (
+          <SelectSettingRow<AutoLockChoice>
+            title={t("自动重新锁定", "Auto-Lock")}
+            detail={t(
+              "切到后台超过此时长后自动要求重新输入 PIN。",
+              "Re-engage the PIN screen after the app has been backgrounded this long.",
+            )}
+            label={t("自动重新锁定时机", "Auto-lock timing")}
+            value={clampAutoLockChoice(autoLockSeconds)}
+            valueLabel={autoLockChoiceLabel(clampAutoLockChoice(autoLockSeconds), t)}
+            options={AUTO_LOCK_CHOICES.map((choice) => ({
+              value: choice,
+              label: autoLockChoiceLabel(choice, t),
+            }))}
+            onChange={(choice) => {
+              void setAutoLockSeconds(Number.parseInt(choice, 10));
+            }}
+          />
         ) : null}
 
         {expanded ? (
