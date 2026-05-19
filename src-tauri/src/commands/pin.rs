@@ -40,28 +40,60 @@ fn get_pin_length_db(conn: &Connection) -> Result<Option<usize>, String> {
 }
 
 fn verify_pin_db(conn: &Connection, input_pin: &str) -> Result<bool, String> {
-    match get_setting_value(conn, "pin_hash")? {
-        Some(hash) => Ok(pin::verify_pin(input_pin, &hash)),
-        None => Ok(false),
+    let Some(stored_hash) = get_setting_value(conn, "pin_hash")? else {
+        return Ok(false);
+    };
+    let kdf = get_setting_value(conn, "pin_kdf")?
+        .unwrap_or_else(|| pin::KDF_LEGACY_SHA256.to_string());
+
+    if kdf == pin::KDF_PBKDF2_SHA256 {
+        let Some(salt_b64) = get_setting_value(conn, "pin_salt")? else {
+            // Bookkeeping is corrupted — refuse rather than fall back silently.
+            return Ok(false);
+        };
+        let Some(salt) = pin::decode_b64(&salt_b64) else {
+            return Ok(false);
+        };
+        let Some(expected) = pin::decode_b64(&stored_hash) else {
+            return Ok(false);
+        };
+        return Ok(pin::verify_pbkdf2(input_pin, &salt, &expected));
     }
+
+    // Legacy SHA-256 path. Verify, then opportunistically migrate to PBKDF2
+    // so the next login uses the strong KDF. A failed migration write must
+    // not block the user — we'll retry on the next verify.
+    if !pin::verify_legacy(input_pin, &stored_hash) {
+        return Ok(false);
+    }
+    if let Err(err) = enable_pin_db(conn, input_pin) {
+        eprintln!("PIN auto-migration to PBKDF2 failed (will retry next login): {err}");
+    }
+    Ok(true)
 }
 
 fn enable_pin_db(conn: &Connection, new_pin: &str) -> Result<(), String> {
-    upsert_setting(conn, "pin_hash", &pin::hash_pin(new_pin))?;
+    let salt = pin::generate_salt();
+    let hash = pin::derive_pin(new_pin, &salt);
+    upsert_setting(conn, "pin_kdf", pin::KDF_PBKDF2_SHA256)?;
+    upsert_setting(conn, "pin_salt", &pin::encode_b64(&salt))?;
+    upsert_setting(conn, "pin_hash", &pin::encode_b64(&hash))?;
     upsert_setting(conn, "pin_enabled", "true")?;
     upsert_setting(conn, "pin_length", &new_pin.len().to_string())?;
     Ok(())
 }
 
 fn disable_pin_db(conn: &Connection, current_pin: &str) -> Result<bool, String> {
-    let Some(hash) = get_setting_value(conn, "pin_hash")? else {
+    if get_setting_value(conn, "pin_hash")?.is_none() {
         // No PIN stored — treat as already disabled.
         return Ok(true);
-    };
-    if !pin::verify_pin(current_pin, &hash) {
+    }
+    if !verify_pin_db(conn, current_pin)? {
         return Ok(false);
     }
     delete_setting(conn, "pin_hash")?;
+    delete_setting(conn, "pin_salt")?;
+    delete_setting(conn, "pin_kdf")?;
     delete_setting(conn, "pin_enabled")?;
     delete_setting(conn, "pin_length")?;
     Ok(true)
@@ -212,6 +244,191 @@ mod tests {
         assert!(!verify_pin_db(&conn, "1111").unwrap());
         assert!(verify_pin_db(&conn, "22222").unwrap());
         assert_eq!(get_pin_length_db(&conn).unwrap(), Some(5));
+    }
+
+    // ---------- KDF: new PINs use PBKDF2 + salt ----------
+
+    #[test]
+    fn newly_enabled_pin_stores_pbkdf2_kdf_label_and_random_salt() {
+        let conn = fresh();
+        enable_pin_db(&conn, "248163").unwrap();
+
+        let kdf: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_kdf'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kdf, crate::pin::KDF_PBKDF2_SHA256);
+
+        let salt_b64: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_salt'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let salt = crate::pin::decode_b64(&salt_b64).expect("salt is base64");
+        assert_eq!(salt.len(), crate::pin::PIN_SALT_LEN);
+    }
+
+    #[test]
+    fn two_pin_enables_produce_distinct_salts_and_hashes() {
+        let conn_a = fresh();
+        enable_pin_db(&conn_a, "1234").unwrap();
+        let salt_a: String = conn_a
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_salt'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let hash_a: String = conn_a
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let conn_b = fresh();
+        enable_pin_db(&conn_b, "1234").unwrap();
+        let salt_b: String = conn_b
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_salt'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let hash_b: String = conn_b
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        // Same PIN — distinct salts means distinct hashes, defeating rainbow
+        // tables across devices.
+        assert_ne!(salt_a, salt_b);
+        assert_ne!(hash_a, hash_b);
+    }
+
+    // ---------- Legacy SHA-256 PINs: verify + lazy migrate ----------
+
+    /// Simulate a DB rows from before the PBKDF2 switch: no pin_kdf / pin_salt,
+    /// pin_hash is bare lowercase-hex SHA-256.
+    fn seed_legacy_pin(conn: &Connection, pin_str: &str) {
+        let legacy_hex = crate::pin::legacy_sha256_hex(pin_str);
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_hash', ?1)",
+            params![legacy_hex],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_enabled', 'true')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('pin_length', ?1)",
+            params![pin_str.len().to_string()],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn legacy_sha256_pin_can_still_be_verified() {
+        let conn = fresh();
+        seed_legacy_pin(&conn, "248163");
+
+        assert!(verify_pin_db(&conn, "248163").unwrap());
+        assert!(!verify_pin_db(&conn, "248164").unwrap());
+    }
+
+    #[test]
+    fn legacy_sha256_pin_is_migrated_to_pbkdf2_on_first_successful_verify() {
+        let conn = fresh();
+        seed_legacy_pin(&conn, "248163");
+
+        // Sanity: pre-migration state.
+        let kdf_before: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_kdf'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        assert!(kdf_before.is_none());
+
+        // Successful verify triggers the migration.
+        assert!(verify_pin_db(&conn, "248163").unwrap());
+
+        let kdf_after: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_kdf'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kdf_after, crate::pin::KDF_PBKDF2_SHA256);
+
+        // The legacy hex hash has been replaced with a base64 PBKDF2 digest.
+        let stored_hash: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let decoded = crate::pin::decode_b64(&stored_hash).expect("base64 hash");
+        assert_eq!(decoded.len(), crate::pin::PIN_HASH_LEN);
+
+        // And subsequent verifies use the new path.
+        assert!(verify_pin_db(&conn, "248163").unwrap());
+        assert!(!verify_pin_db(&conn, "999999").unwrap());
+    }
+
+    #[test]
+    fn legacy_pin_with_wrong_input_does_not_migrate() {
+        let conn = fresh();
+        seed_legacy_pin(&conn, "248163");
+
+        assert!(!verify_pin_db(&conn, "wrong").unwrap());
+
+        let kdf_after: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'pin_kdf'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        assert!(
+            kdf_after.is_none(),
+            "failed verify must not silently upgrade KDF",
+        );
+    }
+
+    #[test]
+    fn disable_pin_works_for_legacy_records_too() {
+        let conn = fresh();
+        seed_legacy_pin(&conn, "1234");
+
+        assert!(disable_pin_db(&conn, "1234").unwrap());
+        assert!(!is_pin_enabled_db(&conn).unwrap());
+        assert!(get_pin_length_db(&conn).unwrap().is_none());
+    }
+
+    #[test]
+    fn corrupted_pbkdf2_record_without_salt_refuses_to_authenticate() {
+        let conn = fresh();
+        enable_pin_db(&conn, "1234").unwrap();
+        // Wipe the salt to simulate partial-write corruption.
+        conn.execute("DELETE FROM settings WHERE key = 'pin_salt'", [])
+            .unwrap();
+
+        assert!(!verify_pin_db(&conn, "1234").unwrap());
     }
 
     // ---------- reset_all_data ----------
