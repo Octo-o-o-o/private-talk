@@ -111,13 +111,9 @@ pub async fn generate_image_message(
             );
         }
 
-        let (base_url, api_key) = conn
-            .query_row(
-                "SELECT base_url, api_key FROM providers WHERE id = ?1",
-                params![config.provider_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .map_err(|error| format!("Image provider not found: {error}"))?;
+        let (base_url, api_key) =
+            crate::commands::secrets::load_provider_endpoint(&conn, &config.provider_id)
+                .map_err(|error| format!("Image provider not found: {error}"))?;
         (config, base_url, api_key)
     };
 

@@ -74,12 +74,7 @@ fn touch_conversation(conn: &Connection, conversation_id: &str, now: &str) -> Re
 }
 
 fn load_provider(conn: &Connection, provider_id: &str) -> Result<(String, String), String> {
-    conn.query_row(
-        "SELECT base_url, api_key FROM providers WHERE id = ?1",
-        params![provider_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-    )
-    .map_err(|error| format!("Provider not found: {error}"))
+    crate::commands::secrets::load_provider_endpoint(conn, provider_id)
 }
 
 fn load_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {

@@ -147,22 +147,36 @@ fn decrypt(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
 }
 
 fn collect_providers(conn: &rusqlite::Connection) -> Result<Vec<ProviderData>, String> {
-    collect_rows(
+    // Pull each provider's id so we can ask the secrets module for the
+    // platform-correct api_key (Keychain on iOS, DB column elsewhere).
+    let rows = collect_rows(
         conn,
-        "SELECT name, api_type, base_url, api_key, models, is_default FROM providers ORDER BY created_at ASC",
+        "SELECT id, name, api_type, base_url, models, is_default FROM providers ORDER BY created_at ASC",
         [],
         |row| {
+            let id: String = row.get(0)?;
             let models_raw: String = row.get(4)?;
-            Ok(ProviderData {
-                name: row.get(0)?,
-                api_type: row.get(1)?,
-                base_url: row.get(2)?,
-                api_key: row.get(3)?,
-                models: serde_json::from_str(&models_raw).unwrap_or_default(),
-                is_default: row.get::<_, i64>(5)? != 0,
-            })
+            Ok((
+                id,
+                ProviderData {
+                    name: row.get(1)?,
+                    api_type: row.get(2)?,
+                    base_url: row.get(3)?,
+                    api_key: String::new(),
+                    models: serde_json::from_str(&models_raw).unwrap_or_default(),
+                    is_default: row.get::<_, i64>(5)? != 0,
+                },
+            ))
         },
-    )
+    )?;
+
+    let mut providers = Vec::with_capacity(rows.len());
+    for (id, mut provider) in rows {
+        provider.api_key = crate::commands::secrets::load_provider_api_key(conn, &id)
+            .unwrap_or_default();
+        providers.push(provider);
+    }
+    Ok(providers)
 }
 
 fn collect_settings(conn: &rusqlite::Connection) -> Result<Vec<SettingEntry>, String> {
@@ -336,20 +350,23 @@ pub fn import_config_data(
     for provider in &payload.providers {
         let id = uuid::Uuid::new_v4().to_string();
         let models = serde_json::to_string(&provider.models).unwrap_or_else(|_| "[]".to_string());
+        // Insert with an empty api_key — the secret moves into the
+        // platform-correct backing immediately after the row exists, so
+        // iOS users never have the imported key sitting in plaintext.
         conn.execute(
             "INSERT INTO providers (id, name, api_type, base_url, api_key, models, is_default, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+             VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, datetime('now'))",
             rusqlite::params![
                 id,
                 provider.name,
                 provider.api_type,
                 provider.base_url,
-                provider.api_key,
                 models,
                 if provider.is_default { 1 } else { 0 },
             ],
         )
         .map_err(|error| error.to_string())?;
+        crate::commands::secrets::store_provider_api_key(&conn, &id, &provider.api_key)?;
         imported_providers += 1;
     }
 

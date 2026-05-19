@@ -21,12 +21,8 @@ pub async fn tts_synthesize(
 ) -> Result<TtsResult, String> {
     let (base_url, api_key) = {
         let conn = db.lock()?;
-        conn.query_row(
-            "SELECT base_url, api_key FROM providers WHERE id = ?1",
-            rusqlite::params![provider_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .map_err(|error| format!("TTS provider not found: {error}"))?
+        crate::commands::secrets::load_provider_endpoint(&conn, &provider_id)
+            .map_err(|error| format!("TTS provider not found: {error}"))?
     };
 
     let response_format = response_format.unwrap_or_else(|| "mp3".to_string());

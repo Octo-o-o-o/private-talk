@@ -1,6 +1,6 @@
 use crate::db::DbState;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::OptionalExtension;
 use tauri::State;
 
 #[tauri::command]
@@ -12,13 +12,9 @@ pub async fn stt_transcribe(
 ) -> Result<String, String> {
     let (base_url, api_key, stt_model) = {
         let conn = db.lock()?;
-        let (base_url, api_key) = conn
-            .query_row(
-                "SELECT base_url, api_key FROM providers WHERE id = ?1",
-                params![provider_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .map_err(|e| format!("Provider not found: {}", e))?;
+        let (base_url, api_key) =
+            crate::commands::secrets::load_provider_endpoint(&conn, &provider_id)
+                .map_err(|e| format!("Provider not found: {}", e))?;
 
         let stt_model = conn
             .query_row(

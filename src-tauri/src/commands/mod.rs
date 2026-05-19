@@ -9,6 +9,7 @@ pub mod image_gen;
 pub mod pin;
 pub mod preview;
 pub mod provider;
+pub mod secrets;
 pub mod settings;
 pub mod status_bar;
 pub mod stt;

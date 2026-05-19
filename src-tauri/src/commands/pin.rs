@@ -115,6 +115,16 @@ pub(crate) fn reset_all_data_db(
         crate::attachments::get_attachments_for_messages(conn, &message_ids)?
     };
 
+    // Wipe each provider's keychain entry before we drop the rows; the
+    // helper is a no-op on non-iOS targets, and a failure here can't
+    // block a "reset everything" flow.
+    let provider_ids = collect_rows(conn, "SELECT id FROM providers", [], |row| {
+        row.get::<_, String>(0)
+    })?;
+    for id in &provider_ids {
+        let _ = crate::commands::secrets::delete_provider_api_key(conn, id);
+    }
+
     conn.execute_batch(
         "DELETE FROM messages;
          DELETE FROM attachments;

@@ -1,3 +1,4 @@
+use crate::commands::secrets;
 use crate::db::{collect_rows, now_timestamp, DbState};
 use rusqlite::{params, types::Value, Connection};
 use serde::{Deserialize, Serialize};
@@ -20,26 +21,35 @@ pub struct Provider {
 // ---------- DB-only helpers (testable without Tauri State) ----------
 
 fn list_providers_db(conn: &Connection) -> Result<Vec<Provider>, String> {
-    collect_rows(
+    // We deliberately ignore the DB's api_key column when reading; the
+    // secrets module owns it (Keychain on iOS, DB column elsewhere) so
+    // every row goes through `secrets::load_provider_api_key` instead.
+    let mut providers = collect_rows(
         conn,
-        "SELECT id, name, api_type, base_url, api_key, models, is_default, created_at \
+        "SELECT id, name, api_type, base_url, models, is_default, created_at \
          FROM providers ORDER BY created_at ASC",
         [],
         |row| {
-            let models_json: String = row.get(5)?;
-            let is_default: i32 = row.get(6)?;
+            let models_json: String = row.get(4)?;
+            let is_default: i32 = row.get(5)?;
             Ok(Provider {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 api_type: row.get(2)?,
                 base_url: row.get(3)?,
-                api_key: row.get(4)?,
+                api_key: String::new(),
                 models: serde_json::from_str(&models_json).unwrap_or_default(),
                 is_default: is_default != 0,
-                created_at: row.get(7)?,
+                created_at: row.get(6)?,
             })
         },
-    )
+    )?;
+
+    for provider in providers.iter_mut() {
+        provider.api_key = secrets::load_provider_api_key(conn, &provider.id)
+            .unwrap_or_default();
+    }
+    Ok(providers)
 }
 
 fn create_provider_db(
@@ -59,22 +69,25 @@ fn create_provider_db(
         .map_err(|e| e.to_string())?;
     let is_default = count == 0;
 
+    // Insert with an empty api_key — the secrets module writes it to its
+    // platform-appropriate backing immediately after the row exists.
     conn.execute(
         "INSERT INTO providers \
            (id, name, api_type, base_url, api_key, models, is_default, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, ?7)",
         params![
             id,
             name,
             API_TYPE_OPENAI_COMPATIBLE,
             base_url,
-            api_key,
             models_json,
             is_default as i32,
             now
         ],
     )
     .map_err(|e| e.to_string())?;
+
+    secrets::store_provider_api_key(conn, &id, &api_key)?;
 
     Ok(Provider {
         id,
@@ -107,32 +120,33 @@ fn update_provider_db(
         assignments.push("base_url = ?");
         values.push(Value::Text(base_url));
     }
-    if let Some(api_key) = api_key {
-        assignments.push("api_key = ?");
-        values.push(Value::Text(api_key));
-    }
     if let Some(models) = models {
         let models_json = serde_json::to_string(&models).map_err(|e| e.to_string())?;
         assignments.push("models = ?");
         values.push(Value::Text(models_json));
     }
 
-    if assignments.is_empty() {
-        return Ok(());
+    if !assignments.is_empty() {
+        let sql = format!(
+            "UPDATE providers SET {} WHERE id = ?",
+            assignments.join(", ")
+        );
+        values.push(Value::Text(id.clone()));
+
+        conn.execute(&sql, rusqlite::params_from_iter(values))
+            .map_err(|e| e.to_string())?;
     }
 
-    let sql = format!(
-        "UPDATE providers SET {} WHERE id = ?",
-        assignments.join(", ")
-    );
-    values.push(Value::Text(id));
-
-    conn.execute(&sql, rusqlite::params_from_iter(values))
-        .map_err(|e| e.to_string())?;
+    if let Some(api_key) = api_key {
+        secrets::store_provider_api_key(conn, &id, &api_key)?;
+    }
     Ok(())
 }
 
 fn delete_provider_db(conn: &Connection, id: String) -> Result<(), String> {
+    // Best-effort: even if the keychain delete fails (e.g. item already gone),
+    // we still drop the DB row so the provider disappears from the UI.
+    let _ = secrets::delete_provider_api_key(conn, &id);
     conn.execute("DELETE FROM providers WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
