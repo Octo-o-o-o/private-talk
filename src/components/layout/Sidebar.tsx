@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { hapticNotification } from "../../lib/haptics";
 import { useI18n } from "../../lib/i18n";
 import { getProvidersForPurpose } from "../../lib/providerModels";
 import type { Conversation } from "../../lib/types";
@@ -235,7 +236,10 @@ function ConversationList() {
           onEditTitleChange={setEditTitle}
           onConfirmRename={() => void confirmRename()}
           onCancelRename={cancelRename}
-          onDelete={() => void deleteConversation(conversation.id)}
+          onDelete={() => {
+            hapticNotification("warning");
+            void deleteConversation(conversation.id);
+          }}
           locale={locale}
           untitledLabel={t("新对话", "New Conversation")}
           emptyPreviewLabel={t("还没有消息。", "No messages yet.")}

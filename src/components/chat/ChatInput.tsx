@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { detectPlatform, isMobilePlatform } from "../../lib/appearance";
+import { hapticImpact } from "../../lib/haptics";
 import { useI18n } from "../../lib/i18n";
 import { getProvidersForPurpose } from "../../lib/providerModels";
 import * as api from "../../lib/tauri";
@@ -197,6 +198,7 @@ export function ChatInput({
       return;
     }
 
+    hapticImpact("light");
     onSend({
       content: trimmed,
       mode,

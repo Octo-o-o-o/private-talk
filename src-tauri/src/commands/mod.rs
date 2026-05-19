@@ -4,6 +4,7 @@ pub mod biometric;
 pub mod chat;
 pub mod config_io;
 pub mod conversation;
+pub mod haptic;
 pub mod image_gen;
 pub mod pin;
 pub mod preview;

@@ -1,5 +1,9 @@
 import { Delete, Fingerprint, Lock, ScanFace } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  hapticNotification,
+  hapticSelection,
+} from "../../lib/haptics";
 import { useI18n } from "../../lib/i18n";
 import * as api from "../../lib/tauri";
 import type { BiometryAvailability } from "../../lib/tauri";
@@ -66,6 +70,7 @@ export function PinLock() {
   async function tryVerify(candidate: string): Promise<boolean> {
     const ok = await api.verifyPin(candidate);
     if (ok) {
+      hapticNotification("success");
       setLocked(false);
     }
     return ok;
@@ -115,6 +120,7 @@ export function PinLock() {
   const BiometryIcon = biometry.kind === "face-id" ? ScanFace : Fingerprint;
 
   function failVerification(): void {
+    hapticNotification("error");
     setError(true);
     setShake(true);
     window.setTimeout(() => {
@@ -128,6 +134,7 @@ export function PinLock() {
       return;
     }
 
+    hapticSelection();
     const next = pin + digit;
     setPin(next);
     setError(false);

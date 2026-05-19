@@ -425,6 +425,22 @@ export function biometricEvaluate(reason: string): Promise<boolean> {
   return cmd("biometric_evaluate", { reason });
 }
 
+export function hapticImpact(
+  style: "light" | "medium" | "heavy" | "soft" | "rigid",
+): Promise<void> {
+  return cmd("haptic_impact", { style });
+}
+
+export function hapticNotification(
+  kind: "success" | "warning" | "error",
+): Promise<void> {
+  return cmd("haptic_notification", { kind });
+}
+
+export function hapticSelection(): Promise<void> {
+  return cmd("haptic_selection");
+}
+
 export function getUsageByConversation(): Promise<ConversationUsage[]> {
   if (!isTauri()) {
     return Promise.resolve(PREVIEW_USAGE_BY_CONVERSATION);
