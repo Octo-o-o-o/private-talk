@@ -7,8 +7,34 @@ mod pin;
 
 use db::DbState;
 use rusqlite::Connection;
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::Manager;
+
+/// On iOS, mark a path so iCloud Backup skips it. The Objective-C side
+/// (gen/apple/Sources/private-talk/ios_privacy.m) wraps NSURLIsExcludedFromBackupKey.
+/// A no-op on every other target so desktop builds don't need the symbol.
+fn exclude_from_icloud_backup(_path: &Path) {
+    #[cfg(target_os = "ios")]
+    {
+        use std::ffi::CString;
+        use std::os::raw::c_char;
+
+        extern "C" {
+            fn pt_ios_exclude_path_from_backup(path: *const c_char) -> bool;
+        }
+
+        let path_str = _path.to_string_lossy();
+        if let Ok(cstr) = CString::new(path_str.as_ref()) {
+            // Best-effort: failures are logged by the ObjC side and shouldn't
+            // crash app startup — backup exclusion is hardening, not a hard
+            // dependency.
+            unsafe {
+                let _ = pt_ios_exclude_path_from_backup(cstr.as_ptr());
+            }
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,8 +44,12 @@ pub fn run() {
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
 
-            let conn = Connection::open(app_dir.join("private-talk.db"))?;
+            let db_path = app_dir.join("private-talk.db");
+            let conn = Connection::open(&db_path)?;
             db::schema::init_db(&conn)?;
+            // The DB holds conversations and (until the Keychain migration
+            // lands) plaintext API keys — never let iCloud sync it.
+            exclude_from_icloud_backup(&db_path);
             app.manage(DbState(Mutex::new(conn)));
             Ok(())
         })
