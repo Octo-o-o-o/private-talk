@@ -265,28 +265,6 @@ html[data-zoom-mode="css"] {
   zoom: var(--ui-scale, 1);
 }
 
-/*
- * Keyboard inset is published by either the iOS native bridge
- * (src-tauri/gen/apple/.../keyboard_accessory.m) or the web visualViewport
- * tracker (src/lib/viewport.ts). When a soft keyboard is open we shrink the
- * #root content area by that amount so the compose bar sits flush against the
- * keyboard's top edge and the chat scroll naturally shrinks above it.
- *
- * We gate on data-keyboard-visible (so desktop windows aren't affected when
- * --keyboard-inset happens to be set) and target the root layout box on every
- * mobile width (iPad landscape included).
- *
- * `min-height` is used instead of `padding-bottom`: the global Tailwind
- * preflight (`*, ::before, ::after { padding: 0 }`) wins the cascade for
- * padding on every element, so shrinking the box via padding doesn't work.
- * Switching to a layout-height adjustment dodges that reset entirely.
- */
-html[data-keyboard-visible] #root {
-  height: calc(100% - var(--keyboard-inset, 0px));
-  transition: height var(--keyboard-animation-duration, 220ms)
-    var(--curve-fluid);
-}
-
 body {
   overflow: hidden;
   color: var(--text-primary);
@@ -296,11 +274,27 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * `#root` is sized to the *visual* viewport rather than `100%` of the layout
+ * viewport. visualViewport.height (or the iOS native bridge's translation of
+ * it) collapses to the area above the soft keyboard on every modern engine —
+ * iOS WKWebView since 13, Chromium / Firefox / Safari forever. Subtracting an
+ * extra `--keyboard-inset` on top of `100%` would double-count on iOS 26
+ * where the layout viewport itself also shrinks around the keyboard, and the
+ * compose bar would end up parked near the top of the screen with a wall of
+ * black below it.
+ *
+ * If neither source is available yet (very early boot), the fallback to
+ * `100%` keeps the layout sensible. The transition smooths the keyboard
+ * show/hide animation using the duration the iOS bridge publishes.
+ */
 #root {
   position: relative;
-  height: 100%;
+  height: var(--visual-viewport-height, 100%);
   isolation: isolate;
   overflow: hidden;
+  transition: height var(--keyboard-animation-duration, 220ms)
+    var(--curve-fluid);
 }
 
 .app-window {

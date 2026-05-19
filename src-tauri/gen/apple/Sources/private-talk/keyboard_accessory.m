@@ -133,6 +133,11 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
     self.lastKeyboardInset = rounded;
 
     NSInteger durationMs = (NSInteger)round(MAX(0, duration) * 1000.0);
+    // Publish the height of the area above the keyboard. `#root` reads this
+    // variable directly via `height: var(--visual-viewport-height)`. Sourcing
+    // it from webView.bounds (not from a CSS `100%` chain) sidesteps iOS 26's
+    // double-shrink behaviour where the layout viewport also collapses.
+    CGFloat visualHeight = MAX(0, round(webView.bounds.size.height - rounded));
 
     // Convention: data-keyboard-visible is a boolean *presence* attribute —
     // present means the keyboard is up, absent means it isn't. Don't set it to
@@ -142,11 +147,13 @@ static void pt_disable_wkcontentview_input_accessory_view(void) {
     NSString *script = [NSString stringWithFormat:
         @"(function(){var d=document.documentElement;if(!d)return;"
          "d.style.setProperty('--keyboard-inset','%.0fpx');"
+         "d.style.setProperty('--visual-viewport-height','%.0fpx');"
          "d.style.setProperty('--keyboard-animation-duration','%ldms');"
          "d.dataset.keyboardSource='native';"
          "if(%@){d.dataset.keyboardVisible='';}"
          "else{delete d.dataset.keyboardVisible;}})();",
         rounded,
+        visualHeight,
         (long)durationMs,
         rounded > 0 ? @"true" : @"false"];
 
